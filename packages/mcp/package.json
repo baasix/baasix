@@ -1,0 +1,59 @@
+{
+    "name": "@tspvivek/baasix-mcp-server",
+    "version": "0.1.7",
+    "description": "Model Context Protocol (MCP) server for Baasix Backend-as-a-Service - provides 40+ tools for schema management, CRUD operations with 50+ filter operators, relationships, permissions, files, workflows, and more",
+    "type": "module",
+    "main": "baasix/index.js",
+    "files": [
+        "baasix/",
+        "README.md"
+    ],
+    "scripts": {
+        "start": "dotenv -e .env.production -- tsx server.js",
+        "development": "dotenv -e .env -- tsx server.js",
+        "dev": "dotenv -e .env -- tsx watch server.js",
+        "test": "echo 'Testing MCP server...' && echo '{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}' | dotenv -e .env -- tsx server.js",
+        "debug": "dotenv -e .env npx @modelcontextprotocol/inspector server.js"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.3",
+        "axios": "^1.6.0",
+        "dotenv": "^16.3.0",
+        "zod": "^3.23.8"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/inspector": "^0.1.0",
+        "dotenv-cli": "^7.4.4",
+        "tsx": "^4.16.0"
+    },
+    "peerDependencies": {
+        "node": ">=18.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "keywords": [
+        "mcp",
+        "model-context-protocol",
+        "claude",
+        "baasix",
+        "baas",
+        "backend-as-a-service",
+        "rest-api",
+        "postgresql",
+        "drizzle-orm",
+        "headless-cms",
+        "api-generator"
+    ],
+    "author": "Vivek Palanisamy",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/tspvivek/baasix.git",
+        "directory": "packages/mcp"
+    },
+    "homepage": "https://www.baasix.com",
+    "publishConfig": {
+        "access": "public"
+    }
+}

@@ -1,0 +1,108 @@
+{
+  "name": "@tspvivek/baasix-sdk",
+  "version": "0.1.1",
+  "description": "Official JavaScript/TypeScript SDK for Baasix Backend-as-a-Service",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./auth": {
+      "import": {
+        "types": "./dist/modules/auth.d.ts",
+        "default": "./dist/modules/auth.js"
+      },
+      "require": {
+        "types": "./dist/modules/auth.d.cts",
+        "default": "./dist/modules/auth.cjs"
+      }
+    },
+    "./items": {
+      "import": {
+        "types": "./dist/modules/items.d.ts",
+        "default": "./dist/modules/items.js"
+      },
+      "require": {
+        "types": "./dist/modules/items.d.cts",
+        "default": "./dist/modules/items.cjs"
+      }
+    },
+    "./storage": {
+      "import": {
+        "types": "./dist/storage/index.d.ts",
+        "default": "./dist/storage/index.js"
+      },
+      "require": {
+        "types": "./dist/storage/index.d.cts",
+        "default": "./dist/storage/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "baasix",
+    "baas",
+    "backend-as-a-service",
+    "api",
+    "sdk",
+    "typescript",
+    "javascript",
+    "react-native",
+    "rest-api"
+  ],
+  "author": "Vivek Palanisamy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tspvivek/baasix.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://www.baasix.com",
+  "bugs": {
+    "url": "https://github.com/tspvivek/baasix/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "eslint": "^8.55.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@react-native-async-storage/async-storage": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Environment (keep .env.sample and .env.example)
+.env
+.env.local
+.env.production
+.env.test
+!.env.sample
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+coverage/
+test-report.html
+*.log
+
+# Temp files
+.temp/
+.cache/
+tmp/
+
+# Uploads (local dev)
+uploads/
+asset-temp/
+
+# Lock files (use root only)
+packages/*/package-lock.json

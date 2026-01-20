@@ -1,0 +1,44 @@
+{
+  "name": "baasix-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Baasix - Backend-as-a-Service Monorepo",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:core": "npm run build -w @tspvivek/baasix",
+    "build:cli": "npm run build -w baasix",
+    "build:mcp": "npm run build -w @tspvivek/baasix-mcp-server",
+    "build:sdk": "npm run build -w @tspvivek/baasix-sdk",
+    "build:plugin-stripe": "npm run build -w @tspvivek/baasix-plugin-stripe",
+    "dev": "npm run dev -w @tspvivek/baasix",
+    "dev:core": "npm run dev -w @tspvivek/baasix",
+    "dev:cli": "npm run dev -w baasix",
+    "dev:mcp": "npm run dev -w @tspvivek/baasix-mcp-server",
+    "dev:sdk": "npm run dev -w @tspvivek/baasix-sdk",
+    "test": "npm run test -w @tspvivek/baasix",
+    "test:core": "npm run test -w @tspvivek/baasix",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
+    "clean:all": "rm -rf node_modules packages/*/node_modules packages/*/dist",
+    "publish:all": "npm run build && changeset publish",
+    "version:packages": "changeset version",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tspvivek/baasix.git"
+  },
+  "author": "Vivek Palanisamy",
+  "license": "MIT",
+  "homepage": "https://www.baasix.com"
+}
