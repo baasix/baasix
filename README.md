@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>A powerful, flexible Backend as a Service (BaaS) platform for rapid application development</strong>
+  <strong>A powerful, flexible Backend as a Source (BaaS) platform for rapid application development</strong>
 </p>
 
 <p align="center">

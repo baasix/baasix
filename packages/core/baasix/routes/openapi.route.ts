@@ -333,7 +333,7 @@ async function generateOpenApiSpec(baseUrl: string) {
         openapi: "3.0.3",
         info: {
             title: "Baasix API",
-            description: "Backend as a Service API with dynamic collections and system endpoints",
+            description: "BAASIX API with dynamic collections and system endpoints",
             version: "1.0.0",
             contact: {
                 name: "Baasix API Support"
