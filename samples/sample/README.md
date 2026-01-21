@@ -105,7 +105,7 @@ This file configures the MCP server for VS Code with GitHub Copilot:
 
 4. **Available MCP Tools:**
    - 40+ tools for schema management, CRUD operations, permissions, authentication, and more
-   - Full documentation: [Baasix MCP Server](https://github.com/baasix/baasix)
+   - Full documentation: [Baasix MCP Server](https://github.com/baasix/baasix/tree/main/packages/mcp)
 
 ### MCP Server Entry Point
 

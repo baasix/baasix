@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@baasix/baasix"><img src="https://img.shields.io/npm/v/@baasix/baasix.svg" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@baasix/baasix"><img src="https://img.shields.io/npm/dm/@baasix/baasix.svg" alt="npm downloads"></a>
-  <a href="https://github.com/baasix/baasix/blob/master/LICENSE.MD"><img src="https://img.shields.io/npm/l/@baasix/baasix.svg" alt="license"></a>
+  <a href="https://github.com/baasix/baasix/blob/main/packages/core/LICENSE.MD"><img src="https://img.shields.io/npm/l/@baasix/baasix.svg" alt="license"></a>
 </p>
 
 <p align="center">
@@ -146,7 +146,7 @@ const baasix = createBaasix({
 });
 ```
 
-For complete SDK documentation, see the **[SDK README](https://github.com/baasix/baasix)**.
+For complete SDK documentation, see the **[SDK README](https://github.com/baasix/baasix/tree/main/packages/sdk)**.
 
 ---
 
@@ -382,7 +382,7 @@ Includes:
 
 Baasix includes a Model Context Protocol (MCP) server that enables AI assistants like Claude, GitHub Copilot, and Cursor to interact directly with your Baasix backend.
 
-👉 **[Baasix MCP Server](https://github.com/baasix/baasix-server)** | **[npm: @baasix/mcp](https://www.npmjs.com/package/@baasix/mcp)**
+👉 **[Baasix MCP Server](https://github.com/baasix/baasix/tree/main/packages/mcp)** | **[npm: @baasix/mcp](https://www.npmjs.com/package/@baasix/mcp)**
 
 ### Features
 - **40+ MCP Tools** for comprehensive Baasix operations
@@ -429,7 +429,7 @@ Baasix includes a Model Context Protocol (MCP) server that enables AI assistants
 }
 ```
 
-For more configuration options and examples, see the [MCP Server documentation](https://github.com/baasix/baasix-server).
+For more configuration options and examples, see the [MCP Server documentation](https://github.com/baasix/baasix/tree/main/packages/mcp).
 
 ---
 
