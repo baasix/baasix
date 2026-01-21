@@ -1,6 +1,6 @@
 {
-  "name": "@tspvivek/baasix-sdk",
-  "version": "0.1.1",
+  "name": "@baasix/sdk",
+  "version": "0.1.0",
   "description": "Official JavaScript/TypeScript SDK for Baasix Backend-as-a-Service",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -77,12 +77,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tspvivek/baasix.git",
+    "url": "git+https://github.com/baasix/baasix.git",
     "directory": "packages/sdk"
   },
   "homepage": "https://www.baasix.com",
   "bugs": {
-    "url": "https://github.com/tspvivek/baasix/issues"
+    "url": "https://github.com/baasix/baasix/issues"
   },
   "publishConfig": {
     "access": "public"

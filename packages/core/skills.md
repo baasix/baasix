@@ -20,10 +20,10 @@ Baasix is an open-source Backend-as-a-Service (BaaS) that generates REST APIs fr
 
 ```javascript
 // 1. Install
-npm install @tspvivek/baasix
+npm install @baasix/baasix
 
 // 2. Create server.js
-import { startServer } from "@tspvivek/baasix";
+import { startServer } from "@baasix/baasix";
 startServer().catch(console.error);
 
 // 3. Add to package.json: "type": "module"
@@ -467,7 +467,7 @@ extensions/
 
 ```javascript
 // extensions/baasix-endpoint-dashboard/index.js
-import { APIError, ItemsService } from "@tspvivek/baasix";
+import { APIError, ItemsService } from "@baasix/baasix";
 
 export default {
   id: "dashboard-api",
@@ -876,7 +876,7 @@ GET /items/orders?fields=["*","items.*","items.product.*"]&filter={
 ## Error Handling Best Practices
 
 ```javascript
-import { APIError } from "@tspvivek/baasix";
+import { APIError } from "@baasix/baasix";
 
 // In endpoints/hooks
 try {
@@ -1112,7 +1112,7 @@ baasix migrate rollback --steps 1
 
 ```typescript
 import type { Products, Users } from "./types/baasix";
-import { createBaasix } from "@tspvivek/baasix-sdk";
+import { createBaasix } from "@baasix/sdk";
 
 const baasix = createBaasix({ url: "http://localhost:8056" });
 
@@ -1146,7 +1146,7 @@ export async function down(baasix) {
 
 ## Version
 
-- Package: @tspvivek/baasix@0.1.0-alpha.2
+- Package: @baasix/baasix@0.1.0-alpha.2
 - Node.js: 18+
 - PostgreSQL: 14+ (with PostGIS for geospatial)
 - Redis: 6+ (for caching)

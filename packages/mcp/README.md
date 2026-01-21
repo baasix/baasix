@@ -164,7 +164,7 @@ If you're using the published npm package instead of the source:
   "mcpServers": {
     "baasix": {
       "command": "npx",
-      "args": ["@tspvivek/baasix-mcp-server"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -603,12 +603,12 @@ When using `baasix_create_permission`:
 
 ### Installation
 ```bash
-npm install @tspvivek/baasix-mcp-server
+npm install @baasix/mcp
 ```
 
 ### Usage
 ```javascript
-import { startMCPServer } from '@tspvivek/baasix-mcp-server';
+import { startMCPServer } from '@baasix/mcp';
 
 startMCPServer().catch((error) => {
   console.error('Failed to start MCP server:', error);
@@ -618,7 +618,7 @@ startMCPServer().catch((error) => {
 
 ### Custom Server Instance
 ```javascript
-import { BaasixMCPServer } from '@tspvivek/baasix-mcp-server';
+import { BaasixMCPServer } from '@baasix/mcp';
 
 const server = new BaasixMCPServer();
 server.run().catch(console.error);
@@ -659,8 +659,8 @@ mcp/
 
 - **Baasix Website**: https://baasix.dev
 - **Documentation**: https://baasix.dev/docs
-- **GitHub**: https://github.com/tspvivek/baasix
-- **npm Package**: https://www.npmjs.com/package/@tspvivek/baasix
+- **GitHub**: https://github.com/baasix/baasix
+- **npm Package**: https://www.npmjs.com/package/@baasix/baasix
 
 ## License
 

@@ -1,6 +1,6 @@
 {
-  "name": "@tspvivek/baasix-plugin-stripe",
-  "version": "1.0.0",
+  "name": "@baasix/plugin-stripe",
+  "version": "0.1.0",
   "description": "Stripe payment integration plugin for Baasix - supports one-time payments and subscriptions",
   "main": "dist/index.js",
   "type": "module",
@@ -30,7 +30,7 @@
   "author": "Vivek Palanisamy",
   "license": "MIT",
   "peerDependencies": {
-    "@tspvivek/baasix": "*",
+    "@baasix/baasix": "*",
     "stripe": ">=14.0.0"
   },
   "peerDependenciesMeta": {
@@ -44,11 +44,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tspvivek/baasix.git",
-    "directory": "packages/plugin-stripe"
+    "url": "git+https://github.com/baasix/baasix.git",
+    "directory": "plugins/stripe"
   },
   "bugs": {
-    "url": "https://github.com/tspvivek/baasix/issues"
+    "url": "https://github.com/baasix/baasix/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -816,7 +816,7 @@ class MigrationService {
  * Created: ${new Date().toISOString()}
  */
 
-import type { MigrationContext, MigrationResult } from "@tspvivek/baasix";
+import type { MigrationContext, MigrationResult } from "@baasix/baasix";
 
 export const version = "${version}";
 export const name = "${name}";
@@ -1135,7 +1135,7 @@ export default { version, name, description, type, up, down };
    */
   async getCurrentBaasixVersion(): Promise<string> {
     try {
-      const packagePath = getProjectPath("node_modules", "@tspvivek", "baasix", "package.json");
+      const packagePath = getProjectPath("node_modules", "@baasix", "baasix", "package.json");
       const packageJson = JSON.parse(await fs.readFile(packagePath, "utf-8"));
       return packageJson.version;
     } catch {

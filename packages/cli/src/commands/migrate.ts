@@ -344,7 +344,7 @@ async function createMigration(
 
 /**
  * Run the migration
- * @param {import("@tspvivek/baasix-sdk").BaasixClient} baasix - Baasix client
+ * @param {import("@baasix/sdk").BaasixClient} baasix - Baasix client
  */
 export async function up(baasix) {
   // Example: Create a collection
@@ -370,7 +370,7 @@ export async function up(baasix) {
 
 /**
  * Reverse the migration
- * @param {import("@tspvivek/baasix-sdk").BaasixClient} baasix - Baasix client
+ * @param {import("@baasix/sdk").BaasixClient} baasix - Baasix client
  */
 export async function down(baasix) {
   // Reverse the changes made in up()

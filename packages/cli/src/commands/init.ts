@@ -398,7 +398,7 @@ async function createApiProject(projectPath: string, config: ProjectConfig) {
       start: "tsx server.js",
     },
     dependencies: {
-      "@tspvivek/baasix": "latest",
+      "@baasix/baasix": "latest",
       "dotenv": "^16.3.1",
     },
     devDependencies: {
@@ -412,7 +412,7 @@ async function createApiProject(projectPath: string, config: ProjectConfig) {
   );
 
   // server.js
-  const serverJs = `import { startServer } from "@tspvivek/baasix";
+  const serverJs = `import { startServer } from "@baasix/baasix";
 
 startServer({
   port: process.env.PORT || 8056,
@@ -812,7 +812,7 @@ async function createNextJsProject(projectPath: string, config: ProjectConfig, u
       lint: "next lint",
     },
     dependencies: {
-      "@tspvivek/baasix-sdk": "latest",
+      "@baasix/sdk": "latest",
       next: "^14.0.0",
       react: "^18.2.0",
       "react-dom": "^18.2.0",
@@ -881,7 +881,7 @@ export default nextConfig;
     await fs.mkdir(path.join(projectPath, "src", "lib"), { recursive: true });
 
     // src/lib/baasix.ts - SDK client
-    const baasixClient = `import { createBaasix } from "@tspvivek/baasix-sdk";
+    const baasixClient = `import { createBaasix } from "@baasix/sdk";
 
 export const baasix = createBaasix({
   url: process.env.NEXT_PUBLIC_BAASIX_URL || "http://localhost:8056",
@@ -890,7 +890,7 @@ export const baasix = createBaasix({
 });
 
 // Re-export for convenience
-export type { User, Role, QueryParams, Filter } from "@tspvivek/baasix-sdk";
+export type { User, Role, QueryParams, Filter } from "@baasix/sdk";
 `;
 
     await fs.writeFile(path.join(projectPath, "src", "lib", "baasix.ts"), baasixClient);
@@ -1081,7 +1081,7 @@ export default function Home() {
     await fs.mkdir(path.join(projectPath, "styles"), { recursive: true });
 
     // lib/baasix.ts
-    const baasixClient = `import { createBaasix } from "@tspvivek/baasix-sdk";
+    const baasixClient = `import { createBaasix } from "@baasix/sdk";
 
 export const baasix = createBaasix({
   url: process.env.NEXT_PUBLIC_BAASIX_URL || "http://localhost:8056",
@@ -1089,7 +1089,7 @@ export const baasix = createBaasix({
   autoRefresh: true,
 });
 
-export type { User, Role, QueryParams, Filter } from "@tspvivek/baasix-sdk";
+export type { User, Role, QueryParams, Filter } from "@baasix/sdk";
 `;
 
     await fs.writeFile(path.join(projectPath, "lib", "baasix.ts"), baasixClient);

@@ -1,13 +1,13 @@
 # Baasix LLMs.txt
 # Comprehensive AI-friendly documentation for Baasix Backend-as-a-Service
 # Version: 0.1.0-alpha.2
-# Package: @tspvivek/baasix
+# Package: @baasix/baasix
 
 > This file provides complete reference for AI assistants to help developers build applications with Baasix.
 
 ## Quick Links
 - Documentation: https://baasix.com/docs
-- GitHub Sample: https://github.com/tspvivek/baasix-sample
+- GitHub Sample: https://github.com/baasix/baasix/tree/main/samples/sample
 
 ---
 
@@ -17,7 +17,7 @@
 
 ```javascript
 // server.js
-import { startServer } from "@tspvivek/baasix";
+import { startServer } from "@baasix/baasix";
 startServer().catch(console.error);
 ```
 
@@ -26,7 +26,7 @@ startServer().catch(console.error);
 {
   "type": "module",
   "dependencies": {
-    "@tspvivek/baasix": "^0.1.0-alpha.2"
+    "@baasix/baasix": "^0.1.0-alpha.2"
   }
 }
 ```
@@ -952,7 +952,7 @@ POST /schemas/:collection/indexes
 ## ItemsService
 
 ```javascript
-import { ItemsService } from "@tspvivek/baasix";
+import { ItemsService } from "@baasix/baasix";
 
 const service = new ItemsService("collection_name", {
   accountability: req.accountability,  // User context
@@ -997,7 +997,7 @@ await service.createOne(data, {
 ## FilesService
 
 ```javascript
-import { FilesService } from "@tspvivek/baasix";
+import { FilesService } from "@baasix/baasix";
 
 const filesService = new FilesService({ accountability });
 
@@ -1020,7 +1020,7 @@ const fileId = await filesService.downloadFromUrl(url, metadata);
 ## MailService
 
 ```javascript
-import { MailService } from "@tspvivek/baasix";
+import { MailService } from "@baasix/baasix";
 
 await MailService.sendMail({
   to: "user@example.com",
@@ -1033,7 +1033,7 @@ await MailService.sendMail({
 ## NotificationService
 
 ```javascript
-import { NotificationService } from "@tspvivek/baasix";
+import { NotificationService } from "@baasix/baasix";
 
 const notificationService = new NotificationService({ accountability });
 
@@ -1052,7 +1052,7 @@ const count = await notificationService.getUnreadCount(userId);
 ## CacheService
 
 ```javascript
-import { getCacheService, invalidateCollection, invalidateEntireCache } from "@tspvivek/baasix";
+import { getCacheService, invalidateCollection, invalidateEntireCache } from "@baasix/baasix";
 
 const cache = getCacheService();
 
@@ -1070,7 +1070,7 @@ await invalidateEntireCache();
 ## StorageService
 
 ```javascript
-import { StorageService } from "@tspvivek/baasix";
+import { StorageService } from "@baasix/baasix";
 
 // Save file
 const path = await StorageService.saveFile("local", "path/file.pdf", buffer);
@@ -1088,7 +1088,7 @@ await StorageService.deleteFile("local", "path/file.pdf");
 ## WorkflowService
 
 ```javascript
-import { WorkflowService } from "@tspvivek/baasix";
+import { WorkflowService } from "@baasix/baasix";
 
 const workflowService = new WorkflowService({ accountability });
 
@@ -1204,7 +1204,7 @@ export default (hooksService, context) => {
 
 ```javascript
 // extensions/baasix-endpoint-custom/index.js
-import { APIError, ItemsService } from "@tspvivek/baasix";
+import { APIError, ItemsService } from "@baasix/baasix";
 
 export default {
   id: "custom-api",
@@ -1408,7 +1408,7 @@ POST /permissions
 ## APIError Class
 
 ```javascript
-import { APIError } from "@tspvivek/baasix";
+import { APIError } from "@baasix/baasix";
 
 throw new APIError("Custom error message", 400);
 throw new APIError("Unauthorized", 401);

@@ -12,7 +12,7 @@ import type { PluginDefinition, PluginMeta, PluginType } from "../types/plugin.j
  *
  * @example
  * ```typescript
- * import { definePlugin } from '@tspvivek/baasix';
+ * import { definePlugin } from '@baasix/baasix';
  *
  * export function myPlugin(config: MyPluginConfig) {
  *   return definePlugin({

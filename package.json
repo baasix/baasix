@@ -5,22 +5,23 @@
   "description": "Baasix - Backend-as-a-Service Monorepo",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "plugins/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "build:core": "npm run build -w @tspvivek/baasix",
+    "build:core": "npm run build -w @baasix/baasix",
     "build:cli": "npm run build -w baasix",
-    "build:mcp": "npm run build -w @tspvivek/baasix-mcp-server",
-    "build:sdk": "npm run build -w @tspvivek/baasix-sdk",
-    "build:plugin-stripe": "npm run build -w @tspvivek/baasix-plugin-stripe",
-    "dev": "npm run dev -w @tspvivek/baasix",
-    "dev:core": "npm run dev -w @tspvivek/baasix",
+    "build:mcp": "npm run build -w @baasix/mcp",
+    "build:sdk": "npm run build -w @baasix/sdk",
+    "build:plugin-stripe": "npm run build -w @baasix/plugin-stripe",
+    "dev": "npm run dev -w @baasix/baasix",
+    "dev:core": "npm run dev -w @baasix/baasix",
     "dev:cli": "npm run dev -w baasix",
-    "dev:mcp": "npm run dev -w @tspvivek/baasix-mcp-server",
-    "dev:sdk": "npm run dev -w @tspvivek/baasix-sdk",
-    "test": "npm run test -w @tspvivek/baasix",
-    "test:core": "npm run test -w @tspvivek/baasix",
+    "dev:mcp": "npm run dev -w @baasix/mcp",
+    "dev:sdk": "npm run dev -w @baasix/sdk",
+    "test": "npm run test -w @baasix/baasix",
+    "test:core": "npm run test -w @baasix/baasix",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
     "clean:all": "rm -rf node_modules packages/*/node_modules packages/*/dist",
@@ -36,7 +37,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tspvivek/baasix.git"
+    "url": "git+https://github.com/baasix/baasix.git"
   },
   "author": "Vivek Palanisamy",
   "license": "MIT",

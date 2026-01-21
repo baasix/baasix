@@ -1,6 +1,6 @@
 {
-    "name": "@tspvivek/baasix-mcp-server",
-    "version": "0.1.7",
+    "name": "@baasix/mcp",
+    "version": "0.1.0",
     "description": "Model Context Protocol (MCP) server for Baasix Backend-as-a-Service - provides 40+ tools for schema management, CRUD operations with 50+ filter operators, relationships, permissions, files, workflows, and more",
     "type": "module",
     "main": "baasix/index.js",
@@ -49,7 +49,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/tspvivek/baasix.git",
+        "url": "git+https://github.com/baasix/baasix.git",
         "directory": "packages/mcp"
     },
     "homepage": "https://www.baasix.com",

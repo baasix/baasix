@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tspvivek/baasix/master/assets/banner_small.jpg" alt="Baasix Banner" />
+  <img src="https://raw.githubusercontent.com/baasix/baasix/master/assets/banner_small.jpg" alt="Baasix Banner" />
 </p>
 
 <p align="center">
@@ -9,14 +9,14 @@
 <p align="center">
   <a href="https://baasix.com">Website</a> •
   <a href="https://baasix.com/docs">Documentation</a> •
-  <a href="https://github.com/tspvivek/baasix-sample">Sample Project</a> •
-  <a href="https://github.com/tspvivek/baasix">GitHub</a>
+  <a href="https://github.com/baasix/baasix/tree/main/samples/sample">Sample Project</a> •
+  <a href="https://github.com/baasix/baasix">GitHub</a>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@tspvivek/baasix"><img src="https://img.shields.io/npm/v/@tspvivek/baasix.svg" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@tspvivek/baasix"><img src="https://img.shields.io/npm/dm/@tspvivek/baasix.svg" alt="npm downloads"></a>
-  <a href="https://github.com/tspvivek/baasix/blob/master/LICENSE.MD"><img src="https://img.shields.io/npm/l/@tspvivek/baasix.svg" alt="license"></a>
+  <a href="https://www.npmjs.com/package/@baasix/baasix"><img src="https://img.shields.io/npm/v/@baasix/baasix.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@baasix/baasix"><img src="https://img.shields.io/npm/dm/@baasix/baasix.svg" alt="npm downloads"></a>
+  <a href="https://github.com/baasix/baasix/blob/master/LICENSE.MD"><img src="https://img.shields.io/npm/l/@baasix/baasix.svg" alt="license"></a>
 </p>
 
 <p align="center">
@@ -53,18 +53,18 @@
 
 The official JavaScript/TypeScript SDK for Baasix provides a type-safe, easy-to-use client for web, Node.js, and React Native applications.
 
-👉 **[GitHub: tspvivek/baasix-sdk](https://github.com/tspvivek/baasix-sdk)** | **[npm: @tspvivek/baasix-sdk](https://www.npmjs.com/package/@tspvivek/baasix-sdk)**
+👉 **[GitHub: baasix/baasix](https://github.com/baasix/baasix)** | **[npm: @baasix/sdk](https://www.npmjs.com/package/@baasix/sdk)**
 
 ### Installation
 
 ```bash
-npm install @tspvivek/baasix-sdk
+npm install @baasix/sdk
 ```
 
 ### Quick Example
 
 ```typescript
-import { createBaasix } from '@tspvivek/baasix-sdk';
+import { createBaasix } from '@baasix/sdk';
 
 // Create client
 const baasix = createBaasix({
@@ -137,7 +137,7 @@ POST /realtime/collections/products/enable
 ### React Native Setup
 
 ```typescript
-import { createBaasix, AsyncStorageAdapter } from '@tspvivek/baasix-sdk';
+import { createBaasix, AsyncStorageAdapter } from '@baasix/sdk';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const baasix = createBaasix({
@@ -146,7 +146,7 @@ const baasix = createBaasix({
 });
 ```
 
-For complete SDK documentation, see the **[SDK README](https://github.com/tspvivek/baasix-sdk)**.
+For complete SDK documentation, see the **[SDK README](https://github.com/baasix/baasix)**.
 
 ---
 
@@ -264,13 +264,13 @@ npm init -y
 ### 2. Install Baasix
 
 ```bash
-npm install @tspvivek/baasix
+npm install @baasix/baasix
 ```
 
 ### 3. Create server.js
 
 ```javascript
-import { startServer } from "@tspvivek/baasix";
+import { startServer } from "@baasix/baasix";
 
 // Basic usage - pretty printing in dev, JSON in production
 startServer().catch((error) => {
@@ -326,6 +326,9 @@ SECRET_KEY=your-secret-key-min-32-chars
 # TASK_SERVICE_ENABLED=true
 # TASK_REDIS_ENABLED=true          # For multi-instance
 # TASK_REDIS_URL=redis://localhost:6379
+
+# File Upload (optional)
+# MAX_UPLOAD_FILE_SIZE=50          # Default: 50MB, set to 100 for 100MB
 ```
 
 > **Multi-Instance Deployments:** When running multiple instances (PM2 cluster, Kubernetes, etc.), enable Redis for Socket.IO and Tasks to ensure proper coordination. See the [Deployment Guide](https://baasix.com/docs/deployment-guide#multi-instance-deployment-scaling) for details.
@@ -366,7 +369,7 @@ Full documentation is available at **[baasix.com/docs](https://baasix.com/docs)*
 
 Get started quickly with our complete sample project:
 
-👉 **[github.com/tspvivek/baasix-sample](https://github.com/tspvivek/baasix-sample)**
+👉 **[github.com/baasix/baasix/samples/sample](https://github.com/baasix/baasix/tree/main/samples/sample)**
 
 Includes:
 - Ready-to-use server configuration
@@ -382,7 +385,7 @@ Includes:
 
 Baasix includes a Model Context Protocol (MCP) server that enables AI assistants like Claude, GitHub Copilot, and Cursor to interact directly with your Baasix backend.
 
-👉 **[Baasix MCP Server](https://github.com/tspvivek/baasix-mcp-server)** | **[npm: @tspvivek/baasix-mcp-server](https://www.npmjs.com/package/@tspvivek/baasix-mcp-server)**
+👉 **[Baasix MCP Server](https://github.com/baasix/baasix-server)** | **[npm: @baasix/mcp](https://www.npmjs.com/package/@baasix/mcp)**
 
 ### Features
 - **40+ MCP Tools** for comprehensive Baasix operations
@@ -400,7 +403,7 @@ Baasix includes a Model Context Protocol (MCP) server that enables AI assistants
   "mcpServers": {
     "baasix": {
       "command": "npx",
-      "args": ["@tspvivek/baasix-mcp-server"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -418,7 +421,7 @@ Baasix includes a Model Context Protocol (MCP) server that enables AI assistants
     "baasix": {
       "type": "stdio",
       "command": "npx",
-      "args": ["@tspvivek/baasix-mcp-server"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -429,7 +432,7 @@ Baasix includes a Model Context Protocol (MCP) server that enables AI assistants
 }
 ```
 
-For more configuration options and examples, see the [MCP Server documentation](https://github.com/tspvivek/baasix-mcp-server).
+For more configuration options and examples, see the [MCP Server documentation](https://github.com/baasix/baasix-server).
 
 ---
 
@@ -439,7 +442,7 @@ Extend Baasix with custom hooks and endpoints:
 
 ```javascript
 // extensions/baasix-hook-example/index.js
-import { ItemsService } from "@tspvivek/baasix";
+import { ItemsService } from "@baasix/baasix";
 
 export default (hooksService, context) => {
   hooksService.registerHook("posts", "items.create", async ({ data, accountability }) => {
@@ -452,7 +455,7 @@ export default (hooksService, context) => {
 
 ```javascript
 // extensions/baasix-endpoint-example/index.js
-import { APIError } from "@tspvivek/baasix";
+import { APIError } from "@baasix/baasix";
 
 export default {
   id: "custom-endpoint",
@@ -470,7 +473,7 @@ export default {
 
 ```javascript
 // Server
-import { startServer, app } from "@tspvivek/baasix";
+import { startServer, app } from "@baasix/baasix";
 
 // Services
 import { 
@@ -480,7 +483,7 @@ import {
   NotificationService,
   PermissionService,
   WorkflowService 
-} from "@tspvivek/baasix";
+} from "@baasix/baasix";
 
 // Utilities
 import { 
@@ -489,17 +492,17 @@ import {
   schemaManager,
   getDatabase,
   getSqlClient 
-} from "@tspvivek/baasix";
+} from "@baasix/baasix";
 
 // Logger
-import { getLogger, initializeLogger } from "@tspvivek/baasix";
+import { getLogger, initializeLogger } from "@baasix/baasix";
 ```
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please visit our [GitHub repository](https://github.com/tspvivek/baasix) to:
+Contributions are welcome! Please visit our [GitHub repository](https://github.com/baasix/baasix) to:
 
 - Report bugs
 - Request features

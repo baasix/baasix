@@ -10,6 +10,10 @@ import fs from "fs";
 import axios from "axios";
 
 const registerEndpoint = (app: Express) => {
+  // Maximum file upload size in MB (default: 50MB)
+  const maxFileSizeMB = parseInt(env.get("MAX_UPLOAD_FILE_SIZE") || "50");
+  const maxFileSize = maxFileSizeMB * 1024 * 1024;
+
   // Middleware to initialize FileService
   const initFileService = (req: any, res: any, next: any) => {
     req.filesService = new FilesService({
@@ -45,7 +49,7 @@ const registerEndpoint = (app: Express) => {
   app.post(
     "/files",
     initFileService,
-    fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } }),
+    fileUpload({ limits: { fileSize: maxFileSize } }),
     async (req: any, res, next) => {
       try {
         if (!req.files || !req.files.file) {
@@ -70,7 +74,7 @@ const registerEndpoint = (app: Express) => {
   app.patch(
     "/files/:id",
     initFileService,
-    fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } }),
+    fileUpload({ limits: { fileSize: maxFileSize } }),
     async (req: any, res, next) => {
       try {
         const file = req.files?.file;

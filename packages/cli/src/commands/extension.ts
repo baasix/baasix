@@ -173,7 +173,7 @@ async function createHookExtension(
 
   const typeAnnotations = useTypeScript
     ? `
-import type { HooksService } from "@tspvivek/baasix";
+import type { HooksService } from "@baasix/baasix";
 
 interface HookContext {
   ItemsService: any;
@@ -309,7 +309,7 @@ async function createEndpointExtension(
   const typeAnnotations = useTypeScript
     ? `
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { APIError } from "@tspvivek/baasix";
+import { APIError } from "@baasix/baasix";
 
 interface EndpointContext {
   ItemsService: any;
@@ -324,7 +324,7 @@ interface RequestWithAccountability extends FastifyRequest {
   };
 }
 `
-    : `import { APIError } from "@tspvivek/baasix";`;
+    : `import { APIError } from "@baasix/baasix";`;
 
   const endpointContent = `${typeAnnotations}
 

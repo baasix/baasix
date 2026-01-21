@@ -1,10 +1,10 @@
-# @tspvivek/baasix-sdk
+# @baasix/sdk
 
 Official JavaScript/TypeScript SDK for [Baasix](https://www.baasix.com) Backend-as-a-Service.
 
-[![npm version](https://img.shields.io/npm/v/@tspvivek/baasix-sdk.svg)](https://www.npmjs.com/package/@tspvivek/baasix-sdk)
-[![npm downloads](https://img.shields.io/npm/dm/@tspvivek/baasix-sdk.svg)](https://www.npmjs.com/package/@tspvivek/baasix-sdk)
-[![license](https://img.shields.io/npm/l/@tspvivek/baasix-sdk.svg)](https://github.com/tspvivek/baasix-sdk/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@baasix/sdk.svg)](https://www.npmjs.com/package/@baasix/sdk)
+[![npm downloads](https://img.shields.io/npm/dm/@baasix/sdk.svg)](https://www.npmjs.com/package/@baasix/sdk)
+[![license](https://img.shields.io/npm/l/@baasix/sdk.svg)](https://github.com/baasix/baasix/blob/main/LICENSE)
 
 ## Features
 
@@ -27,17 +27,17 @@ Official JavaScript/TypeScript SDK for [Baasix](https://www.baasix.com) Backend-
 ## Installation
 
 ```bash
-npm install @tspvivek/baasix-sdk
+npm install @baasix/sdk
 # or
-yarn add @tspvivek/baasix-sdk
+yarn add @baasix/sdk
 # or
-pnpm add @tspvivek/baasix-sdk
+pnpm add @baasix/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { createBaasix } from '@tspvivek/baasix-sdk';
+import { createBaasix } from '@baasix/sdk';
 
 // Create client
 const baasix = createBaasix({
@@ -69,7 +69,7 @@ const productId = await baasix.items('products').create({
 ### Basic Configuration
 
 ```typescript
-import { createBaasix } from '@tspvivek/baasix-sdk';
+import { createBaasix } from '@baasix/sdk';
 
 const baasix = createBaasix({
   url: 'https://api.example.com',        // Required: Your Baasix URL
@@ -85,7 +85,7 @@ const baasix = createBaasix({
 ### React Native Setup
 
 ```typescript
-import { createBaasix, AsyncStorageAdapter } from '@tspvivek/baasix-sdk';
+import { createBaasix, AsyncStorageAdapter } from '@baasix/sdk';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const baasix = createBaasix({
@@ -1026,7 +1026,7 @@ await baasix.notifications.cleanup(30); // older than 30 days
 Create a custom storage adapter for any environment:
 
 ```typescript
-import { StorageAdapter } from '@tspvivek/baasix-sdk';
+import { StorageAdapter } from '@baasix/sdk';
 
 class MyCustomStorage implements StorageAdapter {
   async get(key: string): Promise<string | null> {
@@ -1055,7 +1055,7 @@ const baasix = createBaasix({
 ## Error Handling
 
 ```typescript
-import { BaasixError } from '@tspvivek/baasix-sdk';
+import { BaasixError } from '@baasix/sdk';
 
 try {
   await baasix.items('products').create({ name: 'Product' });
@@ -1112,7 +1112,7 @@ await products.create({
 ## React Example
 
 ```tsx
-import { createBaasix } from '@tspvivek/baasix-sdk';
+import { createBaasix } from '@baasix/sdk';
 import { useEffect, useState } from 'react';
 
 const baasix = createBaasix({

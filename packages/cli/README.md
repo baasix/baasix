@@ -130,7 +130,7 @@ baasix generate --url http://localhost:8056 --output ./src/types/baasix.d.ts
 
 ```typescript
 import type { Product, Category, BaasixUser } from "./types/baasix";
-import { createBaasix } from "@tspvivek/baasix-sdk";
+import { createBaasix } from "@baasix/sdk";
 
 const baasix = createBaasix({ url: "http://localhost:8056" });
 
@@ -201,7 +201,7 @@ baasix extension --type endpoint --name analytics
 
 ```javascript
 // extensions/baasix-endpoint-analytics/index.js
-import { APIError } from "@tspvivek/baasix";
+import { APIError } from "@baasix/baasix";
 
 export default {
   id: "analytics",

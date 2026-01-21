@@ -1,5 +1,5 @@
 // Import from the installed package
-import { APIError } from "@tspvivek/baasix";
+import { APIError } from "@baasix/baasix";
 
 const registerEndpoint = (app, context) => {
   app.get("/user-info", async (req, res, next) => {

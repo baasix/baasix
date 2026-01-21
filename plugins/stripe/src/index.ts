@@ -12,7 +12,7 @@
  *
  * @example
  * ```typescript
- * import { startServer } from '@tspvivek/baasix';
+ * import { startServer } from '@baasix/baasix';
  * import { stripePlugin } from '@baasix/plugin-stripe';
  *
  * startServer({

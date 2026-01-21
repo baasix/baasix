@@ -1,6 +1,6 @@
 {
-    "name": "@tspvivek/baasix",
-    "version": "0.1.0-alpha.53",
+    "name": "@baasix/baasix",
+    "version": "0.1.0",
     "description": "Baasix - Backend-as-a-Service with 40+ tools for schema management, CRUD operations with 50+ filter operators, relationships, permissions, files, workflows, and more",
     "main": "dist/index.js",
     "type": "module",
@@ -32,7 +32,7 @@
     "homepage": "https://www.baasix.com",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/tspvivek/baasix.git",
+        "url": "git+https://github.com/baasix/baasix.git",
         "directory": "packages/core"
     },
     "publishConfig": {

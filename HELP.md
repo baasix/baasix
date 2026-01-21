@@ -13,22 +13,25 @@ baasix-packages/
 ├── .changeset/               # Changeset configuration
 │   └── config.json
 └── packages/
-    ├── core/                 # @tspvivek/baasix - Main server
+    ├── core/                 # @baasix/baasix - Main server
     ├── cli/                  # baasix - CLI tool
-    ├── mcp/                  # @tspvivek/baasix-mcp-server
-    ├── sdk/                  # @tspvivek/baasix-sdk
-    └── plugin-stripe/        # @tspvivek/baasix-plugin-stripe
+    ├── mcp/                  # @baasix/mcp
+    └── sdk/                  # @baasix/sdk
+└── plugins/
+    └── stripe/               # @baasix/plugin-stripe
+└── samples/
+    └── sample/               # Sample project
 ```
 
 ## Packages Overview
 
 | Package | npm Name | Description |
 |---------|----------|-------------|
-| [core](./packages/core) | `@tspvivek/baasix` | Main Baasix backend server |
+| [core](./packages/core) | `@baasix/baasix` | Main Baasix backend server |
 | [cli](./packages/cli) | `baasix` | Command-line interface tool |
-| [mcp](./packages/mcp) | `@tspvivek/baasix-mcp-server` | MCP server for AI assistants |
-| [sdk](./packages/sdk) | `@tspvivek/baasix-sdk` | JavaScript/TypeScript SDK |
-| [plugin-stripe](./packages/plugin-stripe) | `@tspvivek/baasix-plugin-stripe` | Stripe payments plugin |
+| [mcp](./packages/mcp) | `@baasix/mcp` | MCP server for AI assistants |
+| [sdk](./packages/sdk) | `@baasix/sdk` | JavaScript/TypeScript SDK |
+| [stripe](./plugins/stripe) | `@baasix/plugin-stripe` | Stripe payments plugin |
 
 ---
 
@@ -43,7 +46,7 @@ baasix-packages/
 
 ```bash
 # Clone the repository
-git clone https://github.com/tspvivek/baasix.git
+git clone https://github.com/baasix/baasix.git
 cd baasix/baasix-packages
 
 # Install all dependencies (hoisted to root)
@@ -88,13 +91,13 @@ npm run build
 npm run <script> -w <package-name>
 
 # Examples
-npm run build -w @tspvivek/baasix
+npm run build -w @baasix/baasix
 npm run dev -w baasix
-npm test -w @tspvivek/baasix-sdk
-npm run build -w @tspvivek/baasix-plugin-stripe
+npm test -w @baasix/sdk
+npm run build -w @baasix/plugin-stripe
 
 # Install a dependency in a specific package
-npm install <package> -w @tspvivek/baasix
+npm install <package> -w @baasix/baasix
 npm install <package> --save-dev -w baasix
 ```
 
@@ -109,12 +112,12 @@ npm install <package> --save-dev -w baasix
 2. Create `package.json`:
    ```json
    {
-     "name": "@tspvivek/baasix-new-package",
+     "name": "@baasix/baasix-new-package",
      "version": "0.1.0",
      "type": "module",
      "repository": {
        "type": "git",
-       "url": "git+https://github.com/tspvivek/baasix.git",
+       "url": "git+https://github.com/baasix/baasix.git",
        "directory": "packages/new-package"
      },
      "publishConfig": {
@@ -172,7 +175,7 @@ This will:
 
 # 2. Create a changeset
 npm run changeset
-# Select: @tspvivek/baasix-sdk
+# Select: @baasix/sdk
 # Select: patch (bug fix)
 # Summary: "Fixed auth token refresh logic"
 
@@ -317,10 +320,10 @@ npm run changeset
 npm ls --workspaces
 
 # Check what will be published
-npm pack --dry-run -w @tspvivek/baasix-sdk
+npm pack --dry-run -w @baasix/sdk
 
 # View dependency tree
-npm ls --all -w @tspvivek/baasix
+npm ls --all -w @baasix/baasix
 
 # Clean and fresh install
 npm run clean:all
@@ -332,20 +335,20 @@ npm install
 ## Package Dependencies
 
 ```
-@tspvivek/baasix (core)
+@baasix/baasix (core)
     └── (standalone - no internal deps)
 
 baasix (cli)
     └── (standalone - no internal deps)
 
-@tspvivek/baasix-mcp-server
+@baasix/mcp
     └── (standalone - connects to running baasix server)
 
-@tspvivek/baasix-sdk
+@baasix/sdk
     └── (standalone - connects to running baasix server)
 
-@tspvivek/baasix-plugin-stripe
-    └── @tspvivek/baasix (peer dependency)
+@baasix/plugin-stripe
+    └── @baasix/baasix (peer dependency)
 ```
 
 ---
@@ -353,6 +356,6 @@ baasix (cli)
 ## Links
 
 - **Documentation:** https://baasix.com/docs
-- **GitHub:** https://github.com/tspvivek/baasix
-- **npm:** https://www.npmjs.com/~tspvivek
-- **Issues:** https://github.com/tspvivek/baasix/issues
+- **GitHub:** https://github.com/baasix/baasix
+- **npm:** https://www.npmjs.com/org/baasix
+- **Issues:** https://github.com/baasix/baasix/issues

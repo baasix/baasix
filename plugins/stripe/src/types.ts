@@ -8,7 +8,7 @@
 
 // ============================================================================
 // Baasix Plugin Types (for standalone compilation)
-// These mirror the types from @tspvivek/baasix
+// These mirror the types from @baasix/baasix
 // ============================================================================
 
 export type PluginType = "feature" | "auth" | "payment" | "storage" | "ai" | "notification" | "integration";

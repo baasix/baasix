@@ -21,7 +21,7 @@ npm install @baasix/plugin-stripe stripe
 ## Quick Start
 
 ```typescript
-import { startServer } from '@tspvivek/baasix';
+import { startServer } from '@baasix/baasix';
 import { stripePlugin } from '@baasix/plugin-stripe';
 
 startServer({
