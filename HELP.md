@@ -260,7 +260,7 @@ name: Release
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   release:
