@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "baasix": {
+      "command": "npx",
+      "args": ["tsx", "./mcp-server.js"],
+      "env": {
+        "BAASIX_URL": "http://localhost:8056",
+        "BAASIX_EMAIL": "admin@baasix.com",
+        "BAASIX_PASSWORD": "admin@123"
+      }
+    }
+  }
+}

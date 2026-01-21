@@ -1,0 +1,122 @@
+# Docker Compose for Baasix Production Deployment
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Baasix Application (Multiple Instances)
+  # =============================================================================
+  app:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${DB_USER:-baasix_user}:${DB_PASSWORD:-secure_password}@postgres:5432/${DB_NAME:-baasix_production}
+      - CACHE_ENABLED=true
+      - CACHE_ADAPTER=redis
+      - CACHE_REDIS_URL=redis://redis:6379
+    env_file:
+      - ../../.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
+      - ../../extensions:/app/extensions:ro
+    restart: unless-stopped
+    networks:
+      - baasix-network
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # =============================================================================
+  # PostgreSQL Database with PostGIS
+  # =============================================================================
+  postgres:
+    image: postgis/postgis:15-3.3-alpine
+    container_name: baasix-postgres-prod
+    environment:
+      POSTGRES_DB: ${DB_NAME:-baasix_production}
+      POSTGRES_USER: ${DB_USER:-baasix_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-baasix_user} -d ${DB_NAME:-baasix_production}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - baasix-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+
+  # =============================================================================
+  # Redis Cache
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: baasix-redis-prod
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - baasix-network
+
+  # =============================================================================
+  # Nginx Reverse Proxy & Load Balancer
+  # =============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: baasix-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - uploads_data:/var/www/uploads:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - baasix-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads_data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  baasix-network:
+    driver: bridge

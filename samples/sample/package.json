@@ -1,0 +1,21 @@
+{
+  "name": "my-baasix-app",
+  "version": "1.0.0",
+  "description": "My application built with Baasix",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "tsx server.js",
+    "dev": "tsx watch server.js"
+  },
+  "dependencies": {
+    "@baasix/baasix": "latest",
+    "@baasix/mcp": "^0.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

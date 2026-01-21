@@ -1,0 +1,19 @@
+# =============================================================================
+# Baasix Persistent Volume Claim for Uploads
+# =============================================================================
+# Note: For production, consider using object storage (S3, GCS) instead
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: baasix-uploads-pvc
+  namespace: baasix
+  labels:
+    app: baasix
+spec:
+  accessModes:
+    - ReadWriteMany  # Allows multiple pods to read/write
+  storageClassName: standard  # Change based on your cluster's storage class
+  resources:
+    requests:
+      storage: 10Gi

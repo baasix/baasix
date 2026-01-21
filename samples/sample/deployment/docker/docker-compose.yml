@@ -1,0 +1,93 @@
+# Docker Compose for Baasix Development
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Baasix Application
+  # =============================================================================
+  app:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: baasix-app
+    ports:
+      - "8056:8056"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/baasix
+      - CACHE_ENABLED=true
+      - CACHE_ADAPTER=redis
+      - CACHE_REDIS_URL=redis://redis:6379
+    env_file:
+      - ../../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../uploads:/app/uploads
+      - ../../extensions:/app/extensions
+    restart: unless-stopped
+    networks:
+      - baasix-network
+
+  # =============================================================================
+  # PostgreSQL Database with PostGIS
+  # =============================================================================
+  postgres:
+    image: postgis/postgis:15-3.3-alpine
+    container_name: baasix-postgres
+    environment:
+      POSTGRES_DB: baasix
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d baasix"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - baasix-network
+
+  # =============================================================================
+  # Redis Cache
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: baasix-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - baasix-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  baasix-network:
+    driver: bridge
