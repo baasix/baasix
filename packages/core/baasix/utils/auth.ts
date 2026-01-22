@@ -294,18 +294,32 @@ export async function getPublicRole(): Promise<{ id: string | number | null; nam
 export const authMiddleware = async (req: any, res: any, next: any) => {
   try {
     // Extract token from Authorization header, cookie, query param or body
-    let token = req.headers.authorization?.replace("Bearer ", "");
+    let token = req.headers.authorization?.replace("Bearer ", "").trim();
+    
+    // Treat empty/whitespace-only tokens as no token
+    if (!token || token === "") {
+      token = undefined;
+    }
 
     if (!token && req.cookies?.token) {
-      token = req.cookies.token;
+      token = req.cookies.token?.trim();
+      if (!token || token === "") token = undefined;
+    }
+
+    // Also check accessToken cookie (used by some clients)
+    if (!token && req.cookies?.accessToken) {
+      token = req.cookies.accessToken?.trim();
+      if (!token || token === "") token = undefined;
     }
 
     if (!token && req.query?.access_token) {
-      token = req.query.access_token;
+      token = req.query.access_token?.trim();
+      if (!token || token === "") token = undefined;
     }
 
     if (!token && req.body?.access_token) {
-      token = req.body.access_token;
+      token = req.body.access_token?.trim();
+      if (!token || token === "") token = undefined;
     }
 
     if (!token) {
@@ -447,7 +461,13 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
 
     next();
   } catch (error: any) {
-    console.error('Auth middleware error:', error.message);
+    // Only log unexpected errors, not common cases like malformed/empty tokens
+    const isExpectedError = error.message === 'jwt malformed' || 
+                            error.message === 'jwt must be provided' ||
+                            error.message?.includes('invalid token');
+    if (!isExpectedError) {
+      console.error('Auth middleware error:', error.message);
+    }
     // Fall back to public access on error
     const publicRole = await getPublicRole();
     req.accountability = {

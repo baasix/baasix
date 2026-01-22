@@ -27,9 +27,9 @@ baasix-packages/
 
 | Package | npm Name | Description |
 |---------|----------|-------------|
-| [core](./packages/core) | `@baasix/baasix` | Main Baasix backend server |
+| [core](./packages/core) | `@baasix/baasix` | Main Baasix backend server (includes Remote MCP at `/mcp`) |
 | [cli](./packages/cli) | `baasix` | Command-line interface tool |
-| [mcp](./packages/mcp) | `@baasix/mcp` | MCP server for AI assistants |
+| [mcp](./packages/mcp) | `@baasix/mcp` | Local MCP server for AI assistants (stdio transport) |
 | [sdk](./packages/sdk) | `@baasix/sdk` | JavaScript/TypeScript SDK |
 | [stripe](./plugins/stripe) | `@baasix/plugin-stripe` | Stripe payments plugin |
 
@@ -336,13 +336,13 @@ npm install
 
 ```
 @baasix/baasix (core)
-    └── (standalone - no internal deps)
+    └── (standalone - includes built-in Remote MCP at /mcp endpoint)
 
 baasix (cli)
     └── (standalone - no internal deps)
 
-@baasix/mcp
-    └── (standalone - connects to running baasix server)
+@baasix/mcp (Local MCP)
+    └── (standalone - connects to running baasix server via HTTP)
 
 @baasix/sdk
     └── (standalone - connects to running baasix server)

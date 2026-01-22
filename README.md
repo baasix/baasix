@@ -380,31 +380,41 @@ Includes:
 
 ## 🤖 MCP Server (AI Integration)
 
-Baasix includes a Model Context Protocol (MCP) server that enables AI assistants like Claude, GitHub Copilot, and Cursor to interact directly with your Baasix backend.
+Baasix includes Model Context Protocol (MCP) support for AI assistants like Claude, GitHub Copilot, and Cursor. Choose between **Remote MCP** (built-in) or **Local MCP** (npm package).
 
-👉 **[Baasix MCP Server](https://github.com/baasix/baasix/tree/main/packages/mcp)** | **[npm: @baasix/mcp](https://www.npmjs.com/package/@baasix/mcp)**
+| Type | Description | Best For |
+|------|-------------|----------|
+| **Remote MCP** | Built-in HTTP endpoint at `/mcp` | Production, cloud, remote servers |
+| **Local MCP** | `@baasix/mcp` npm package | Claude Desktop, local development |
 
 ### Features
-- **40+ MCP Tools** for comprehensive Baasix operations
+- **57 MCP Tools** for comprehensive Baasix operations
 - **Schema Management** — Create, update, delete collections and relationships
 - **CRUD Operations** — Full item management with powerful query capabilities
 - **50+ Filter Operators** — From basic comparison to geospatial and JSONB queries
 - **Permissions** — Role-based access control management
 - **Authentication** — Login, register, magic links, invitations
 
-### Quick Setup
+### Remote MCP Setup (Recommended)
+
+Enable the built-in MCP server:
+
+```bash
+# In your Baasix .env file
+MCP_ENABLED=true
+# MCP_PATH=/mcp  # Optional: customize the endpoint path
+```
 
 **For Claude Code / Anthropic CLI** — Create `.mcp.json` in your project:
 ```json
 {
   "mcpServers": {
     "baasix": {
-      "command": "npx",
-      "args": ["@baasix/mcp"],
-      "env": {
-        "BAASIX_URL": "http://localhost:8056",
-        "BAASIX_EMAIL": "admin@baasix.com",
-        "BAASIX_PASSWORD": "admin@123"
+      "type": "http",
+      "url": "http://localhost:8056/mcp",
+      "headers": {
+        "X-MCP-Email": "admin@baasix.com",
+        "X-MCP-Password": "admin@123"
       }
     }
   }
@@ -416,9 +426,34 @@ Baasix includes a Model Context Protocol (MCP) server that enables AI assistants
 {
   "servers": {
     "baasix": {
-      "type": "stdio",
+      "type": "http",
+      "url": "http://localhost:8056/mcp",
+      "headers": {
+        "X-MCP-Email": "${input:mcpEmail}",
+        "X-MCP-Password": "${input:mcpPassword}"
+      }
+    }
+  },
+  "inputs": [
+    { "id": "mcpEmail", "type": "promptString", "description": "Email" },
+    { "id": "mcpPassword", "type": "promptString", "description": "Password", "password": true }
+  ]
+}
+```
+
+### Local MCP Setup
+
+For Claude Desktop or local stdio-based integrations:
+
+👉 **[Local MCP Package](https://github.com/baasix/baasix/tree/main/packages/mcp)** | **[npm: @baasix/mcp](https://www.npmjs.com/package/@baasix/mcp)**
+
+**For Claude Desktop** — Add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "baasix": {
       "command": "npx",
-      "args": ["@baasix/mcp"],
+      "args": ["tsx", "/absolute/path/to/mcp-server.js"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -429,7 +464,9 @@ Baasix includes a Model Context Protocol (MCP) server that enables AI assistants
 }
 ```
 
-For more configuration options and examples, see the [MCP Server documentation](https://github.com/baasix/baasix/tree/main/packages/mcp).
+> **Note:** For Claude Desktop, use the absolute path to server.js.
+
+For more configuration options and examples, see the [MCP Server documentation](https://baasix.dev/docs/mcp-server-docs).
 
 ---
 

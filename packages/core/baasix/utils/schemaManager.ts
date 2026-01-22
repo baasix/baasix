@@ -1864,6 +1864,45 @@ export class SchemaManager {
     console.log(`Creating/updating model: ${collectionName}`);
     console.log(`[updateModel] Schema fields for ${collectionName}:`, Object.keys(schema.fields || {}));
 
+    // Add tenant fields for non-system schemas in multi-tenant mode BEFORE saving to database
+    const isSystemSchema = collectionName.startsWith('baasix_');
+    const envValue = env.get('MULTI_TENANT');
+    const isMultiTenant = envValue === 'true';
+
+    if (isMultiTenant && !isSystemSchema && !schema.fields?.tenant_Id) {
+      console.log(`[updateModel] Adding tenant fields to schema for ${collectionName}`);
+      schema.fields = {
+        ...schema.fields,
+        tenant_Id: {
+          type: 'UUID',
+          allowNull: true,
+          SystemGenerated: 'true',
+          description: 'Tenant identifier for multi-tenant isolation'
+        },
+        tenant: {
+          relType: 'BelongsTo',
+          target: 'baasix_Tenant',
+          foreignKey: 'tenant_Id',
+          as: 'tenant',
+          SystemGenerated: 'true',
+          description: 'M2O relationship to tenant'
+        }
+      };
+
+      // Add tenant_Id to unique indexes for proper multi-tenant isolation
+      if (schema.indexes && Array.isArray(schema.indexes)) {
+        schema.indexes = schema.indexes.map((index: any) => {
+          if (index.unique && !index.fields.includes('tenant_Id')) {
+            return {
+              ...index,
+              fields: [...index.fields, 'tenant_Id']
+            };
+          }
+          return index;
+        });
+      }
+    }
+
     // Store JSON schema definition in memory
     this.schemaDefinitions.set(collectionName, { collectionName, schema });
 

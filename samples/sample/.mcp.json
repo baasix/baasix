@@ -1,6 +1,14 @@
 {
   "mcpServers": {
-    "baasix": {
+    "baasix-remote": {
+      "type": "http",
+      "url": "http://localhost:8056/mcp",
+      "headers": {
+        "X-MCP-Email": "admin@baasix.com",
+        "X-MCP-Password": "admin@123"
+      }
+    },
+    "baasix-local": {
       "command": "npx",
       "args": ["tsx", "./mcp-server.js"],
       "env": {

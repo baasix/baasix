@@ -21,7 +21,7 @@ npm start
 ```
 my-baasix-app/
 ├── server.js              # Main entry point
-├── mcp-server.js          # MCP server entry point (for AI integration)
+├── mcp-server.js          # MCP server entry point (for Local MCP)
 ├── package.json           # Dependencies
 ├── .env                   # Environment configuration
 ├── .env.example           # Example environment file
@@ -41,18 +41,33 @@ my-baasix-app/
 
 ## MCP Server (AI Integration)
 
-This sample project includes pre-configured MCP (Model Context Protocol) server files for AI-powered development. The MCP server allows AI assistants like Claude, GitHub Copilot, and Cursor to interact directly with your Baasix backend.
+This sample project includes pre-configured MCP (Model Context Protocol) files for AI-powered development. Baasix provides **two MCP options**:
+
+| Type | Description | Best For |
+|------|-------------|----------|
+| **Remote MCP** | Built-in HTTP endpoint at `/mcp` | Production, cloud, VS Code Copilot |
+| **Local MCP** | `@baasix/mcp` npm package | Claude Desktop, local development |
+
+Both provide 57 tools for schema management, CRUD operations, permissions, authentication, and more.
 
 ### Configuration Files
 
 #### `.mcp.json` (Claude Code / Anthropic CLI)
 
-This file configures the MCP server for Claude Code and the Anthropic CLI:
+This file configures both Remote and Local MCP servers:
 
 ```json
 {
   "mcpServers": {
-    "baasix": {
+    "baasix-remote": {
+      "type": "http",
+      "url": "http://localhost:8056/mcp",
+      "headers": {
+        "X-MCP-Email": "admin@baasix.com",
+        "X-MCP-Password": "admin@123"
+      }
+    },
+    "baasix-local": {
       "command": "npx",
       "args": ["tsx", "./mcp-server.js"],
       "env": {
@@ -67,12 +82,20 @@ This file configures the MCP server for Claude Code and the Anthropic CLI:
 
 #### `.vscode/mcp.json` (VS Code / GitHub Copilot)
 
-This file configures the MCP server for VS Code with GitHub Copilot:
+This file configures both Remote and Local MCP servers:
 
 ```jsonc
 {
   "servers": {
-    "baasix": {
+    "baasix-remote": {
+      "type": "http",
+      "url": "http://localhost:8056/mcp",
+      "headers": {
+        "X-MCP-Email": "${input:mcpEmail}",
+        "X-MCP-Password": "${input:mcpPassword}"
+      }
+    },
+    "baasix-local": {
       "type": "stdio",
       "command": "npx",
       "args": ["tsx", "./mcp-server.js"],
@@ -83,13 +106,34 @@ This file configures the MCP server for VS Code with GitHub Copilot:
       }
     }
   },
-  "inputs": []
+  "inputs": [
+    { "id": "mcpEmail", "type": "promptString", "description": "Baasix Email" },
+    { "id": "mcpPassword", "type": "promptString", "description": "Password", "password": true }
+  ]
 }
 ```
 
-### Using the MCP Server
+### Using Remote MCP (Recommended)
 
-1. **Install the MCP server package:**
+1. **Enable MCP in your Baasix server:**
+   ```bash
+   # In your .env file
+   MCP_ENABLED=true
+   # MCP_PATH=/mcp  # Optional: customize the endpoint path
+   ```
+
+2. **Start your Baasix server:**
+   ```bash
+   npm start
+   ```
+
+3. **Configure your AI tool with Remote MCP:**
+   - Use `baasix-remote` server configuration
+   - Update credentials in headers
+
+### Using Local MCP
+
+1. **Install the Local MCP package:**
    ```bash
    npm install @baasix/mcp
    ```
@@ -99,17 +143,13 @@ This file configures the MCP server for VS Code with GitHub Copilot:
    npm start
    ```
 
-3. **Configure your AI tool:**
-   - The configuration files are already included in this sample project
-   - Update the environment variables (`BAASIX_URL`, `BAASIX_EMAIL`, `BAASIX_PASSWORD`) to match your setup
+3. **Configure your AI tool with Local MCP:**
+   - Use `baasix-local` server configuration
+   - The Local MCP will connect to your Baasix server via HTTP internally
 
-4. **Available MCP Tools:**
-   - 40+ tools for schema management, CRUD operations, permissions, authentication, and more
-   - Full documentation: [Baasix MCP Server](https://github.com/baasix/baasix/tree/main/packages/mcp)
+### Local MCP Entry Point
 
-### MCP Server Entry Point
-
-The `mcp-server.js` file is the entry point for the MCP server:
+The `mcp-server.js` file is the optional entry point for custom Local MCP configurations:
 
 ```javascript
 import { startMCPServer } from "@baasix/mcp";
@@ -121,6 +161,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 ```
+
+### Available MCP Tools
+
+Both Remote and Local MCP provide 57 tools:
+
+- **Schema Management** (13 tools) — Create, update, delete collections and relationships
+- **Item Management** (6 tools) — Full CRUD with 50+ filter operators
+- **Authentication** (10 tools) — Login, register, magic links, invitations
+- **Permissions** (9 tools) — Role-based access control management
+- **File Management** (3 tools) — Upload, list, manage files
+- **Reports & Analytics** (2 tools) — Generate reports with grouping
+- **Notifications** (3 tools) — User notification system
+- **Realtime** (5 tools) — WAL-based realtime management
+- **Settings & Utils** (6 tools) — Application settings and utilities
+
+Full documentation: [Baasix MCP Server](https://baasix.dev/docs/mcp-server-docs)
 
 ## Deployment Options
 
@@ -206,4 +262,4 @@ CACHE_REDIS_URL=redis://localhost:6379
 
 ## Documentation
 
-For full documentation, visit: https://baasix.com/docs
+For full documentation, visit: https://baasix.dev/docs

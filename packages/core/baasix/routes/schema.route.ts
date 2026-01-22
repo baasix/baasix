@@ -298,14 +298,23 @@ const registerEndpoint = (app: Express, context?: any) => {
             // Validate collection name length
             validateIdentifierLength(collectionName, 'Collection');
 
-            // Insert into baasix_SchemaDefinition table
+            // Check if schema already exists
             const schemaDefTable = schemaManager.getTable("baasix_SchemaDefinition");
-            await db.insert(schemaDefTable).values({
-                collectionName,
-                schema: processedSchema,
-            });
+            const existingSchema = await db
+                .select()
+                .from(schemaDefTable)
+                .where(eq(schemaDefTable.collectionName, collectionName))
+                .limit(1);
 
-            // Update in-memory schema (creates Drizzle table)
+            if (existingSchema.length > 0) {
+                throw new APIError(
+                    "Schema already exists",
+                    400,
+                    `A collection with name '${collectionName}' already exists`
+                );
+            }
+
+            // Create the schema (updateModel handles database insert + tenant fields in MULTI_TENANT mode)
             await schemaManager.updateModel(collectionName, processedSchema, req.accountability);
 
             // Invalidate schema definition cache after creating schema
