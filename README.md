@@ -453,7 +453,7 @@ For Claude Desktop or local stdio-based integrations:
   "mcpServers": {
     "baasix": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -463,8 +463,6 @@ For Claude Desktop or local stdio-based integrations:
   }
 }
 ```
-
-> **Note:** For Claude Desktop, use the absolute path to server.js.
 
 For more configuration options and examples, see the [MCP Server documentation](https://baasix.dev/docs/mcp-server-docs).
 

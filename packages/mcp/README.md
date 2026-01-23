@@ -75,7 +75,7 @@ Create a `.mcp.json` file in your project root:
   "mcpServers": {
     "baasix": {
       "command": "npx",
-      "args": ["tsx", "./mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -88,14 +88,14 @@ Create a `.mcp.json` file in your project root:
 
 Or add via CLI:
 ```bash
-claude mcp add baasix npx tsx ./mcp-server.js
+claude mcp add baasix -- npx @baasix/mcp
 ```
 
 ### Claude Desktop
 
 Add to your Claude Desktop configuration:
 
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`  
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
@@ -103,7 +103,7 @@ Add to your Claude Desktop configuration:
   "mcpServers": {
     "baasix": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -113,8 +113,6 @@ Add to your Claude Desktop configuration:
   }
 }
 ```
-
-> **Note:** For Claude Desktop, use the absolute path to server.js.
 
 ### VS Code with GitHub Copilot
 
@@ -128,7 +126,7 @@ For VS Code, you can use either Local MCP (stdio) or Remote MCP (HTTP).
     "baasix": {
       "type": "stdio",
       "command": "npx",
-      "args": ["tsx", "./mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -167,7 +165,7 @@ For VS Code, you can use either Local MCP (stdio) or Remote MCP (HTTP).
   "mcpServers": {
     "baasix": {
       "command": "npx",
-      "args": ["tsx", "./mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",

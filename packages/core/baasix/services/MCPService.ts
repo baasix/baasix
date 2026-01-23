@@ -1,11 +1,16 @@
+// @ts-nocheck
 /**
  * MCPService - Model Context Protocol Server for Baasix
- * 
+ *
  * This service provides MCP tools that directly call Baasix services,
  * eliminating HTTP round-trips and providing better performance.
- * 
+ *
  * Enable via environment variable: MCP_ENABLED=true
  * Access at: http://localhost:8056/mcp (or custom MCP_PATH)
+ *
+ * Note: @ts-nocheck is used because the MCP SDK + Zod combination causes
+ * TypeScript to hang during compilation due to complex generic type inference.
+ * The explicit type annotations are kept for documentation and IDE support.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,7 +22,8 @@ import realtimeService from "./RealtimeService.js";
 import settingsService from "./SettingsService.js";
 import env from "../utils/env.js";
 
-// Authentication state for MCP requests
+// ==================== Type Definitions ====================
+
 interface MCPAccountability {
   user: string | null;
   role: string | null;
@@ -25,10 +31,374 @@ interface MCPAccountability {
   ip: string;
 }
 
+interface ToolExtra {
+  sessionId?: string;
+}
+
+interface ToolResult {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+}
+
+// Input types for all tools - explicit to avoid Zod inference
+interface ListSchemasInput {
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+}
+
+interface GetSchemaInput {
+  collection: string;
+}
+
+interface CreateSchemaInput {
+  collection: string;
+  schema: { fields: Record<string, unknown> };
+}
+
+interface UpdateSchemaInput {
+  collection: string;
+  schema: { fields?: Record<string, unknown> };
+}
+
+interface DeleteSchemaInput {
+  collection: string;
+}
+
+interface AddIndexInput {
+  collection: string;
+  indexDefinition: {
+    name?: string;
+    fields: string[];
+    unique?: boolean;
+    type?: "btree" | "hash" | "gin" | "gist";
+  };
+}
+
+interface RemoveIndexInput {
+  collection: string;
+  indexName: string;
+}
+
+interface CreateRelationshipInput {
+  sourceCollection: string;
+  relationshipData: {
+    name: string;
+    type: "M2O" | "O2M" | "O2O" | "M2M" | "M2A";
+    target?: string;
+    alias?: string;
+    onDelete?: "CASCADE" | "RESTRICT" | "SET NULL";
+    onUpdate?: "CASCADE" | "RESTRICT" | "SET NULL";
+    tables?: string[];
+    through?: string;
+  };
+}
+
+interface DeleteRelationshipInput {
+  sourceCollection: string;
+  fieldName: string;
+}
+
+interface ImportSchemasInput {
+  schemas: Record<string, unknown>;
+}
+
+interface ListItemsInput {
+  collection: string;
+  filter?: Record<string, unknown>;
+  fields?: string[];
+  sort?: string;
+  page?: number;
+  limit?: number;
+  search?: string;
+  searchFields?: string[];
+  aggregate?: Record<string, unknown>;
+  groupBy?: string[];
+  relConditions?: Record<string, unknown>;
+}
+
+interface GetItemInput {
+  collection: string;
+  id: string;
+  fields?: string[];
+}
+
+interface CreateItemInput {
+  collection: string;
+  data: Record<string, unknown>;
+}
+
+interface UpdateItemInput {
+  collection: string;
+  id: string;
+  data: Record<string, unknown>;
+}
+
+interface DeleteItemInput {
+  collection: string;
+  id: string;
+}
+
+interface ListFilesInput {
+  filter?: Record<string, unknown>;
+  page?: number;
+  limit?: number;
+}
+
+interface FileIdInput {
+  id: string;
+}
+
+interface ListPermissionsInput {
+  filter?: Record<string, unknown>;
+  sort?: string;
+  page?: number;
+  limit?: number;
+}
+
+interface CreatePermissionInput {
+  role_Id: string;
+  collection: string;
+  action: "create" | "read" | "update" | "delete";
+  fields?: string[];
+  conditions?: Record<string, unknown>;
+  defaultValues?: Record<string, unknown>;
+  relConditions?: Record<string, unknown>;
+}
+
+interface UpdatePermissionInput {
+  id: string;
+  role_Id?: string;
+  collection?: string;
+  action?: "create" | "read" | "update" | "delete";
+  fields?: string[];
+  conditions?: Record<string, unknown>;
+  defaultValues?: Record<string, unknown>;
+  relConditions?: Record<string, unknown>;
+}
+
+interface PermissionIdInput {
+  id: string;
+}
+
+interface RealtimeEnableInput {
+  collection: string;
+  actions?: ("insert" | "update" | "delete")[];
+  replicaIdentityFull?: boolean;
+}
+
+interface RealtimeDisableInput {
+  collection: string;
+}
+
+interface GetSettingsInput {
+  key?: string;
+}
+
+interface UpdateSettingsInput {
+  settings: Record<string, unknown>;
+}
+
+interface ListTemplatesInput {
+  filter?: Record<string, unknown>;
+  page?: number;
+  limit?: number;
+}
+
+interface GetTemplateInput {
+  id: string;
+}
+
+interface UpdateTemplateInput {
+  id: string;
+  subject?: string;
+  description?: string;
+  body?: string;
+  isActive?: boolean;
+}
+
+interface ListNotificationsInput {
+  page?: number;
+  limit?: number;
+  seen?: boolean;
+}
+
+interface MarkNotificationSeenInput {
+  id: string;
+}
+
+interface SortItemsInput {
+  collection: string;
+  item: string;
+  to: string;
+}
+
+interface GenerateReportInput {
+  collection: string;
+  groupBy?: string;
+  filter?: Record<string, unknown>;
+  dateRange?: {
+    start?: string;
+    end?: string;
+  };
+}
+
+interface CollectionStatsInput {
+  collections?: string[];
+  timeframe?: string;
+}
+
+interface SendNotificationInput {
+  recipients: string[];
+  title: string;
+  message: string;
+  type?: string;
+}
+
+interface GetPermissionsInput {
+  role: string;
+}
+
+interface UpdatePermissionsInput {
+  role: string;
+  permissions: Array<{
+    collection: string;
+    action: "create" | "read" | "update" | "delete";
+    fields?: string[];
+    conditions?: Record<string, unknown>;
+  }>;
+}
+
+interface GetCurrentUserInput {
+  fields?: string[];
+}
+
+interface RegisterUserInput {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  roleName?: string;
+}
+
+interface SendInviteInput {
+  email: string;
+  role_Id: string;
+  tenant_Id?: string;
+  link: string;
+}
+
+interface VerifyInviteInput {
+  token: string;
+  link?: string;
+}
+
+interface SendMagicLinkInput {
+  email: string;
+  link?: string;
+  mode?: "link" | "code";
+}
+
+interface SwitchTenantInput {
+  tenant_Id: string;
+}
+
+interface LoginInput {
+  email: string;
+  password: string;
+}
+
+interface RefreshAuthInput {
+  refreshToken?: string;
+}
+
+interface UpdateRelationshipInput {
+  sourceCollection: string;
+  relationshipName: string;
+  relationshipData: {
+    alias?: string;
+    onDelete?: "CASCADE" | "RESTRICT" | "SET NULL";
+    onUpdate?: "CASCADE" | "RESTRICT" | "SET NULL";
+    description?: string;
+  };
+}
+
+// ==================== Helper Functions ====================
+
+// Session storage for authenticated MCP clients
+const mcpSessions = new Map<string, MCPAccountability>();
+
+/**
+ * Store accountability info for an MCP session
+ */
+export function setMCPSession(sessionId: string, accountability: MCPAccountability): void {
+  mcpSessions.set(sessionId, accountability);
+}
+
+/**
+ * Get accountability info from session
+ */
+function getAccountabilityFromSession(sessionId: string): MCPAccountability | undefined {
+  return mcpSessions.get(sessionId);
+}
+
+/**
+ * Get default accountability (admin for now, can be configured)
+ */
+function getDefaultAccountability(): MCPAccountability {
+  return {
+    user: null,
+    role: "administrator",
+    admin: true,
+    ip: "127.0.0.1",
+  };
+}
+
+/**
+ * Remove an MCP session
+ */
+export function removeMCPSession(sessionId: string): void {
+  mcpSessions.delete(sessionId);
+}
+
+/**
+ * Get accountability from extra context
+ */
+function getAccountability(extra: ToolExtra): MCPAccountability {
+  if (extra.sessionId) {
+    const session = getAccountabilityFromSession(extra.sessionId);
+    if (session) return session;
+  }
+  return getDefaultAccountability();
+}
+
+/**
+ * Create success response
+ */
+function successResult(data: unknown): ToolResult {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+  };
+}
+
+/**
+ * Create error response
+ */
+function errorResult(error: Error | string): ToolResult {
+  const message = typeof error === "string" ? error : error.message;
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
+    isError: true,
+  };
+}
+
+// ==================== MCP Server Creation ====================
+
 /**
  * Create and configure the MCP server with all Baasix tools
  */
-export function createMCPServer() {
+export function createMCPServer(): McpServer {
   const server = new McpServer({
     name: "baasix-mcp-server",
     version: "0.1.0",
@@ -45,40 +415,36 @@ export function createMCPServer() {
       limit: z.number().optional().default(10).describe("Number of schemas per page"),
       sort: z.string().optional().default("collectionName:asc").describe("Sort field and direction"),
     },
-    async ({ search, page, limit, sort }, _extra) => {
-      const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-      
-      const schemaService = new ItemsService('baasix_SchemaDefinition', { accountability });
-      
-      const query: any = {
-        fields: ['collectionName', 'schema'],
+    async (args: ListSchemasInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { search, page, limit, sort } = args;
+      const accountability = getAccountability(extra);
+
+      const schemaService = new ItemsService("baasix_SchemaDefinition", { accountability });
+
+      const query: Record<string, unknown> = {
+        fields: ["collectionName", "schema"],
         page,
         limit,
       };
 
-      if (sort && sort.includes(':')) {
-        const [field, direction] = sort.split(':');
-        query.sort = [direction?.toLowerCase() === 'desc' ? `-${field}` : field];
+      if (sort && sort.includes(":")) {
+        const [field, direction] = sort.split(":");
+        query.sort = [direction?.toLowerCase() === "desc" ? `-${field}` : field];
       }
 
       if (search) {
         query.search = search;
-        query.searchFields = ['collectionName'];
+        query.searchFields = ["collectionName"];
       }
 
       const result = await schemaService.readByQuery(query, true);
-      
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({
-            data: result.data,
-            totalCount: result.totalCount,
-            page,
-            limit
-          }, null, 2)
-        }]
-      };
+
+      return successResult({
+        data: result.data,
+        totalCount: result.totalCount,
+        page,
+        limit,
+      });
     }
   );
 
@@ -88,28 +454,18 @@ export function createMCPServer() {
     {
       collection: z.string().describe("Collection name"),
     },
-    async ({ collection }, _extra) => {
+    async (args: GetSchemaInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection } = args;
       const schemaDef = schemaManager.getSchemaDefinition(collection);
-      
+
       if (!schemaDef) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: `Schema '${collection}' not found` }, null, 2)
-          }],
-          isError: true
-        };
+        return errorResult(`Schema '${collection}' not found`);
       }
 
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({
-            collectionName: collection,
-            schema: schemaDef
-          }, null, 2)
-        }]
-      };
+      return successResult({
+        collectionName: collection,
+        schema: schemaDef,
+      });
     }
   );
 
@@ -139,32 +495,25 @@ DEFAULT VALUE TYPES:
 - { type: "SQL", value: "..." } - Custom SQL expression`,
     {
       collection: z.string().describe("Collection name"),
-      schema: z.object({
-        fields: z.record(z.any()).describe("Field definitions"),
-      }).passthrough().describe("Schema definition"),
+      schema: z
+        .object({
+          fields: z.record(z.any()).describe("Field definitions"),
+        })
+        .passthrough()
+        .describe("Schema definition"),
     },
-    async ({ collection, schema }, _extra) => {
+    async (args: CreateSchemaInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, schema } = args;
       try {
         await schemaManager.createCollection(collection, schema);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Collection '${collection}' created successfully`,
-              collectionName: collection
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Collection '${collection}' created successfully`,
+          collectionName: collection,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -174,31 +523,24 @@ DEFAULT VALUE TYPES:
     "Update an existing collection schema (add/modify/remove fields)",
     {
       collection: z.string().describe("Collection name"),
-      schema: z.object({
-        fields: z.record(z.any()).optional().describe("Updated field definitions"),
-      }).passthrough().describe("Schema updates"),
+      schema: z
+        .object({
+          fields: z.record(z.any()).optional().describe("Updated field definitions"),
+        })
+        .passthrough()
+        .describe("Schema updates"),
     },
-    async ({ collection, schema }, _extra) => {
+    async (args: UpdateSchemaInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, schema } = args;
       try {
         await schemaManager.updateCollection(collection, schema);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Collection '${collection}' updated successfully`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Collection '${collection}' updated successfully`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -209,27 +551,17 @@ DEFAULT VALUE TYPES:
     {
       collection: z.string().describe("Collection name to delete"),
     },
-    async ({ collection }, _extra) => {
+    async (args: DeleteSchemaInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection } = args;
       try {
         await schemaManager.deleteCollection(collection);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Collection '${collection}' deleted successfully`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Collection '${collection}' deleted successfully`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -239,34 +571,26 @@ DEFAULT VALUE TYPES:
     "Add an index to a collection for better query performance",
     {
       collection: z.string().describe("Collection name"),
-      indexDefinition: z.object({
-        name: z.string().optional().describe("Index name (auto-generated if not provided)"),
-        fields: z.array(z.string()).describe("Fields to index"),
-        unique: z.boolean().optional().describe("Whether the index should be unique"),
-        type: z.enum(["btree", "hash", "gin", "gist"]).optional().describe("Index type"),
-      }).describe("Index definition"),
+      indexDefinition: z
+        .object({
+          name: z.string().optional().describe("Index name (auto-generated if not provided)"),
+          fields: z.array(z.string()).describe("Fields to index"),
+          unique: z.boolean().optional().describe("Whether the index should be unique"),
+          type: z.enum(["btree", "hash", "gin", "gist"]).optional().describe("Index type"),
+        })
+        .describe("Index definition"),
     },
-    async ({ collection, indexDefinition }, _extra) => {
+    async (args: AddIndexInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, indexDefinition } = args;
       try {
         await schemaManager.addIndex(collection, indexDefinition);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Index added to '${collection}' successfully`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Index added to '${collection}' successfully`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -278,27 +602,17 @@ DEFAULT VALUE TYPES:
       collection: z.string().describe("Collection name"),
       indexName: z.string().describe("Name of the index to remove"),
     },
-    async ({ collection, indexName }, _extra) => {
+    async (args: RemoveIndexInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, indexName } = args;
       try {
         await schemaManager.removeIndex(collection, indexName);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Index '${indexName}' removed from '${collection}'`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Index '${indexName}' removed from '${collection}'`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -324,38 +638,30 @@ EXAMPLE M2O:
 }`,
     {
       sourceCollection: z.string().describe("Source collection name"),
-      relationshipData: z.object({
-        name: z.string().describe("Relationship field name"),
-        type: z.enum(["M2O", "O2M", "O2O", "M2M", "M2A"]).describe("Relationship type"),
-        target: z.string().optional().describe("Target collection name"),
-        alias: z.string().optional().describe("Alias for reverse relationship"),
-        onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Delete behavior"),
-        onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Update behavior"),
-        tables: z.array(z.string()).optional().describe("Target tables for M2A relationships"),
-        through: z.string().optional().describe("Custom junction table name for M2M/M2A"),
-      }).describe("Relationship configuration"),
+      relationshipData: z
+        .object({
+          name: z.string().describe("Relationship field name"),
+          type: z.enum(["M2O", "O2M", "O2O", "M2M", "M2A"]).describe("Relationship type"),
+          target: z.string().optional().describe("Target collection name"),
+          alias: z.string().optional().describe("Alias for reverse relationship"),
+          onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Delete behavior"),
+          onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Update behavior"),
+          tables: z.array(z.string()).optional().describe("Target tables for M2A relationships"),
+          through: z.string().optional().describe("Custom junction table name for M2M/M2A"),
+        })
+        .describe("Relationship configuration"),
     },
-    async ({ sourceCollection, relationshipData }, _extra) => {
+    async (args: CreateRelationshipInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { sourceCollection, relationshipData } = args;
       try {
         await schemaManager.addRelationship(sourceCollection, relationshipData);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Relationship '${relationshipData.name}' created on '${sourceCollection}'`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Relationship '${relationshipData.name}' created on '${sourceCollection}'`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -367,27 +673,17 @@ EXAMPLE M2O:
       sourceCollection: z.string().describe("Source collection name"),
       fieldName: z.string().describe("Relationship field name"),
     },
-    async ({ sourceCollection, fieldName }, _extra) => {
+    async (args: DeleteRelationshipInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { sourceCollection, fieldName } = args;
       try {
         await schemaManager.removeRelationship(sourceCollection, fieldName);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Relationship '${fieldName}' removed from '${sourceCollection}'`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: `Relationship '${fieldName}' removed from '${sourceCollection}'`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -396,24 +692,12 @@ EXAMPLE M2O:
     "baasix_export_schemas",
     "Export all schemas as JSON for backup or migration",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         const schemas = schemaManager.exportSchemas();
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(schemas, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult(schemas);
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -424,27 +708,17 @@ EXAMPLE M2O:
     {
       schemas: z.record(z.any()).describe("Schema data to import"),
     },
-    async ({ schemas }, _extra) => {
+    async (args: ImportSchemasInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { schemas } = args;
       try {
         await schemaManager.importSchemas(schemas);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: "Schemas imported successfully"
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          message: "Schemas imported successfully",
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -488,18 +762,20 @@ FILTER EXAMPLES:
       groupBy: z.array(z.string()).optional().describe("Fields to group by"),
       relConditions: z.record(z.any()).optional().describe("Filter conditions for related records"),
     },
-    async ({ collection, filter, fields, sort, page, limit, search, searchFields, aggregate, groupBy, relConditions }, _extra) => {
+    async (args: ListItemsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, filter, fields, sort, page, limit, search, searchFields, aggregate, groupBy, relConditions } =
+        args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
-        const query: any = { page, limit };
-        
+        const query: Record<string, unknown> = { page, limit };
+
         if (filter) query.filter = filter;
         if (fields) query.fields = fields;
         if (sort) {
-          const [field, direction] = sort.split(':');
-          query.sort = [direction?.toLowerCase() === 'desc' ? `-${field}` : field];
+          const [field, direction] = sort.split(":");
+          query.sort = [direction?.toLowerCase() === "desc" ? `-${field}` : field];
         }
         if (search) query.search = search;
         if (searchFields) query.searchFields = searchFields;
@@ -509,25 +785,14 @@ FILTER EXAMPLES:
 
         const result = await itemsService.readByQuery(query);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              data: result.data,
-              totalCount: result.totalCount,
-              page,
-              limit
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          data: result.data,
+          totalCount: result.totalCount,
+          page,
+          limit,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -540,30 +805,20 @@ FILTER EXAMPLES:
       id: z.string().describe("Item ID (UUID)"),
       fields: z.array(z.string()).optional().describe("Fields to return"),
     },
-    async ({ collection, id, fields }, _extra) => {
+    async (args: GetItemInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, id, fields } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
-        const query: any = {};
+        const query: Record<string, unknown> = {};
         if (fields) query.fields = fields;
 
         const result = await itemsService.readOne(id, query);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -575,27 +830,17 @@ FILTER EXAMPLES:
       collection: z.string().describe("Collection name"),
       data: z.record(z.any()).describe("Item data"),
     },
-    async ({ collection, data }, _extra) => {
+    async (args: CreateItemInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, data } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
         const result = await itemsService.createOne(data);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -608,27 +853,17 @@ FILTER EXAMPLES:
       id: z.string().describe("Item ID"),
       data: z.record(z.any()).describe("Updated item data"),
     },
-    async ({ collection, id, data }, _extra) => {
+    async (args: UpdateItemInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, id, data } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
         const result = await itemsService.updateOne(id, data);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -640,27 +875,17 @@ FILTER EXAMPLES:
       collection: z.string().describe("Collection name"),
       id: z.string().describe("Item ID"),
     },
-    async ({ collection, id }, _extra) => {
+    async (args: DeleteItemInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, id } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
         await itemsService.deleteOne(id);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: true, message: `Item '${id}' deleted` }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ success: true, message: `Item '${id}' deleted` });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -675,35 +900,25 @@ FILTER EXAMPLES:
       page: z.number().optional().default(1).describe("Page number"),
       limit: z.number().optional().default(10).describe("Files per page"),
     },
-    async ({ filter, page, limit }, _extra) => {
+    async (args: ListFilesInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { filter, page, limit } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const filesService = new ItemsService('baasix_File', { accountability });
+        const accountability = getAccountability(extra);
+        const filesService = new ItemsService("baasix_File", { accountability });
 
-        const query: any = { page, limit };
+        const query: Record<string, unknown> = { page, limit };
         if (filter) query.filter = filter;
 
         const result = await filesService.readByQuery(query);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              data: result.data,
-              totalCount: result.totalCount,
-              page,
-              limit
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          data: result.data,
+          totalCount: result.totalCount,
+          page,
+          limit,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -714,27 +929,17 @@ FILTER EXAMPLES:
     {
       id: z.string().describe("File ID"),
     },
-    async ({ id }, _extra) => {
+    async (args: FileIdInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const filesService = new ItemsService('baasix_File', { accountability });
+        const accountability = getAccountability(extra);
+        const filesService = new ItemsService("baasix_File", { accountability });
 
         const result = await filesService.readOne(id);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -745,27 +950,17 @@ FILTER EXAMPLES:
     {
       id: z.string().describe("File ID"),
     },
-    async ({ id }, _extra) => {
+    async (args: FileIdInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const filesService = new ItemsService('baasix_File', { accountability });
+        const accountability = getAccountability(extra);
+        const filesService = new ItemsService("baasix_File", { accountability });
 
         await filesService.deleteOne(id);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: true, message: `File '${id}' deleted` }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ success: true, message: `File '${id}' deleted` });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -776,27 +971,16 @@ FILTER EXAMPLES:
     "baasix_list_roles",
     "List all available roles",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, extra: ToolExtra): Promise<ToolResult> => {
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const rolesService = new ItemsService('baasix_Role', { accountability });
+        const accountability = getAccountability(extra);
+        const rolesService = new ItemsService("baasix_Role", { accountability });
 
         const result = await rolesService.readByQuery({ limit: -1 }, true);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result.data }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result.data });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -810,39 +994,29 @@ FILTER EXAMPLES:
       page: z.number().optional().default(1).describe("Page number"),
       limit: z.number().optional().default(10).describe("Permissions per page"),
     },
-    async ({ filter, sort, page, limit }, _extra) => {
+    async (args: ListPermissionsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { filter, sort, page, limit } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const permService = new ItemsService('baasix_Permission', { accountability });
+        const accountability = getAccountability(extra);
+        const permService = new ItemsService("baasix_Permission", { accountability });
 
-        const query: any = { page, limit };
+        const query: Record<string, unknown> = { page, limit };
         if (filter) query.filter = filter;
         if (sort) {
-          const [field, direction] = sort.split(':');
-          query.sort = [direction?.toLowerCase() === 'desc' ? `-${field}` : field];
+          const [field, direction] = sort.split(":");
+          query.sort = [direction?.toLowerCase() === "desc" ? `-${field}` : field];
         }
 
         const result = await permService.readByQuery(query, true);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              data: result.data,
-              totalCount: result.totalCount,
-              page,
-              limit
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          data: result.data,
+          totalCount: result.totalCount,
+          page,
+          limit,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -870,12 +1044,13 @@ CONDITIONS (Row-level security):
       defaultValues: z.record(z.any()).optional().describe("Default values for creation"),
       relConditions: z.record(z.any()).optional().describe("Relationship conditions"),
     },
-    async ({ role_Id, collection, action, fields, conditions, defaultValues, relConditions }, _extra) => {
+    async (args: CreatePermissionInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { role_Id, collection, action, fields, conditions, defaultValues, relConditions } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const permService = new ItemsService('baasix_Permission', { accountability });
+        const accountability = getAccountability(extra);
+        const permService = new ItemsService("baasix_Permission", { accountability });
 
-        const data: any = { role_Id, collection, action };
+        const data: Record<string, unknown> = { role_Id, collection, action };
         if (fields) data.fields = fields;
         if (conditions) data.conditions = conditions;
         if (defaultValues) data.defaultValues = defaultValues;
@@ -886,20 +1061,9 @@ CONDITIONS (Row-level security):
         // Reload permissions cache
         await permissionService.loadPermissions();
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -917,30 +1081,20 @@ CONDITIONS (Row-level security):
       defaultValues: z.record(z.any()).optional().describe("Default values"),
       relConditions: z.record(z.any()).optional().describe("Relationship conditions"),
     },
-    async ({ id, ...updateData }, _extra) => {
+    async (args: UpdatePermissionInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id, ...updateData } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const permService = new ItemsService('baasix_Permission', { accountability });
+        const accountability = getAccountability(extra);
+        const permService = new ItemsService("baasix_Permission", { accountability });
 
         const result = await permService.updateOne(id, updateData);
 
         // Reload permissions cache
         await permissionService.loadPermissions();
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -951,30 +1105,20 @@ CONDITIONS (Row-level security):
     {
       id: z.string().describe("Permission ID"),
     },
-    async ({ id }, _extra) => {
+    async (args: PermissionIdInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const permService = new ItemsService('baasix_Permission', { accountability });
+        const accountability = getAccountability(extra);
+        const permService = new ItemsService("baasix_Permission", { accountability });
 
         await permService.deleteOne(id);
 
         // Reload permissions cache
         await permissionService.loadPermissions();
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: true, message: `Permission '${id}' deleted` }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ success: true, message: `Permission '${id}' deleted` });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -983,24 +1127,13 @@ CONDITIONS (Row-level security):
     "baasix_reload_permissions",
     "Reload the permission cache",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         await permissionService.loadPermissions();
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: true, message: "Permissions reloaded" }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ success: true, message: "Permissions reloaded" });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1011,24 +1144,12 @@ CONDITIONS (Row-level security):
     "baasix_realtime_status",
     "Get the status of the realtime service including WAL configuration",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         const status = await realtimeService.getStatus();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(status, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult(status);
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1037,24 +1158,12 @@ CONDITIONS (Row-level security):
     "baasix_realtime_config",
     "Check PostgreSQL replication configuration for WAL-based realtime",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         const config = await realtimeService.getConfig();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(config, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult(config);
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1063,24 +1172,12 @@ CONDITIONS (Row-level security):
     "baasix_realtime_collections",
     "Get list of collections with realtime enabled",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         const collections = realtimeService.getRealtimeCollections();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ collections }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ collections });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1093,30 +1190,20 @@ CONDITIONS (Row-level security):
       actions: z.array(z.enum(["insert", "update", "delete"])).optional().describe("Actions to broadcast"),
       replicaIdentityFull: z.boolean().optional().describe("Set REPLICA IDENTITY FULL for old values"),
     },
-    async ({ collection, actions, replicaIdentityFull }, _extra) => {
+    async (args: RealtimeEnableInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, actions, replicaIdentityFull } = args;
       try {
         await realtimeService.enableRealtime(collection, {
-          actions: actions || ['insert', 'update', 'delete'],
-          replicaIdentityFull: replicaIdentityFull || false
+          actions: actions || ["insert", "update", "delete"],
+          replicaIdentityFull: replicaIdentityFull || false,
         });
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Realtime enabled for '${collection}'`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          success: true,
+          message: `Realtime enabled for '${collection}'`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1127,27 +1214,17 @@ CONDITIONS (Row-level security):
     {
       collection: z.string().describe("Collection name"),
     },
-    async ({ collection }, _extra) => {
+    async (args: RealtimeDisableInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { collection } = args;
       try {
         await realtimeService.disableRealtime(collection);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Realtime disabled for '${collection}'`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          success: true,
+          message: `Realtime disabled for '${collection}'`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1160,26 +1237,14 @@ CONDITIONS (Row-level security):
     {
       key: z.string().optional().describe("Specific setting key to retrieve"),
     },
-    async ({ key }, _extra) => {
+    async (args: GetSettingsInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { key } = args;
       try {
-        const settings = key 
-          ? await settingsService.getSetting(key)
-          : await settingsService.getAllSettings();
+        const settings = key ? await settingsService.getSetting(key) : await settingsService.getAllSettings();
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: settings }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: settings });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1190,27 +1255,17 @@ CONDITIONS (Row-level security):
     {
       settings: z.record(z.any()).describe("Settings object to update"),
     },
-    async ({ settings }, _extra) => {
+    async (args: UpdateSettingsInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { settings } = args;
       try {
         await settingsService.updateSettings(settings);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: "Settings updated"
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          success: true,
+          message: "Settings updated",
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1225,35 +1280,25 @@ CONDITIONS (Row-level security):
       page: z.number().optional().default(1).describe("Page number"),
       limit: z.number().optional().default(10).describe("Templates per page"),
     },
-    async ({ filter, page, limit }, _extra) => {
+    async (args: ListTemplatesInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { filter, page, limit } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const templateService = new ItemsService('baasix_Template', { accountability });
+        const accountability = getAccountability(extra);
+        const templateService = new ItemsService("baasix_Template", { accountability });
 
-        const query: any = { page, limit };
+        const query: Record<string, unknown> = { page, limit };
         if (filter) query.filter = filter;
 
         const result = await templateService.readByQuery(query, true);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              data: result.data,
-              totalCount: result.totalCount,
-              page,
-              limit
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          data: result.data,
+          totalCount: result.totalCount,
+          page,
+          limit,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1264,27 +1309,17 @@ CONDITIONS (Row-level security):
     {
       id: z.string().describe("Template ID (UUID)"),
     },
-    async ({ id }, _extra) => {
+    async (args: GetTemplateInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const templateService = new ItemsService('baasix_Template', { accountability });
+        const accountability = getAccountability(extra);
+        const templateService = new ItemsService("baasix_Template", { accountability });
 
         const result = await templateService.readOne(id);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1311,27 +1346,17 @@ AVAILABLE VARIABLES:
       body: z.string().optional().describe("Template body as HTML"),
       isActive: z.boolean().optional().describe("Whether the template is active"),
     },
-    async ({ id, ...updateData }, _extra) => {
+    async (args: UpdateTemplateInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id, ...updateData } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const templateService = new ItemsService('baasix_Template', { accountability });
+        const accountability = getAccountability(extra);
+        const templateService = new ItemsService("baasix_Template", { accountability });
 
         const result = await templateService.updateOne(id, updateData);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1346,37 +1371,27 @@ AVAILABLE VARIABLES:
       limit: z.number().optional().default(10).describe("Notifications per page"),
       seen: z.boolean().optional().describe("Filter by seen status"),
     },
-    async ({ page, limit, seen }, _extra) => {
+    async (args: ListNotificationsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { page, limit, seen } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const notifService = new ItemsService('baasix_Notification', { accountability });
+        const accountability = getAccountability(extra);
+        const notifService = new ItemsService("baasix_Notification", { accountability });
 
-        const query: any = { page, limit };
+        const query: Record<string, unknown> = { page, limit };
         if (seen !== undefined) {
           query.filter = { seen: { eq: seen } };
         }
 
         const result = await notifService.readByQuery(query);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              data: result.data,
-              totalCount: result.totalCount,
-              page,
-              limit
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          data: result.data,
+          totalCount: result.totalCount,
+          page,
+          limit,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1387,27 +1402,17 @@ AVAILABLE VARIABLES:
     {
       id: z.string().describe("Notification ID"),
     },
-    async ({ id }, _extra) => {
+    async (args: MarkNotificationSeenInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
-        const notifService = new ItemsService('baasix_Notification', { accountability });
+        const accountability = getAccountability(extra);
+        const notifService = new ItemsService("baasix_Notification", { accountability });
 
         const result = await notifService.updateOne(id, { seen: true });
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ data: result }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({ data: result });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1418,7 +1423,7 @@ AVAILABLE VARIABLES:
     "baasix_server_info",
     "Get Baasix server information and health status",
     {},
-    async (_, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         const info = {
           name: "baasix",
@@ -1430,24 +1435,13 @@ AVAILABLE VARIABLES:
           nodejs: process.version,
           mcp: {
             enabled: true,
-            version: "0.1.0"
-          }
+            version: "0.1.0",
+          },
         };
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(info, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult(info);
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1460,9 +1454,10 @@ AVAILABLE VARIABLES:
       item: z.string().describe("ID of item to move"),
       to: z.string().describe("ID of target item to move before"),
     },
-    async ({ collection, item, to }, _extra) => {
+    async (args: SortItemsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, item, to } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
         // Get schema to check if sortEnabled
@@ -1472,34 +1467,20 @@ AVAILABLE VARIABLES:
         }
 
         // Get both items to swap sort values
-        const [sourceItem, targetItem] = await Promise.all([
-          itemsService.readOne(item),
-          itemsService.readOne(to)
-        ]);
+        const [sourceItem, targetItem] = await Promise.all([itemsService.readOne(item), itemsService.readOne(to)]);
 
         // Swap sort values
         await Promise.all([
           itemsService.updateOne(item, { sort: targetItem.sort }),
-          itemsService.updateOne(to, { sort: sourceItem.sort })
+          itemsService.updateOne(to, { sort: sourceItem.sort }),
         ]);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              message: `Item '${item}' moved before '${to}'`
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          success: true,
+          message: `Item '${item}' moved before '${to}'`,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1511,20 +1492,24 @@ AVAILABLE VARIABLES:
       collection: z.string().describe("Collection name"),
       groupBy: z.string().optional().describe("Field to group by"),
       filter: z.record(z.any()).optional().describe("Filter criteria"),
-      dateRange: z.object({
-        start: z.string().optional(),
-        end: z.string().optional(),
-      }).optional().describe("Date range filter"),
+      dateRange: z
+        .object({
+          start: z.string().optional(),
+          end: z.string().optional(),
+        })
+        .optional()
+        .describe("Date range filter"),
     },
-    async ({ collection, groupBy, filter, dateRange }, _extra) => {
+    async (args: GenerateReportInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, groupBy, filter, dateRange } = args;
       try {
-        const accountability = extra.sessionId ? getAccountabilityFromSession(extra.sessionId) : getDefaultAccountability();
+        const accountability = getAccountability(extra);
         const itemsService = new ItemsService(collection, { accountability });
 
-        const query: any = { limit: -1 };
-        
+        const query: Record<string, unknown> = { limit: -1 };
+
         // Build filter with date range
-        const filters: any[] = [];
+        const filters: Record<string, unknown>[] = [];
         if (filter) filters.push(filter);
         if (dateRange) {
           if (dateRange.start) {
@@ -1534,7 +1519,7 @@ AVAILABLE VARIABLES:
             filters.push({ createdAt: { lte: dateRange.end } });
           }
         }
-        
+
         if (filters.length > 0) {
           query.filter = filters.length === 1 ? filters[0] : { AND: filters };
         }
@@ -1543,31 +1528,20 @@ AVAILABLE VARIABLES:
         if (groupBy) {
           query.groupBy = [groupBy];
           query.aggregate = {
-            count: { function: 'count', field: '*' }
+            count: { function: "count", field: "*" },
           };
         }
 
         const result = await itemsService.readByQuery(query);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              data: result.data,
-              totalCount: result.totalCount,
-              groupBy,
-              dateRange
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        return successResult({
+          data: result.data,
+          totalCount: result.totalCount,
+          groupBy,
+          dateRange,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1581,68 +1555,58 @@ AVAILABLE VARIABLES:
       collections: z.array(z.string()).optional().describe("Specific collections to get stats for"),
       timeframe: z.string().optional().describe('Timeframe for stats (e.g., "24h", "7d", "30d")'),
     },
-    async ({ collections, timeframe }, _extra) => {
+    async (args: CollectionStatsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collections, timeframe } = args;
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        
+        const accountability = getAccountability(extra);
+
         // Get all schemas if no specific collections provided
         const allSchemas = schemaManager.getSchemas();
-        const targetCollections = collections || Object.keys(allSchemas).filter(name => !name.startsWith('baasix_'));
-        
-        const stats: any = {};
-        
+        const targetCollections = collections || Object.keys(allSchemas).filter((name) => !name.startsWith("baasix_"));
+
+        const stats: Record<string, unknown> = {};
+
         for (const collection of targetCollections) {
           try {
             const itemsService = new ItemsService(collection, { accountability });
-            
+
             // Get total count
             const countResult = await itemsService.readByQuery({
-              aggregate: { total: { function: 'count', field: '*' } },
-              limit: 1
+              aggregate: { total: { function: "count", field: "*" } },
+              limit: 1,
             });
-            
+
             // Get recent count if timeframe specified
             let recentCount = null;
             if (timeframe) {
               const now = new Date();
-              let startDate = new Date();
-              
-              if (timeframe === '24h') startDate.setHours(now.getHours() - 24);
-              else if (timeframe === '7d') startDate.setDate(now.getDate() - 7);
-              else if (timeframe === '30d') startDate.setDate(now.getDate() - 30);
-              
+              const startDate = new Date();
+
+              if (timeframe === "24h") startDate.setHours(now.getHours() - 24);
+              else if (timeframe === "7d") startDate.setDate(now.getDate() - 7);
+              else if (timeframe === "30d") startDate.setDate(now.getDate() - 30);
+
               const recentResult = await itemsService.readByQuery({
                 filter: { createdAt: { gte: startDate.toISOString() } },
-                aggregate: { recent: { function: 'count', field: '*' } },
-                limit: 1
+                aggregate: { recent: { function: "count", field: "*" } },
+                limit: 1,
               });
-              
-              recentCount = recentResult.data?.[0]?.recent || 0;
+
+              recentCount = (recentResult.data as Array<{ recent?: number }>)?.[0]?.recent || 0;
             }
-            
+
             stats[collection] = {
-              totalCount: countResult.data?.[0]?.total || 0,
-              ...(recentCount !== null && { recentCount, timeframe })
+              totalCount: (countResult.data as Array<{ total?: number }>)?.[0]?.total || 0,
+              ...(recentCount !== null && { recentCount, timeframe }),
             };
-          } catch (e) {
-            stats[collection] = { error: 'Could not fetch stats' };
+          } catch {
+            stats[collection] = { error: "Could not fetch stats" };
           }
         }
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(stats, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(stats);
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1658,41 +1622,31 @@ AVAILABLE VARIABLES:
       message: z.string().describe("Notification message"),
       type: z.string().optional().default("info").describe("Notification type"),
     },
-    async ({ recipients, title, message, type }, _extra) => {
+    async (args: SendNotificationInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { recipients, title, message, type } = args;
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        const itemsService = new ItemsService('baasix_Notification', { accountability });
-        
+        const accountability = getAccountability(extra);
+        const itemsService = new ItemsService("baasix_Notification", { accountability });
+
         const notifications = await Promise.all(
-          recipients.map(userId => 
+          recipients.map((userId) =>
             itemsService.createOne({
               user_Id: userId,
               title,
               message,
-              type: type || 'info',
-              seen: false
+              type: type || "info",
+              seen: false,
             })
           )
         );
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ 
-              success: true, 
-              sent: notifications.length,
-              notifications 
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          sent: notifications.length,
+          notifications,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1705,26 +1659,16 @@ AVAILABLE VARIABLES:
     {
       id: z.string().describe("Permission ID"),
     },
-    async ({ id }, _extra) => {
+    async (args: PermissionIdInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id } = args;
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        const itemsService = new ItemsService('baasix_Permission', { accountability });
+        const accountability = getAccountability(extra);
+        const itemsService = new ItemsService("baasix_Permission", { accountability });
         const permission = await itemsService.readOne(id);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(permission, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(permission);
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1737,54 +1681,38 @@ AVAILABLE VARIABLES:
     {
       role: z.string().describe("Role name or ID"),
     },
-    async ({ role }, _extra) => {
+    async (args: GetPermissionsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { role } = args;
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        
+        const accountability = getAccountability(extra);
+
         // First try to find role by name
-        const rolesService = new ItemsService('baasix_Roles', { accountability });
+        const rolesService = new ItemsService("baasix_Role", { accountability });
         const rolesResult = await rolesService.readByQuery({
           filter: { OR: [{ name: { eq: role } }, { id: { eq: role } }] },
-          limit: 1
+          limit: 1,
         });
-        
+
         if (!rolesResult.data?.length) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: `Role '${role}' not found` }, null, 2)
-            }],
-            isError: true
-          };
+          return errorResult(`Role '${role}' not found`);
         }
-        
-        const roleId = rolesResult.data[0].id;
-        
+
+        const roleId = (rolesResult.data[0] as { id: string }).id;
+
         // Get permissions for this role
-        const permissionsService = new ItemsService('baasix_Permission', { accountability });
+        const permissionsService = new ItemsService("baasix_Permission", { accountability });
         const permissions = await permissionsService.readByQuery({
           filter: { role_Id: { eq: roleId } },
-          limit: -1
+          limit: -1,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              role: rolesResult.data[0],
-              permissions: permissions.data,
-              totalCount: permissions.totalCount
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          role: rolesResult.data[0],
+          permissions: permissions.data,
+          totalCount: permissions.totalCount,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1796,57 +1724,53 @@ AVAILABLE VARIABLES:
     "Update permissions for a role (bulk update)",
     {
       role: z.string().describe("Role name or ID"),
-      permissions: z.array(z.object({
-        collection: z.string(),
-        action: z.enum(["create", "read", "update", "delete"]),
-        fields: z.array(z.string()).optional(),
-        conditions: z.record(z.any()).optional(),
-      })).describe("Array of permission objects to set for the role"),
+      permissions: z
+        .array(
+          z.object({
+            collection: z.string(),
+            action: z.enum(["create", "read", "update", "delete"]),
+            fields: z.array(z.string()).optional(),
+            conditions: z.record(z.any()).optional(),
+          })
+        )
+        .describe("Array of permission objects to set for the role"),
     },
-    async ({ role, permissions }, _extra) => {
+    async (args: UpdatePermissionsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { role, permissions } = args;
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        
+        const accountability = getAccountability(extra);
+
         // Find role
-        const rolesService = new ItemsService('baasix_Roles', { accountability });
+        const rolesService = new ItemsService("baasix_Role", { accountability });
         const rolesResult = await rolesService.readByQuery({
           filter: { OR: [{ name: { eq: role } }, { id: { eq: role } }] },
-          limit: 1
+          limit: 1,
         });
-        
+
         if (!rolesResult.data?.length) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: `Role '${role}' not found` }, null, 2)
-            }],
-            isError: true
-          };
+          return errorResult(`Role '${role}' not found`);
         }
-        
-        const roleId = rolesResult.data[0].id;
-        const permissionsService = new ItemsService('baasix_Permission', { accountability });
-        
+
+        const roleData = rolesResult.data[0] as { id: string; name: string };
+        const roleId = roleData.id;
+        const permissionsService = new ItemsService("baasix_Permission", { accountability });
+
         // Create/update permissions
         const results = await Promise.all(
           permissions.map(async (perm) => {
             // Check if permission exists
             const existing = await permissionsService.readByQuery({
               filter: {
-                AND: [
-                  { role_Id: { eq: roleId } },
-                  { collection: { eq: perm.collection } },
-                  { action: { eq: perm.action } }
-                ]
+                AND: [{ role_Id: { eq: roleId } }, { collection: { eq: perm.collection } }, { action: { eq: perm.action } }],
               },
-              limit: 1
+              limit: 1,
             });
-            
+
             if (existing.data?.length) {
               // Update existing
-              return permissionsService.updateOne(existing.data[0].id, {
-                fields: perm.fields || ['*'],
-                conditions: perm.conditions || {}
+              return permissionsService.updateOne((existing.data[0] as { id: string }).id, {
+                fields: perm.fields || ["*"],
+                conditions: perm.conditions || {},
               });
             } else {
               // Create new
@@ -1854,34 +1778,23 @@ AVAILABLE VARIABLES:
                 role_Id: roleId,
                 collection: perm.collection,
                 action: perm.action,
-                fields: perm.fields || ['*'],
-                conditions: perm.conditions || {}
+                fields: perm.fields || ["*"],
+                conditions: perm.conditions || {},
               });
             }
           })
         );
-        
+
         // Reload permissions cache
-        await permissionService.reloadCache();
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              role: rolesResult.data[0].name,
-              updated: results.length
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        await permissionService.loadPermissions();
+
+        return successResult({
+          success: true,
+          role: roleData.name,
+          updated: results.length,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1894,47 +1807,32 @@ AVAILABLE VARIABLES:
     {
       fields: z.array(z.string()).optional().describe("Specific fields to retrieve"),
     },
-    async ({ fields }, _extra) => {
+    async (args: GetCurrentUserInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { fields } = args;
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        
+        const accountability = getAccountability(extra);
+
         if (!accountability.user) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                authenticated: false,
-                role: accountability.role,
-                admin: accountability.admin
-              }, null, 2)
-            }]
-          };
+          return successResult({
+            authenticated: false,
+            role: accountability.role,
+            admin: accountability.admin,
+          });
         }
-        
-        const usersService = new ItemsService('baasix_User', { accountability });
+
+        const usersService = new ItemsService("baasix_User", { accountability });
         const user = await usersService.readOne(accountability.user, {
-          fields: fields || ['*', 'role.*']
+          fields: fields || ["*", "role.*"],
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              authenticated: true,
-              user,
-              role: accountability.role,
-              admin: accountability.admin
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          authenticated: true,
+          user,
+          role: accountability.role,
+          admin: accountability.admin,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -1949,34 +1847,24 @@ AVAILABLE VARIABLES:
       lastName: z.string().optional().describe("User last name"),
       roleName: z.string().optional().describe("Role name to assign"),
     },
-    async ({ email, password, firstName, lastName, roleName }, _extra) => {
+    async (args: RegisterUserInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { email, password, firstName, lastName, roleName } = args;
       try {
-        // Use axios to call the auth endpoint
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const response = await axios.post(`${baseUrl}/auth/register`, {
           email,
           password,
           firstName,
           lastName,
-          roleName
+          roleName,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -1990,35 +1878,23 @@ AVAILABLE VARIABLES:
       tenant_Id: z.string().optional().describe("Tenant ID"),
       link: z.string().url().describe("Application URL for the invitation link"),
     },
-    async ({ email, role_Id, tenant_Id, link }, _extra) => {
+    async (args: SendInviteInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { email, role_Id, tenant_Id, link } = args;
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
-        // Get auth token from session if available
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : null;
-        
+
         const response = await axios.post(`${baseUrl}/auth/invite`, {
           email,
           role_Id,
           tenant_Id,
-          link
+          link,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2030,30 +1906,21 @@ AVAILABLE VARIABLES:
       token: z.string().describe("Invitation token"),
       link: z.string().url().optional().describe("Application URL to validate"),
     },
-    async ({ token, link }, _extra) => {
+    async (args: VerifyInviteInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { token, link } = args;
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const params = new URLSearchParams();
         if (link) params.append("link", link);
-        
+
         const response = await axios.get(`${baseUrl}/auth/verify-invite/${token}?${params}`);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2066,31 +1933,22 @@ AVAILABLE VARIABLES:
       link: z.string().url().optional().describe("Application URL for magic link"),
       mode: z.enum(["link", "code"]).optional().default("link").describe("Magic authentication mode"),
     },
-    async ({ email, link, mode }, _extra) => {
+    async (args: SendMagicLinkInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { email, link, mode } = args;
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const response = await axios.post(`${baseUrl}/auth/magiclink`, {
           email,
           link,
-          mode
+          mode,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2099,27 +1957,17 @@ AVAILABLE VARIABLES:
     "baasix_get_user_tenants",
     "Get available tenants for the current user",
     {},
-    async (_args, _extra) => {
+    async (_args: Record<string, never>, _extra: ToolExtra): Promise<ToolResult> => {
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const response = await axios.get(`${baseUrl}/auth/tenants`);
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2130,29 +1978,20 @@ AVAILABLE VARIABLES:
     {
       tenant_Id: z.string().describe("Tenant ID to switch to"),
     },
-    async ({ tenant_Id }, _extra) => {
+    async (args: SwitchTenantInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { tenant_Id } = args;
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const response = await axios.post(`${baseUrl}/auth/switch-tenant`, {
-          tenant_Id
+          tenant_Id,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2163,30 +2002,19 @@ AVAILABLE VARIABLES:
     "baasix_auth_status",
     "Check authentication status and session validity",
     {},
-    async (_args, _extra) => {
+    async (_args: Record<string, never>, extra: ToolExtra): Promise<ToolResult> => {
       try {
-        const accountability = _extra.sessionId ? getAccountabilityFromSession(_extra.sessionId) : getDefaultAccountability();
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              authenticated: !!accountability.user,
-              userId: accountability.user,
-              role: accountability.role,
-              admin: accountability.admin,
-              sessionId: _extra.sessionId || null
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+        const accountability = getAccountability(extra);
+
+        return successResult({
+          authenticated: !!accountability.user,
+          userId: accountability.user,
+          role: accountability.role,
+          admin: accountability.admin,
+          sessionId: extra.sessionId || null,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
@@ -2198,30 +2026,21 @@ AVAILABLE VARIABLES:
       email: z.string().email().describe("User email address"),
       password: z.string().describe("User password"),
     },
-    async ({ email, password }, _extra) => {
+    async (args: LoginInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { email, password } = args;
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const response = await axios.post(`${baseUrl}/auth/login`, {
           email,
-          password
+          password,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2230,32 +2049,22 @@ AVAILABLE VARIABLES:
     "baasix_logout",
     "Logout and invalidate current session",
     {},
-    async (_args, _extra) => {
+    async (_args: Record<string, never>, extra: ToolExtra): Promise<ToolResult> => {
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
-        const response = await axios.post(`${baseUrl}/auth/logout`);
-        
+
+        await axios.post(`${baseUrl}/auth/logout`);
+
         // Remove MCP session if exists
-        if (_extra.sessionId) {
-          removeMCPSession(_extra.sessionId);
+        if (extra.sessionId) {
+          removeMCPSession(extra.sessionId);
         }
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: true, message: "Logged out successfully" }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({ success: true, message: "Logged out successfully" });
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2266,29 +2075,20 @@ AVAILABLE VARIABLES:
     {
       refreshToken: z.string().optional().describe("Refresh token (if not using cookies)"),
     },
-    async ({ refreshToken }, _extra) => {
+    async (args: RefreshAuthInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { refreshToken } = args;
       try {
         const { default: axios } = await import("axios");
         const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-        
+
         const response = await axios.post(`${baseUrl}/auth/refresh`, {
-          refreshToken
+          refreshToken,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.response?.data?.message || error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult(response.data);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
       }
     }
   );
@@ -2301,109 +2101,58 @@ AVAILABLE VARIABLES:
     {
       sourceCollection: z.string().describe("Source collection name"),
       relationshipName: z.string().describe("Relationship field name to update"),
-      relationshipData: z.object({
-        alias: z.string().optional().describe("Alias for reverse relationship"),
-        onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Delete behavior"),
-        onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Update behavior"),
-        description: z.string().optional().describe("Relationship description"),
-      }).describe("Updated relationship configuration"),
+      relationshipData: z
+        .object({
+          alias: z.string().optional().describe("Alias for reverse relationship"),
+          onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Delete behavior"),
+          onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Update behavior"),
+          description: z.string().optional().describe("Relationship description"),
+        })
+        .describe("Updated relationship configuration"),
     },
-    async ({ sourceCollection, relationshipName, relationshipData }, _extra) => {
+    async (args: UpdateRelationshipInput, _extra: ToolExtra): Promise<ToolResult> => {
+      const { sourceCollection, relationshipName, relationshipData } = args;
       try {
         const schema = schemaManager.getSchema(sourceCollection);
         if (!schema) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: `Collection '${sourceCollection}' not found` }, null, 2)
-            }],
-            isError: true
-          };
+          return errorResult(`Collection '${sourceCollection}' not found`);
         }
-        
-        const relationship = schema.relationships?.find((r: any) => r.name === relationshipName);
+
+        interface Relationship {
+          name: string;
+          [key: string]: unknown;
+        }
+
+        const schemaWithRelationships = schema as { relationships?: Relationship[] };
+        const relationship = schemaWithRelationships.relationships?.find((r: Relationship) => r.name === relationshipName);
         if (!relationship) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: `Relationship '${relationshipName}' not found in collection '${sourceCollection}'` }, null, 2)
-            }],
-            isError: true
-          };
+          return errorResult(`Relationship '${relationshipName}' not found in collection '${sourceCollection}'`);
         }
-        
+
         // Update the relationship
         const updatedRelationship = { ...relationship, ...relationshipData };
-        const relationships = schema.relationships?.map((r: any) => 
-          r.name === relationshipName ? updatedRelationship : r
-        ) || [];
-        
+        const relationships =
+          schemaWithRelationships.relationships?.map((r: Relationship) =>
+            r.name === relationshipName ? updatedRelationship : r
+          ) || [];
+
         await schemaManager.updateSchema(sourceCollection, {
           ...schema,
-          relationships
+          relationships,
         });
-        
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              collection: sourceCollection,
-              relationship: updatedRelationship
-            }, null, 2)
-          }]
-        };
-      } catch (error: any) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: error.message }, null, 2)
-          }],
-          isError: true
-        };
+
+        return successResult({
+          success: true,
+          collection: sourceCollection,
+          relationship: updatedRelationship,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
       }
     }
   );
 
   return server;
-}
-
-// ==================== Helper Functions ====================
-
-// Session storage for authenticated MCP clients
-const mcpSessions = new Map<string, MCPAccountability>();
-
-/**
- * Store accountability info for an MCP session
- */
-export function setMCPSession(sessionId: string, accountability: MCPAccountability): void {
-  mcpSessions.set(sessionId, accountability);
-}
-
-/**
- * Get accountability info from session
- */
-function getAccountabilityFromSession(sessionId: string): MCPAccountability | undefined {
-  return mcpSessions.get(sessionId);
-}
-
-/**
- * Get default accountability (admin for now, can be configured)
- */
-function getDefaultAccountability(): MCPAccountability {
-  return {
-    user: null,
-    role: 'administrator',
-    admin: true,
-    ip: '127.0.0.1'
-  };
-}
-
-/**
- * Remove an MCP session
- */
-export function removeMCPSession(sessionId: string): void {
-  mcpSessions.delete(sessionId);
 }
 
 export default { createMCPServer, setMCPSession, removeMCPSession };

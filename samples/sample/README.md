@@ -69,7 +69,7 @@ This file configures both Remote and Local MCP servers:
     },
     "baasix-local": {
       "command": "npx",
-      "args": ["tsx", "./mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
@@ -98,7 +98,7 @@ This file configures both Remote and Local MCP servers:
     "baasix-local": {
       "type": "stdio",
       "command": "npx",
-      "args": ["tsx", "./mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",

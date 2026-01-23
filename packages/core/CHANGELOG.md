@@ -1,5 +1,12 @@
 # @baasix/baasix
 
+## 0.1.4
+
+### Patch Changes
+
+- Remote MCP added
+- Easy MCP access
+
 ## 0.1.3
 
 ### Patch Changes

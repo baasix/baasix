@@ -10,7 +10,7 @@
     },
     "baasix-local": {
       "command": "npx",
-      "args": ["tsx", "./mcp-server.js"],
+      "args": ["@baasix/mcp"],
       "env": {
         "BAASIX_URL": "http://localhost:8056",
         "BAASIX_EMAIL": "admin@baasix.com",
