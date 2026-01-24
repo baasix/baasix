@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import { APIError } from "../utils/errorHandler.js";
 import workflowService from "../services/WorkflowService.js";
 import ItemsService from "../services/ItemsService.js";

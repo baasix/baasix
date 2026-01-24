@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import env from "../utils/env.js";
 import fs from "fs";
 import path from "path";

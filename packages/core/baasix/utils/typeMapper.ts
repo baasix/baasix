@@ -21,9 +21,10 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import * as customTypes from '../customTypes/index.js';
-import type { FieldSchema } from '../types/index.js';
+import type { FieldDefinition } from '../types/index.js';
 
-// Re-export types for backward compatibility
+// Backward compatibility alias
+type FieldSchema = FieldDefinition;
 export type { FieldSchema };
 
 /**

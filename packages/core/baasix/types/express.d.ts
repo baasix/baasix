@@ -1,13 +1,21 @@
-import { Request } from "express";
+/**
+ * Express Request Augmentation
+ * Adds accountability property to Express Request for auth middleware
+ */
+
+// Empty export to make this a module (required for global augmentation)
+export {};
 
 declare global {
   namespace Express {
-    export interface Request {
+    interface Request {
       accountability?: {
         user?: {
           id: string;
-          email: string;
-          role: string;
+          email?: string;
+          role?: string;
+          isAdmin?: boolean;
+          [key: string]: any;
         };
         role?: string;
         tenant?: string;

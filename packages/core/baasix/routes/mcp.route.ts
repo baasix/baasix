@@ -16,7 +16,7 @@
  * to hang during compilation due to complex generic type inference.
  */
 
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response } from "../types/index.js";
 import { randomUUID } from "crypto";
 import env from "../utils/env.js";
 

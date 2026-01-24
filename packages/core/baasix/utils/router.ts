@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import type { RouteContext } from '../types/index.js';
 import { getBaasixPath, getProjectPath, toFileURL } from "./dirname.js";
 

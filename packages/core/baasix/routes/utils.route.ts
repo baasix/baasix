@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import { sortItems } from "../utils/sortUtils.js";
 
 const registerEndpoint = (app: Express, context: any) => {

@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import argon2 from 'argon2';
 import env from './env.js';
 import { initializeCacheService, getCacheService, closeCacheService } from '../services/CacheService.js';
-import type { Transaction as TransactionType } from '../types/database.js';
+import type { Transaction as TransactionType } from '../types/internal.js';
 
 // Use globalThis to ensure singleton across different module loading paths
 // (e.g., when loaded from both ./baasix/ and ./dist/ or npm package)

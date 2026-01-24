@@ -6,10 +6,10 @@
  */
 
 import { schemaManager } from './schemaManager.js';
-import type { FieldInfo, FlattenedField } from '../types/index.js';
+import type { FlattenedField } from '../types/index.js';
 
 // Re-export types for backward compatibility
-export type { FieldInfo, FlattenedField };
+export type { FlattenedField };
 
 /**
  * Field utilities object

@@ -8,18 +8,25 @@
  * - Lifecycle management (init, ready, shutdown)
  */
 
-import type { Express, Request, Response, NextFunction } from "express";
 import type {
+  Express,
+  Request,
+  Response,
+  NextFunction,
   BaasixPlugin,
   LoadedPlugin,
-  PluginContext,
+  ExpressPluginContext,
   PluginDefinition,
   PluginManagerOptions,
-  PluginRoute,
+  ExpressPluginRoute,
   PluginType,
   PluginSchemaDefinition,
-} from "../types/plugin.js";
-import type { HooksManager } from "./HooksManager.js";
+  IHooksManager,
+} from "../types/index.js";
+
+// Type aliases for cleaner internal usage
+type PluginContext = ExpressPluginContext;
+type PluginRoute = ExpressPluginRoute;
 
 /**
  * PluginManager singleton class
@@ -351,7 +358,7 @@ export class PluginManager {
   /**
    * Register plugin hooks with HooksManager
    */
-  public registerHooks(hooksManager: HooksManager): void {
+  public registerHooks(hooksManager: IHooksManager): void {
     for (const [name, plugin] of this.plugins) {
       if (plugin.definition.hooks) {
         for (const hook of plugin.definition.hooks) {

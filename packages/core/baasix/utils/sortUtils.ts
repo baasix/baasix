@@ -40,7 +40,7 @@ export interface SortOptions {
     role?: any;
     roles?: string[];
     permissions?: any[];
-    tenant?: string | null;
+    tenant?: string | number | null;
   };
   /**
    * Whether to skip permission checks (for internal use)

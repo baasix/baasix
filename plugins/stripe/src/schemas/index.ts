@@ -55,7 +55,7 @@ export const stripePaymentSchema: PluginSchemaDefinition = {
       currency: { type: "String", defaultValue: "usd" },
       status: {
         type: "ENUM",
-        values: ["pending", "processing", "succeeded", "failed", "canceled", "refunded"],
+        values: { values: ["pending", "processing", "succeeded", "failed", "canceled", "refunded"] },
         defaultValue: "pending",
       },
       metadata: { type: "JSON", allowNull: true },
@@ -85,7 +85,7 @@ export const stripeSubscriptionSchema: PluginSchemaDefinition = {
       stripePriceId: { type: "String", allowNull: false },
       status: {
         type: "ENUM",
-        values: ["active", "canceled", "incomplete", "past_due", "trialing", "unpaid", "incomplete_expired", "paused"],
+        values: { values: ["active", "canceled", "incomplete", "past_due", "trialing", "unpaid", "incomplete_expired", "paused"] },
         defaultValue: "incomplete",
       },
       currentPeriodStart: { type: "DateTime", allowNull: true },
@@ -121,7 +121,7 @@ export const stripeProductSchema: PluginSchemaDefinition = {
       currency: { type: "String", defaultValue: "usd" },
       interval: {
         type: "ENUM",
-        values: ["one_time", "day", "week", "month", "year"],
+        values: { values: ["one_time", "day", "week", "month", "year"] },
         defaultValue: "one_time",
       },
       intervalCount: { type: "Integer", defaultValue: 1 },

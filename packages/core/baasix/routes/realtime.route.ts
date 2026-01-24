@@ -13,7 +13,7 @@
  * }
  */
 
-import { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response, NextFunction } from "../types/index.js";
 import realtimeService from "../services/RealtimeService.js";
 import { adminOnly } from "../utils/auth.js";
 

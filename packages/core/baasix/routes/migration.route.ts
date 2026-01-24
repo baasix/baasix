@@ -1,4 +1,4 @@
-import { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response, NextFunction } from "../types/index.js";
 import migrationService from "../services/MigrationService.js";
 import { APIError } from "../utils/errorHandler.js";
 import { adminOnly } from "../utils/auth.js";

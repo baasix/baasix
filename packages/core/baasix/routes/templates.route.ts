@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import mailService from "../services/MailService.js";
 import { adminOnly } from "../utils/auth.js";
 

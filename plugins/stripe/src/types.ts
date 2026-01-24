@@ -2,134 +2,23 @@
  * Stripe Plugin Type Definitions
  *
  * This file contains all type definitions used by the Stripe plugin.
- * It includes both plugin-specific types and the base Baasix plugin types
- * needed for standalone compilation.
+ * Shared plugin types are imported from @baasix/types.
  */
 
 // ============================================================================
-// Baasix Plugin Types (for standalone compilation)
-// These mirror the types from @baasix/baasix
+// Re-export Baasix Plugin Types from @baasix/types
 // ============================================================================
-
-export type PluginType = "feature" | "auth" | "payment" | "storage" | "ai" | "notification" | "integration";
-
-export interface PluginMeta {
-  name: string;
-  version: string;
-  type: PluginType;
-  description?: string;
-  author?: string;
-  dependencies?: string[];
-}
-
-export interface PluginSchemaDefinition {
-  collectionName: string;
-  schema: {
-    name: string;
-    timestamps?: boolean;
-    paranoid?: boolean;
-    usertrack?: boolean;
-    fields: Record<string, any>;
-    indexes?: Array<{
-      fields: string[];
-      unique?: boolean;
-      name?: string;
-    }>;
-  };
-}
-
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
-
-export interface PluginRouteContext {
-  db: any;
-  ItemsService: any;
-  services: Record<string, any>;
-  
-  // Singleton services
-  permissionService?: any;
-  mailService?: any;
-  storageService?: any;
-  settingsService?: any;
-  socketService?: any;
-  realtimeService?: any;
-  tasksService?: any;
-  workflowService?: any;
-  migrationService?: any;
-  
-  // Utility functions
-  getCacheService?: () => any;
-  
-  // Class-based services (instantiate with accountability)
-  FilesService?: any;
-  AssetsService?: any;
-  NotificationService?: any;
-  ReportService?: any;
-  StatsService?: any;
-  
-  config: Record<string, any>;
-}
-
-export interface PluginRoute {
-  path: string;
-  method: HttpMethod;
-  handler: (req: any, res: any, context: PluginRouteContext) => Promise<any> | any;
-  requireAuth?: boolean;
-  rawBody?: boolean;
-  middleware?: Array<(req: any, res: any, next: any) => void>;
-  description?: string;
-}
-
-export interface PluginService {
-  name: string;
-  factory: (context: PluginContext) => any;
-}
-
-export interface PluginContext {
-  db: any;
-  ItemsService: any;
-  services: Record<string, any>;
-  
-  // Singleton services
-  permissionService?: any;
-  mailService?: any;
-  storageService?: any;
-  settingsService?: any;
-  socketService?: any;
-  realtimeService?: any;
-  tasksService?: any;
-  workflowService?: any;
-  migrationService?: any;
-  hooksManager?: any;
-  
-  // Utility functions
-  getCacheService?: () => any;
-  invalidateCache?: (collection?: string) => Promise<void>;
-  
-  // Class-based services (instantiate with accountability)
-  FilesService?: any;
-  AssetsService?: any;
-  NotificationService?: any;
-  ReportService?: any;
-  StatsService?: any;
-  
-  app?: any;
-  config: Record<string, any>;
-  getPluginService: (pluginName: string, serviceName: string) => any;
-}
-
-export interface PluginDefinition {
-  meta: PluginMeta;
-  schemas?: PluginSchemaDefinition[];
-  routes?: PluginRoute[];
-  hooks?: any[];
-  services?: PluginService[];
-  authProviders?: any[];
-  middleware?: any[];
-  schedules?: any[];
-  onInit?: (context: PluginContext) => Promise<void>;
-  onReady?: (context: PluginContext) => Promise<void>;
-  onShutdown?: (context: PluginContext) => Promise<void>;
-}
+export type {
+  PluginType,
+  PluginMeta,
+  PluginSchemaDefinition,
+  HttpMethod,
+  PluginRouteContext,
+  PluginRoute,
+  PluginService,
+  PluginContext,
+  PluginDefinition,
+} from "@baasix/types";
 
 // ============================================================================
 // Stripe Plugin Specific Types
@@ -224,10 +113,10 @@ export interface StripeServiceInterface {
   stripe: any;
 
   /** Get or create a Stripe customer for a user */
-  getOrCreateCustomer(userId: string): Promise<StripeCustomerRecord>;
+  getOrCreateCustomer(userId: string | number): Promise<StripeCustomerRecord>;
 
   /** Get a Stripe customer by user ID */
-  getCustomer(userId: string): Promise<StripeCustomerRecord | null>;
+  getCustomer(userId: string | number): Promise<StripeCustomerRecord | null>;
 
   /** Handle Stripe webhook events */
   handleWebhook(event: any): Promise<void>;
@@ -236,13 +125,13 @@ export interface StripeServiceInterface {
   syncSubscription(subscription: any): Promise<void>;
 
   /** Manage a subscription (cancel, resume) */
-  manageSubscription(userId: string, subscriptionId: string, action: "cancel" | "resume"): Promise<{ success: boolean }>;
+  manageSubscription(userId: string | number, subscriptionId: string, action: "cancel" | "resume"): Promise<{ success: boolean }>;
 
   /** Get a user's payments */
-  getUserPayments(userId: string): Promise<StripePaymentRecord[]>;
+  getUserPayments(userId: string | number): Promise<StripePaymentRecord[]>;
 
   /** Get a user's subscriptions */
-  getUserSubscriptions(userId: string): Promise<StripeSubscriptionRecord[]>;
+  getUserSubscriptions(userId: string | number): Promise<StripeSubscriptionRecord[]>;
 
   /** Get all active products */
   getProducts(): Promise<StripeProductRecord[]>;
@@ -252,7 +141,7 @@ export interface StripeServiceInterface {
 
   /** Create a checkout session for one-time payment */
   createCheckoutSession(options: {
-    userId: string;
+    userId: string | number;
     priceId: string;
     quantity?: number;
     successUrl: string;
@@ -262,7 +151,7 @@ export interface StripeServiceInterface {
 
   /** Create a checkout session for subscription */
   createSubscriptionCheckout(options: {
-    userId: string;
+    userId: string | number;
     priceId: string;
     successUrl: string;
     cancelUrl: string;
@@ -271,5 +160,5 @@ export interface StripeServiceInterface {
   }): Promise<{ sessionId: string; url: string }>;
 
   /** Create a billing portal session */
-  createPortalSession(userId: string, returnUrl: string): Promise<{ url: string }>;
+  createPortalSession(userId: string | number, returnUrl: string): Promise<{ url: string }>;
 }

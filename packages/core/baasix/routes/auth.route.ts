@@ -4,7 +4,7 @@
  * Includes invitation system for multi-tenant support
  */
 
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response, NextFunction } from "../types/index.js";
 import { createAuthRoutes, setTokenInResponse } from "../auth/index.js";
 import type { BaasixAuth, AuthRouteOptions } from "../auth/index.js";
 import env from "../utils/env.js";

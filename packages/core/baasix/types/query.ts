@@ -1,13 +1,16 @@
 /**
  * Query, Filter, and Pagination Types
- * Centralized query-building type definitions
+ * Core-specific query-building type definitions
+ * Note: PaginationOptions, PaginationMetadata, FilterOperator, OperatorName are exported from index.ts via @baasix/types
  */
 
 import type { PgTable, PgColumn } from 'drizzle-orm/pg-core';
 import type { JoinDefinition } from './relations.js';
 
+// Note: OperatorName is exported from index.ts via @baasix/types
+
 /**
- * Filter object structure (Sequelize-style)
+ * Filter object structure (Sequelize-style) - core-specific with Drizzle support
  */
 export interface FilterObject {
   [key: string]: any;
@@ -17,7 +20,7 @@ export interface FilterObject {
 }
 
 /**
- * Query context for building where conditions
+ * Query context for building where conditions (core-specific with Drizzle types)
  */
 export interface QueryContext {
   table?: PgTable;
@@ -40,7 +43,7 @@ export type ColumnReference = string;
 export type FilterValue = string | number | boolean | null | Date | any[] | Record<string, any> | ColumnReference;
 
 /**
- * Interface for operator context
+ * Interface for operator context (core-specific with Drizzle types)
  */
 export interface OperatorContext {
   column: PgColumn;
@@ -49,53 +52,4 @@ export interface OperatorContext {
   tableName?: string;
 }
 
-/**
- * Operator name type (keys of OPERATOR_MAP)
- * Note: This should match the keys of OPERATOR_MAP in filterOperators.ts
- * Full type definition is generated there.
- */
-export type OperatorName =
-  // Comparison operators
-  | 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte'
-  // String pattern matching
-  | 'like' | 'notLike' | 'iLike' | 'notILike'
-  | 'startsWith' | 'startsWiths' | 'endsWith' | 'endsWiths'
-  | 'nstartsWith' | 'nstartsWiths' | 'nendsWith' | 'nendsWiths'
-  // Collection operators
-  | 'in' | 'notIn' | 'not' | 'is'
-  // Range operators
-  | 'between' | 'notBetween'
-  // Null checks
-  | 'isNull' | 'isNotNull'
-  // Array operators
-  | 'arraycontains' | 'arraycontained'
-  // JSONB operators
-  | 'jsonbContains' | 'jsonbContainedBy' | 'jsonbHasKey' | 'jsonbHasAnyKeys' | 'jsonbHasAllKeys'
-  | 'jsonbPathExists' | 'jsonbPathMatch' | 'jsonbNotContains'
-  | 'jsonbKeyEquals' | 'jsonbKeyNotEquals' | 'jsonbKeyGt' | 'jsonbKeyGte' | 'jsonbKeyLt' | 'jsonbKeyLte'
-  | 'jsonbKeyIn' | 'jsonbKeyNotIn' | 'jsonbKeyLike' | 'jsonbKeyIsNull' | 'jsonbKeyIsNotNull'
-  | 'jsonbArrayLength' | 'jsonbTypeOf' | 'jsonbDeepValue'
-  // Geo operators
-  | 'within' | 'containsGEO' | 'intersects' | 'nIntersects' | 'dwithin';
-
-/**
- * Pagination options
- */
-export interface PaginationOptions {
-  limit?: number;
-  offset?: number;
-  page?: number;
-  pageSize?: number;
-}
-
-/**
- * Pagination metadata
- */
-export interface PaginationMetadata {
-  total: number;
-  page: number;
-  pageSize: number;
-  pageCount: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+// OperatorName is now imported from @baasix/types (see re-export at top of file)

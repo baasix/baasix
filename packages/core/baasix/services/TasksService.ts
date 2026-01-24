@@ -4,7 +4,7 @@ import { db } from "../utils/db.js";
 import { schemaManager } from "../utils/schemaManager.js";
 import { eq, lte, and } from "drizzle-orm";
 import { hooksManager } from "./HooksManager.js";
-import type { Task } from '../types/index.js';
+import type { BackgroundTask } from '../types/index.js';
 import Redis from "ioredis";
 import crypto from "crypto";
 
@@ -111,7 +111,7 @@ class TasksService {
     }
   }
 
-  async getNotStartedTasks(): Promise<Task[]> {
+  async getNotStartedTasks(): Promise<BackgroundTask[]> {
     await this.ensureInitialized();
     if (!this.initialized) {
       console.warn("TasksService: Cannot get tasks - initialization failed");

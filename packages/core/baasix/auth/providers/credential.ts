@@ -73,7 +73,7 @@ export interface CredentialProvider {
     currentPassword: string;
     newPassword: string;
   }): Promise<boolean>;
-  
+
   /**
    * Reset a user's password (without requiring current password)
    */

@@ -1,163 +1,174 @@
-# Baasix Type Definitions
+# Baasix Core Type Definitions
 
-This directory contains centralized TypeScript type definitions for the Baasix API. All types have been organized into logical modules for better maintainability and reusability.
+This directory contains TypeScript type definitions specific to the Baasix core package. Many types are shared via `@baasix/types` and re-exported here for convenience.
+
+## Architecture
+
+Types are split between two locations:
+
+1. **`@baasix/types`** - Shared types used across all packages (core, sdk, cli, app)
+2. **`core/baasix/types/`** - Core-specific types that depend on Drizzle ORM or internal implementations
 
 ## Directory Structure
 
 ```
 types/
-├── index.ts              # Main export file - re-exports all types
-├── aggregation.ts        # Aggregation and grouping types
-├── auth.ts               # Authentication and authorization types
-├── cache.ts              # Cache adapter and configuration types
-├── database.ts           # Database and transaction types
-├── fields.ts             # Field information and schema types
-├── import-export.ts      # Import/export operation types
-├── query.ts              # Query, filter, and pagination types
-├── relations.ts          # Relation and association types
-├── schema.ts             # Schema validation types
-├── seed.ts               # Database seeding types
-├── services.ts           # Service layer types
-├── sort.ts               # Sorting and ordering types
-├── spatial.ts            # Spatial/GIS types
-└── workflow.ts           # Workflow types
+├── index.ts          # Main export file - aggregates all types
+├── drizzle.ts        # Drizzle ORM context types (SortContext, AggregateContext)
+├── internal.ts       # Internal core types (Transaction, RouteContext, etc.)
+├── external.ts       # External library types (StorageProvider, SocketWithAuth, etc.)
+├── query.ts          # Query and filter types with Drizzle dependencies
+├── relations.ts      # Relation and association types
+├── services.ts       # Service layer types
+├── files.ts          # File handling types
+├── hooks.ts          # Hook system types
+├── plugin.ts         # Plugin types (re-exports from @baasix/types)
+├── express.d.ts      # Express Request augmentation
+└── README.md         # This file
 ```
 
 ## Usage
 
 ### Importing Types
 
-All types can be imported from the central index file:
+Import from the central index:
 
 ```typescript
 import type {
   QueryOptions,
   FilterObject,
-  ProcessedInclude,
-  AssociationType,
-  AggregateMapping
+  Transaction,
+  OperatorName,
 } from '../types';
 ```
 
 Or from specific modules:
 
 ```typescript
-import type { QueryOptions, ReadResult } from '../types/services';
-import type { FilterObject, PaginationMetadata } from '../types/query';
-import type { AssociationType, RelationType } from '../types/relations';
+import type { QueryOptions, ServiceParams } from '../types/services';
+import type { FilterObject, QueryContext } from '../types/query';
+import type { Transaction, RouteContext } from '../types/internal';
 ```
 
 ## Type Categories
 
-### Aggregation Types (`aggregation.ts`)
-- `AggregateFunction` - Aggregate function types (count, sum, avg, etc.)
-- `AggregateConfig` - Aggregate configuration
-- `AggregateMapping` - Aggregate result mapping
-- `AggregateContext` - Context for building aggregates
-- `DatePart` - Date part extraction types
-- `DateTruncPrecision` - Date truncation precision types
+### Shared Types (from `@baasix/types`)
 
-### Authentication Types (`auth.ts`)
-- `JWTPayload` - JWT token payload
-- `UserWithRolesAndPermissions` - User with roles and permissions
-- `Accountability` - Accountability object for tracking user context
+These types are re-exported from `@baasix/types` for convenience:
 
-### Cache Types (`cache.ts`)
-- `CacheConfig` - Cache configuration
-- `CacheEntry` - Cache entry structure
-- `CacheStrategy` - Cache strategy type
-- `ICacheAdapter` - Base cache adapter interface
+- **Auth**: `JWTPayload`, `Accountability`, `PermissionData`, `AuthMode`
+- **Query**: `PaginationOptions`, `PaginationMetadata`, `FilterOperator`, `OperatorName`
+- **Aggregation**: `AggregateFunction`, `AggregateConfig`, `AggregateMapping`, `DatePart`
+- **Cache**: `CacheStrategy`, `CacheEntry`, `ICacheAdapter`, `CacheSetOptions`
+- **Schema**: `ValidationResult`, `FieldValidation`, `SchemaValidation`, `FieldDefinition`
+- **Files**: `AssetQuery`, `ProcessedImage`, `UploadedFile`, `ImportOptions`, `ExportOptions`
+- **Workflow**: `Workflow`, `WorkflowTriggerType`, `WorkflowStatus`
+- **Reports/Stats**: `ReportConfig`, `ReportResult`, `ReportQuery`, `StatsQuery`, `StatsResult`
+- **Spatial**: `GeoJSONPoint`, `GeoJSONLineString`, `GeoJSONPolygon`, `GeoJSONGeometry`
+- **Common**: `Settings`, `TenantSettings`, `SeedData`, `SeedResult`, `BackgroundTask`
 
-### Database Types (`database.ts`)
-- `Transaction` - Transaction wrapper with commit/rollback
-- Note: `TransactionClient` remains in `db.ts` due to circular dependency
+### Drizzle ORM Types (`drizzle.ts`)
 
-### Field Types (`fields.ts`)
-- `FieldInfo` - Field information
+Types that depend on Drizzle ORM's `PgTable` and `PgColumn`:
+
+- `SortContext` - Context for building sort queries
+- `AggregateContext` - Context for building aggregate queries
+
+### Internal Types (`internal.ts`)
+
+Core-internal types:
+
+- `Transaction` - Transaction wrapper with commit/rollback methods
+- `RouteContext` - Route handler context
+- `CacheInterface` - Internal cache interface
+- `AssetResult` - Asset processing result
 - `FlattenedField` - Flattened field representation
-- `FieldSchema` - Field schema definition
 
-### Import/Export Types (`import-export.ts`)
-- `UploadedFile` - Uploaded file interface
-- `ImportOptions` - Import operation options
-- `ExportOptions` - Export operation options
-- `ImportResult` - Import operation result
-- `ExportResult` - Export operation result
+### External Library Types (`external.ts`)
+
+Types for external library integrations:
+
+- `StorageProvider` - S3/storage provider configuration
+- `SocketWithAuth` - Socket.io socket with authentication
+- `MailOptions` - Email sending options (extends shared type)
+- `SenderConfig` - Email sender configuration
+- `TenantTransporter` - Multi-tenant mail transporter
 
 ### Query Types (`query.ts`)
-- `FilterObject` - Filter object structure (Sequelize-style)
-- `QueryContext` - Query building context
+
+Query-building types with Drizzle dependencies:
+
+- `FilterObject` - Core-specific filter object (Sequelize-style)
+- `QueryContext` - Query building context with Drizzle types
+- `OperatorContext` - Operator context with column reference
 - `ColumnReference` - Column reference format
-- `FilterValue` - Filter operator value types
-- `OperatorContext` - Operator context
-- `OperatorName` - Operator name type
-- `PaginationOptions` - Pagination options
-- `PaginationMetadata` - Pagination metadata
+- `FilterValue` - Filter value types
 
 ### Relation Types (`relations.ts`)
+
+Relation and association handling:
+
 - `AssociationType` - Association types (HasMany, BelongsTo, etc.)
 - `RelationType` - Relation types
 - `AssociationDefinition` - Association definition
 - `IncludeConfig` - Include configuration for loading relations
 - `ProcessedInclude` - Processed include with join information
-- `ExpandedFieldsResult` - Field expansion result
-- `JoinDefinition` - Join definition
+- `JoinDefinition` - Join definition for queries
 - `ResolvedPath` - Resolved relation path
 - `RelationalResult` - Relational data processing result
 
-### Schema Types (`schema.ts`)
-- `ValidationResult` - Validation result
-- `FieldValidation` - Field validation result
-- `SchemaValidation` - Schema validation result
-
-### Seed Types (`seed.ts`)
-- `SeedData` - Seed data interface
-- `SeedResult` - Seed operation result
-
 ### Service Types (`services.ts`)
-- `QueryOptions` - Query options for read operations
+
+Service layer types:
+
+- `QueryOptions` - Query options extending shared `QueryParams`
 - `ServiceParams` - Service construction parameters
 - `OperationOptions` - Write operation options
-- `ReadResult` - Read operation result
-- `PermissionFilter` - Permission filter
-- `HookContext` - Hook context
-- `HookFunction` - Hook function type
+- `PermissionFilter` - Permission filter structure
+- `HookContext` - Hook context (alias for `PluginHookContext`)
 
-### Sort Types (`sort.ts`)
-- `SortDirection` - Sort direction (ASC/DESC)
-- `SortObject` - Sort object structure
-- `SortContext` - Sort query context
+### File Types (`files.ts`)
 
-### Spatial Types (`spatial.ts`)
-- `GeoJSONPoint` - GeoJSON point interface
-- `GeoJSONGeometry` - GeoJSON geometry interface
+File handling types:
 
-### Workflow Types (`workflow.ts`)
-- `Workflow` - Workflow interface
+- `FileData` - File data structure
+- `FileMetadata` - File metadata
+- `InternalUploadedFile` - Internal uploaded file representation
 
-## Migration Notes
+### Hook Types (`hooks.ts`)
 
-### Breaking Changes
-- Type imports from utility files (e.g., `utils/relationLoader`) should now import from `types/`
-- Some types use `any` to avoid circular dependencies (documented in comments)
+Hook system types:
 
-### Backward Compatibility
-- All original type exports remain in their source files for gradual migration
-- New code should import from `types/` folder
-- Legacy code will continue to work but should be migrated over time
+- `Hook` - Hook definition
+- `HookHandler` - Hook handler function
+- `InternalHook` - Internal hook with handler reference
+
+### Plugin Types (`plugin.ts`)
+
+Re-exports all plugin types from `@baasix/types`:
+
+- Express types: `Request`, `Response`, `NextFunction`, `Express`, `Router`
+- Plugin interfaces: `PluginDefinition`, `PluginContext`, `PluginRoute`, etc.
+- Service interfaces: `IItemsService`, `IPermissionService`, `IMailService`, etc.
+
+### Express Augmentation (`express.d.ts`)
+
+Augments Express Request with `accountability` property for auth middleware.
 
 ## Best Practices
 
-1. **Always use type imports**: Use `import type { ... }` instead of `import { ... }` for types
-2. **Import from index**: Prefer importing from `types/` index for better tree-shaking
-3. **Avoid circular dependencies**: If types need to reference each other, use `any` with comments
-4. **Document complex types**: Add JSDoc comments for non-obvious type definitions
-5. **Keep types DRY**: Reuse existing types instead of creating duplicates
+1. **Use type imports**: Always use `import type { ... }` for type-only imports
+2. **Prefer shared types**: Use types from `@baasix/types` when possible
+3. **Import from index**: Import from `types/` for better organization
+4. **Avoid circular dependencies**: Core types use `any` where needed to prevent cycles
+5. **Document complex types**: Add JSDoc comments for non-obvious definitions
 
-## Future Improvements
+## Why Types Are Split
 
-- Consider splitting large type files into smaller modules
-- Add utility types for common patterns
-- Create type guards for runtime type checking
-- Add branded types for improved type safety
-- Consider generating types from JSON schemas
+Some types cannot be moved to `@baasix/types` because they depend on:
+
+1. **Drizzle ORM** - `PgTable`, `PgColumn`, `SQL` types
+2. **External libraries** - `@aws-sdk/client-s3`, `socket.io`, `nodemailer`
+3. **Internal implementations** - Transaction handling, cache internals
+
+This split keeps `@baasix/types` dependency-free for SDK/CLI consumers while allowing core to have rich type definitions for its ORM and library integrations.

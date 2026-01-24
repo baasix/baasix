@@ -6,10 +6,35 @@ import { mapJsonTypeToDrizzle, isRelationField } from './typeMapper.js';
 import { relationBuilder, createForeignKeySQL } from './relationUtils.js';
 import systemSchemaModule from './systemschema.js';
 import env from './env.js';
-import type { SchemaDefinition } from '../types/index.js';
+import type { SchemaDefinition, IndexDefinition, AssociationDefinition } from '@baasix/types';
 import type { PluginSchemaDefinition } from '../types/plugin.js';
 
 const systemSchemas = systemSchemaModule.schemas;
+
+/**
+ * Internal association with additional properties used during schema processing.
+ */
+interface InternalAssociation extends Omit<AssociationDefinition, 'target'> {
+  model: string;  // alias for target
+  target?: string;
+  otherKey?: string;
+  polymorphic?: boolean;
+}
+
+/**
+ * Extended schema definition for internal runtime use.
+ * Adds optional properties that may be created/mutated during schema processing.
+ */
+interface InternalSchemaDefinition extends SchemaDefinition {
+  /** Runtime-added options for multi-tenant index handling */
+  options?: {
+    paranoid?: boolean;
+    timestamps?: boolean;
+    indexes?: IndexDefinition[];
+  };
+  /** Runtime-extracted associations from fields */
+  associations?: Record<string, InternalAssociation>;
+}
 
 // Use globalThis to ensure singleton across different module loading paths
 declare global {
@@ -1419,7 +1444,7 @@ export class SchemaManager {
    */
   async createOrUpdateModel(
     collectionName: string,
-    jsonSchema: SchemaDefinition['schema']
+    jsonSchema: InternalSchemaDefinition
   ): Promise<any> {
     try {
       console.log(`Creating/updating model: ${collectionName}`);
@@ -1572,7 +1597,8 @@ export class SchemaManager {
 
       // Handle associations (store them for later query use)
       if (associations) {
-        relationBuilder.storeAssociations(collectionName, associations);
+        // Cast to AssociationDefinition - internally uses 'model' which maps to 'target'
+        relationBuilder.storeAssociations(collectionName, associations as any);
       }
 
       // NOTE: Index creation is now handled in createTableFromSchema 
@@ -1649,7 +1675,7 @@ export class SchemaManager {
    */
   private registerModelHooks(
     collectionName: string,
-    jsonSchema: SchemaDefinition['schema']
+    jsonSchema: InternalSchemaDefinition
   ): void {
     // Hook registration will be implemented based on schema configuration
     // For now, this is a placeholder for future hook registration
@@ -1795,7 +1821,7 @@ export class SchemaManager {
    */
   async addSchemaDefinition(
     collectionName: string,
-    schema: SchemaDefinition['schema']
+    schema: SchemaDefinition
   ): Promise<void> {
     const db = getDatabase();
     

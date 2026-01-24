@@ -16,7 +16,8 @@ baasix-packages/
     ├── core/                 # @baasix/baasix - Main server
     ├── cli/                  # baasix - CLI tool
     ├── mcp/                  # @baasix/mcp
-    └── sdk/                  # @baasix/sdk
+    ├── sdk/                  # @baasix/sdk
+    └── types/                # @baasix/types - Shared TypeScript types
 └── plugins/
     └── stripe/               # @baasix/plugin-stripe
 └── samples/
@@ -31,6 +32,7 @@ baasix-packages/
 | [cli](./packages/cli) | `baasix` | Command-line interface tool |
 | [mcp](./packages/mcp) | `@baasix/mcp` | Local MCP server for AI assistants (stdio transport) |
 | [sdk](./packages/sdk) | `@baasix/sdk` | JavaScript/TypeScript SDK |
+| [types](./packages/types) | `@baasix/types` | Shared TypeScript type definitions |
 | [stripe](./plugins/stripe) | `@baasix/plugin-stripe` | Stripe payments plugin |
 
 ---
@@ -72,6 +74,7 @@ npm run build
 | `npm run build:cli` | Build CLI only |
 | `npm run build:mcp` | Build MCP server only |
 | `npm run build:sdk` | Build SDK only |
+| `npm run build:types` | Build types package only |
 | `npm run build:plugin-stripe` | Build Stripe plugin only |
 | `npm run dev` | Run core server in dev mode |
 | `npm run dev:core` | Run core server in dev mode |
@@ -335,21 +338,36 @@ npm install
 ## Package Dependencies
 
 ```
-@baasix/baasix (core)
-    └── (standalone - includes built-in Remote MCP at /mcp endpoint)
-
-baasix (cli)
-    └── (standalone - no internal deps)
+@baasix/types (shared types)
+    └── (standalone - TypeScript types only)
 
 @baasix/mcp (Local MCP)
     └── (standalone - connects to running baasix server via HTTP)
 
+@baasix/baasix (core)
+    └── @baasix/types (dependency)
+
+baasix (cli)
+    └── @baasix/types (dependency)
+
 @baasix/sdk
-    └── (standalone - connects to running baasix server)
+    └── @baasix/types (dependency)
 
 @baasix/plugin-stripe
+    └── @baasix/types (dependency)
     └── @baasix/baasix (peer dependency)
 ```
+
+## Publishing Order
+
+Packages must be published in dependency order:
+
+1. `@baasix/types` - First (no internal dependencies)
+2. `@baasix/mcp` - No internal dependencies
+3. `@baasix/baasix` - Depends on types
+4. `baasix` (cli) - Depends on types
+5. `@baasix/sdk` - Depends on types
+6. `@baasix/plugin-stripe` - Last (depends on types, peer dep on core)
 
 ---
 

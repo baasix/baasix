@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import ItemsService from "../services/ItemsService.js";
 import permissionService from "../services/PermissionService.js";
 import { schemaManager } from "../utils/schemaManager.js";

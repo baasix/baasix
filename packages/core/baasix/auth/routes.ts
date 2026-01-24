@@ -3,7 +3,7 @@
  * Express routes for the auth module
  */
 
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response, NextFunction } from "../types/index.js";
 import type { BaasixAuth } from "./core.js";
 import type { AuthOptions } from "./types.js";
 import { createAuth } from "./core.js";

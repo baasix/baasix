@@ -1,5 +1,9 @@
 import axios, { AxiosInstance } from "axios";
+import type { SchemaInfo, FieldDefinition } from "@baasix/types";
 import { BaasixConfig } from "./get-config.js";
+
+// Re-export types for convenience
+export type { SchemaInfo, FieldDefinition };
 
 let client: AxiosInstance | null = null;
 let authToken: string | null = null;
@@ -41,51 +45,6 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
-export interface SchemaInfo {
-  collectionName: string;
-  schema: {
-    name: string;
-    timestamps?: boolean;
-    paranoid?: boolean;
-    fields: Record<string, FieldDefinition>;
-  };
-}
-
-export interface FieldDefinition {
-  type?: string;
-  primaryKey?: boolean;
-  allowNull?: boolean;
-  unique?: boolean;
-  defaultValue?: unknown;
-  values?: Record<string, unknown> | string[]; // Can be object with config or array for enums
-  validate?: {
-    min?: number;
-    max?: number;
-    len?: [number, number];
-    isEmail?: boolean;
-    isUrl?: boolean;
-    isIP?: boolean;
-    isUUID?: number;
-    regex?: string;
-    [key: string]: unknown;
-  };
-  // Relation fields
-  relType?: "BelongsTo" | "HasOne" | "HasMany" | "BelongsToMany";
-  target?: string;
-  foreignKey?: string;
-  as?: string;
-  description?: string;
-  SystemGenerated?: boolean | string;
-}
-
-export async function fetchSchemas(config: BaasixConfig): Promise<SchemaInfo[]> {
-  const client = await createApiClient(config);
-  const response = await client.get("/schemas", {
-    params: { limit: -1 },
-  });
-  return response.data.data || [];
-}
-
 export interface MigrationInfo {
   id: string;
   version: string;
@@ -96,13 +55,21 @@ export interface MigrationInfo {
   batch?: number;
 }
 
+export async function fetchSchemas(config: BaasixConfig): Promise<SchemaInfo[]> {
+  const client = await createApiClient(config);
+  const response = await client.get("/schemas", {
+    params: { limit: -1 },
+  });
+  return response.data.data || [];
+}
+
 export async function fetchMigrations(config: BaasixConfig): Promise<MigrationInfo[]> {
   const client = await createApiClient(config);
   const response = await client.get("/migrations");
   return response.data.data || [];
 }
 
-export async function runMigrations(config: BaasixConfig, options?: { 
+export async function runMigrations(config: BaasixConfig, options?: {
   dryRun?: boolean;
   step?: number;
 }): Promise<{ success: boolean; message: string; migrations?: MigrationInfo[] }> {

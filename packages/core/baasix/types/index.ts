@@ -1,83 +1,169 @@
 /**
  * Centralized Type Exports
  * Single source for all type definitions across the application
+ *
+ * Note: Core has its own internal type definitions that differ from @baasix/types
+ * due to implementation-specific requirements. The @baasix/types package provides
+ * simplified types for SDK/CLI consumers.
  */
 
-// Re-export all aggregation types
-export * from './aggregation.js';
+// ============================================================================
+// Direct re-exports from @baasix/types (shared types)
+// ============================================================================
 
-// Re-export all assets types
-export * from './assets.js';
+// Import/Export types
+export type {
+  UploadedFile,
+  ImportOptions,
+  ExportOptions,
+  ImportResult,
+  ExportResult,
+} from '@baasix/types';
 
-// Re-export all auth types
-export * from './auth.js';
+// Notification types
+export type {
+  NotificationOptions,
+  Notification,
+  NotificationType,
+} from '@baasix/types';
 
-// Re-export all cache types
-export * from './cache.js';
+// Schema validation types
+export type {
+  ValidationResult,
+  FieldValidation,
+  SchemaValidation,
+} from '@baasix/types';
 
-// Re-export database types
-// Note: TransactionClient remains in db.ts due to circular dependency
-export * from './database.js';
+// Settings types
+export type {
+  TenantSettings,
+  Settings,
+} from '@baasix/types';
 
-// Re-export all field types
-export * from './fields.js';
+// Spatial/GIS types
+export type {
+  GeoJSONPoint,
+  GeoJSONLineString,
+  GeoJSONPolygon,
+  GeoJSONGeometry,
+} from '@baasix/types';
 
-// Re-export all files types
-export * from './files.js';
+// Stats types
+export type {
+  StatsQuery,
+  StatsResult,
+} from '@baasix/types';
 
-// Re-export all hooks types
-export * from './hooks.js';
+// Workflow types
+export type {
+  Workflow,
+  WorkflowTriggerType,
+  WorkflowStatus,
+  WorkflowFlowData,
+  WorkflowNode,
+  WorkflowEdge,
+} from '@baasix/types';
 
-// Re-export all import-export types
-export * from './import-export.js';
+// Seed types
+export type {
+  SeedData,
+  SeedResult,
+} from '@baasix/types';
 
-// Re-export all mail types
-export * from './mail.js';
+// Report types
+export type {
+  ReportConfig,
+  ReportResult,
+  ReportQuery,
+} from '@baasix/types';
 
-// Re-export all notification types
-export * from './notifications.js';
+// Task types
+export type {
+  BackgroundTask,
+} from '@baasix/types';
 
-// Re-export all query types
+// Aggregation types
+export type {
+  AggregateFunction,
+  AggregateConfig,
+  AggregateMapping,
+  DatePart,
+  DateTruncPrecision,
+} from '@baasix/types';
+
+// Auth types
+export type {
+  JWTPayload,
+  UserWithRolesAndPermissions,
+  PermissionData,
+  Accountability,
+  AuthMode,
+} from '@baasix/types';
+
+// Cache types
+export type {
+  CacheStrategy,
+  CacheEntry,
+  ICacheAdapter,
+  CacheSetOptions,
+} from '@baasix/types';
+
+// Backward compatibility alias
+export type { CacheSetOptions as CacheConfig } from '@baasix/types';
+
+// Field types
+export type {
+  FieldValidationRules,
+  FieldDefinition,
+} from '@baasix/types';
+
+// Query types
+export type {
+  PaginationOptions,
+  PaginationMetadata,
+  FilterOperator,
+  OperatorName,
+} from '@baasix/types';
+
+// Sort types
+export type {
+  SortDirection,
+  SortObject,
+} from '@baasix/types';
+
+// Asset types
+export type {
+  AssetQuery,
+  ProcessedImage,
+} from '@baasix/types';
+
+// ============================================================================
+// Core-specific types
+// ============================================================================
+
+// Drizzle ORM context types (SortContext, AggregateContext)
+export * from './drizzle.js';
+
+// Internal core types (Transaction, RouteContext, CacheInterface, AssetResult, FlattenedField)
+export * from './internal.js';
+
+// External library types (StorageProvider, SocketWithAuth, MailOptions, SenderConfig, TenantTransporter)
+export * from './external.js';
+
+// Query and filter types (FilterObject, QueryContext, OperatorContext, etc.)
 export * from './query.js';
 
-// Re-export all relation types
+// Relation types (AssociationDefinition, IncludeConfig, ProcessedInclude, etc.)
 export * from './relations.js';
 
-// Re-export all reports types
-export * from './reports.js';
-
-// Re-export all schema validation types
-export * from './schema.js';
-
-// Re-export all seed types
-export * from './seed.js';
-
-// Re-export all service types
+// Service types (QueryOptions, ServiceParams, OperationOptions, etc.)
 export * from './services.js';
 
-// Re-export all settings types
-export * from './settings.js';
+// File types (FileData, FileMetadata, InternalUploadedFile)
+export * from './files.js';
 
-// Re-export all sockets types
-export * from './sockets.js';
+// Hook types (Hook, HookHandler, InternalHook)
+export * from './hooks.js';
 
-// Re-export all sort types
-export * from './sort.js';
-
-// Re-export all spatial types
-export * from './spatial.js';
-
-// Re-export all stats types
-export * from './stats.js';
-
-// Re-export all storage types
-export * from './storage.js';
-
-// Re-export all tasks types
-export * from './tasks.js';
-
-// Re-export all utility types
-export * from './utils.js';
-
-// Re-export all workflow types
-export * from './workflow.js';
+// Plugin types (includes Express types from @baasix/types)
+export * from './plugin.js';

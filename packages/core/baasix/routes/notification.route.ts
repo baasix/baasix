@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import NotificationService from "../services/NotificationService.js";
 import { parseQueryParams } from "../utils/router.js";
 import { adminOnly } from "../utils/auth.js";

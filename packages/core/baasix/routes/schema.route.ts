@@ -7,7 +7,7 @@ import permissionService from "../services/PermissionService.js";
 import { invalidateEntireCache } from "../services/CacheService.js";
 import { adminOnly } from "../utils/auth.js";
 import { like, ilike, or, and, eq, sql, SQL } from "drizzle-orm";
-import type { Express } from "express";
+import type { Express } from "../types/index.js";
 import { ItemsService } from "../services/ItemsService.js";
 
 const registerEndpoint = (app: Express, context?: any) => {

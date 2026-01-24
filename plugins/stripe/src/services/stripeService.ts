@@ -151,11 +151,14 @@ export function createStripeService(
       });
 
       // Save mapping to database
-      return customerService.createOne({
+      const customerId = await customerService.createOne({
         user_Id: userId,
         stripeCustomerId: stripeCustomer.id,
         email: user.email,
       });
+
+      // Fetch and return the created record
+      return customerService.readOne(customerId);
     },
 
     /**

@@ -5,8 +5,8 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgTable, PgColumn } from 'drizzle-orm/pg-core';
+import type { SortObject } from '@baasix/types';
 import type { FilterObject } from './query.js';
-import type { SortObject } from './sort.js';
 
 /**
  * Association types matching Sequelize conventions

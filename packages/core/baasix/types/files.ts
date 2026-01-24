@@ -4,14 +4,14 @@
  */
 
 /**
- * File data interface
+ * File data interface (core-specific, simpler than @baasix/types)
  */
 export interface FileData {
   file: any;
 }
 
 /**
- * File metadata interface
+ * File metadata interface (core-specific, simpler than @baasix/types)
  */
 export interface FileMetadata {
   title?: string;

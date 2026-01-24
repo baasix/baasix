@@ -1,4 +1,4 @@
-import { Express } from "express";
+import type { Express } from "../types/index.js";
 import FilesService from "../services/FilesService.js";
 import AssetsService from "../services/AssetsService.js";
 import SettingsService from "../services/SettingsService.js";

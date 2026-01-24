@@ -1081,6 +1081,44 @@ try {
 
 ## TypeScript Support
 
+### Shared Types from @baasix/types
+
+The SDK uses shared types from `@baasix/types`. Import common types directly:
+
+```typescript
+import type {
+  // Auth types
+  User,
+  Role,
+  Permission,
+  AuthMode,
+
+  // Query types
+  Filter,
+  FilterOperator,
+  Sort,
+  QueryParams,
+  PaginationMetadata,
+
+  // Response types
+  PaginatedResponse,
+
+  // File types
+  FileMetadata,
+  UploadOptions,
+
+  // Schema types
+  SchemaDefinition,
+  FieldDefinition,
+
+  // Spatial types
+  GeoJSONPoint,
+  GeoJSONGeometry,
+} from '@baasix/types';
+```
+
+### Using Generics
+
 Use generics for type-safe operations:
 
 ```typescript

@@ -3,30 +3,29 @@
  * Centralized service-related type definitions
  */
 
+import type { QueryParams, AggregateMapping, Accountability, PluginHookContext } from '@baasix/types';
 import type { FilterObject } from './query.js';
-import type { AggregateMapping } from './aggregation.js';
 import type { IncludeConfig } from './relations.js';
-import type { Accountability } from './auth.js';
-import type { Transaction } from './database.js';
+import type { Transaction } from './internal.js';
+
+// Re-export shared types
+export type { ReadResult } from '@baasix/types';
 
 /**
- * Query options for read operations
+ * Query options for read operations (extends shared QueryParams)
+ * Core-specific with FilterObject and IncludeConfig support
  */
-export interface QueryOptions {
-  fields?: string[];
+export interface QueryOptions extends Omit<QueryParams, 'filter' | 'relConditions' | 'sort' | 'aggregate'> {
+  /** Filter conditions using core's FilterObject format */
   filter?: FilterObject;
+  /** Sorting configuration - core uses simpler format */
   sort?: string[] | Record<string, 'asc' | 'desc'>;
-  limit?: number;
-  page?: number;
-  offset?: number;
+  /** Aggregate configuration using core's AggregateMapping */
   aggregate?: AggregateMapping;
-  groupBy?: string[];
-  search?: string;
-  searchFields?: string[];
-  sortByRelevance?: boolean;
+  /** Relations to include/load */
   include?: IncludeConfig[];
+  /** Filter conditions for related items using core's FilterObject */
   relConditions?: Record<string, FilterObject>;
-  paranoid?: boolean; // false to include soft-deleted records
 }
 
 /**
@@ -46,13 +45,6 @@ export interface OperationOptions {
   force?: boolean; // Force hard delete even if paranoid mode is enabled
 }
 
-/**
- * Result for read operations
- */
-export interface ReadResult {
-  data: any[];
-  totalCount: number;
-}
 
 /**
  * Permission filter interface
@@ -63,13 +55,8 @@ export interface PermissionFilter {
 }
 
 /**
- * Hook context interface
+ * Hook context interface - alias for PluginHookContext from @baasix/types
  */
-export interface HookContext {
-  [key: string]: any;
-}
+export type HookContext = PluginHookContext;
 
-/**
- * Hook function type
- */
-export type HookFunction = (context: HookContext) => Promise<HookContext> | HookContext;
+// Note: HookFunction is exported from plugin.ts (re-exported from @baasix/types)

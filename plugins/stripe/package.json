@@ -1,6 +1,6 @@
 {
   "name": "@baasix/plugin-stripe",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Stripe payment integration plugin for Baasix - supports one-time payments and subscriptions",
   "main": "dist/index.js",
   "type": "module",
@@ -29,6 +29,9 @@
   ],
   "author": "Vivek Palanisamy",
   "license": "MIT",
+  "dependencies": {
+    "@baasix/types": "*"
+  },
   "peerDependencies": {
     "@baasix/baasix": "*",
     "stripe": ">=14.0.0"

@@ -9,11 +9,12 @@
     "plugins/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:types && npm run build -w @baasix/baasix -w @baasix/mcp -w @baasix/sdk -w baasix -w @baasix/plugin-stripe --if-present",
     "build:core": "npm run build -w @baasix/baasix",
     "build:cli": "npm run build -w baasix",
     "build:mcp": "npm run build -w @baasix/mcp",
     "build:sdk": "npm run build -w @baasix/sdk",
+    "build:types": "npm run build -w @baasix/types",
     "build:plugin-stripe": "npm run build -w @baasix/plugin-stripe",
     "dev": "npm run dev -w @baasix/baasix",
     "dev:core": "npm run dev -w @baasix/baasix",
