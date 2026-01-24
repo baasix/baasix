@@ -1,5 +1,11 @@
 # @baasix/types
 
+## 1.0.2
+
+### Patch Changes
+
+- Add @types/express as devDependency for independent compilation
+
 ## 1.0.1
 
 ### Patch Changes
