@@ -176,7 +176,7 @@ Both Remote and Local MCP provide 57 tools:
 - **Realtime** (5 tools) — WAL-based realtime management
 - **Settings & Utils** (6 tools) — Application settings and utilities
 
-Full documentation: [Baasix MCP Server](https://baasix.dev/docs/mcp-server-docs)
+Full documentation: [Baasix MCP Server](https://baasix.dev/docs/extend/mcp)
 
 ## Deployment Options
 

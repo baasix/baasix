@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated documentation
+
 ## 0.1.2
 
 ### Patch Changes

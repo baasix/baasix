@@ -247,7 +247,7 @@ baasix migrate status --url http://localhost:8056
 baasix migrate run --url http://localhost:8056
 ```
 
-For complete CLI documentation, see **[baasix.com/docs/cli-guide](https://baasix.com/docs/cli-guide)**.
+For complete CLI documentation, see **[baasix.com/docs/getting-started/cli](https://baasix.com/docs/getting-started/cli)**.
 
 ---
 
@@ -328,7 +328,7 @@ SECRET_KEY=your-secret-key-min-32-chars
 # TASK_REDIS_URL=redis://localhost:6379
 ```
 
-> **Multi-Instance Deployments:** When running multiple instances (PM2 cluster, Kubernetes, etc.), enable Redis for Socket.IO and Tasks to ensure proper coordination. See the [Deployment Guide](https://baasix.com/docs/deployment-guide#multi-instance-deployment-scaling) for details.
+> **Multi-Instance Deployments:** When running multiple instances (PM2 cluster, Kubernetes, etc.), enable Redis for Socket.IO and Tasks to ensure proper coordination. See the [Deployment Guide](https://baasix.com/docs/deploy#multi-instance-deployment-scaling) for details.
 
 ### 6. Start the server
 
@@ -354,11 +354,11 @@ Full documentation is available at **[baasix.com/docs](https://baasix.com/docs)*
 
 ### Popular Guides
 
-- [Deployment Guide](https://baasix.com/docs/deployment-guide) — Docker, PM2, Kubernetes deployment
-- [Database Schema Guide](https://baasix.com/docs/database-schema-guide) — Schema system and relationships
-- [Authentication Guide](https://baasix.com/docs/authentication-routes-docs) — Auth setup and SSO providers
-- [Extensions Guide](https://baasix.com/docs/baasix-extensions-docs) — Create custom hooks and endpoints
-- [Advanced Query Guide](https://baasix.com/docs/advanced-query-guide) — Complex filtering and aggregation
+- [Deployment Guide](https://baasix.com/docs/deploy) — Docker, PM2, Kubernetes deployment
+- [Database Schema Guide](https://baasix.com/docs/guides/schema/design) — Schema system and relationships
+- [Authentication Guide](https://baasix.com/docs/guides/authentication) — Auth setup and SSO providers
+- [Extensions Guide](https://baasix.com/docs/extend/extensions) — Create custom hooks and endpoints
+- [Advanced Query Guide](https://baasix.com/docs/guides/data/querying) — Complex filtering and aggregation
 
 ---
 
@@ -464,7 +464,7 @@ For Claude Desktop or local stdio-based integrations:
 }
 ```
 
-For more configuration options and examples, see the [MCP Server documentation](https://baasix.dev/docs/mcp-server-docs).
+For more configuration options and examples, see the [MCP Server documentation](https://baasix.dev/docs/extend/mcp).
 
 ---
 

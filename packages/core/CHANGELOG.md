@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated documentation
+
 ## 0.1.5
 
 ### Patch Changes

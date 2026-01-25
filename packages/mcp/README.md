@@ -318,7 +318,7 @@ When using `baasix_list_items`, the `filter` parameter supports 50+ operators:
 {"createdAt": {"gte": "$NOW-DAYS_7"}}     // 7 days ago
 ```
 
-For the complete list of 50+ operators, see the [Filter Reference](https://baasix.dev/docs/complete-filter-reference).
+For the complete list of 50+ operators, see the [Filter Reference](https://baasix.dev/docs/guides/data/filtering).
 
 ## Package Usage
 
@@ -346,7 +346,7 @@ startMCPServer().catch((error) => {
 ## Links
 
 - **Baasix Website**: https://baasix.dev
-- **Documentation**: https://baasix.dev/docs/mcp-server-docs
+- **Documentation**: https://baasix.dev/docs/extend/mcp
 - **GitHub**: https://github.com/baasix/baasix
 - **npm Package**: https://www.npmjs.com/package/@baasix/mcp
 
