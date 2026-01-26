@@ -1,5 +1,23 @@
 # @baasix/baasix
 
+## 0.1.7
+
+### Patch Changes
+
+- Added new features and fixes:
+
+  **New Features:**
+
+  - Added `POST /auth/refresh` endpoint for token refresh
+  - Added automatic log cleanup service for audit logs and email logs
+    - `AUDIT_LOG_CLEANUP_ENABLED` / `AUDIT_LOG_RETENTION_DAYS` env vars
+    - `EMAIL_LOG_CLEANUP_ENABLED` / `EMAIL_LOG_RETENTION_DAYS` env vars
+    - Manual trigger via `triggerLogCleanup()` utility function
+
+  **Fixes:**
+
+  - Fixed `GET /auth/me` response format to return `{ data: user }` for SDK compatibility
+
 ## 0.1.6
 
 ### Patch Changes

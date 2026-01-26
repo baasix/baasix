@@ -79,6 +79,12 @@ MAIL_PORT=587                      # SMTP port
 MAIL_USER=                         # SMTP user
 MAIL_PASSWORD=                     # SMTP password
 MAIL_FROM=                         # Default sender
+
+# Log Cleanup (Audit Log & Email Log)
+AUDIT_LOG_CLEANUP_ENABLED=false    # Enable automatic audit log cleanup
+AUDIT_LOG_RETENTION_DAYS=90        # Audit log retention in days
+EMAIL_LOG_CLEANUP_ENABLED=false    # Enable automatic email log cleanup
+EMAIL_LOG_RETENTION_DAYS=30        # Email log retention in days
 ```
 
 ---
@@ -979,13 +985,14 @@ const id = await service.createOne(data);
 const ids = await service.createMany([data1, data2]);
 const id = await service.updateOne(id, data);
 const ids = await service.updateMany([id1, id2], data);
-const count = await service.updateByQuery(filter, data);
 await service.deleteOne(id);
 await service.deleteMany([id1, id2]);
 
-// Soft delete (if paranoid enabled)
-await service.softDelete(id);
-await service.restore(id);
+// Soft delete (if paranoid enabled on schema)
+// deleteOne automatically soft-deletes for paranoid schemas
+await service.deleteOne(id); // soft deletes
+await service.deleteOne(id, { force: true }); // hard deletes
+await service.restore(id); // restores soft-deleted item
 
 // Options
 await service.createOne(data, { 

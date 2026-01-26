@@ -145,8 +145,11 @@ const result = await baasix.auth.login({
 ### Get Current User
 
 ```typescript
-// From server (makes API call)
+// From server (makes API call to /auth/me)
 const user = await baasix.auth.getUser();
+
+// Alias for getUser()
+const user = await baasix.auth.me();
 
 // From cache (no API call)
 const cachedUser = await baasix.auth.getCachedUser();
@@ -192,6 +195,49 @@ await baasix.auth.forgotPassword({
 await baasix.auth.resetPassword('reset-token', 'newpassword123');
 ```
 
+### Change Password
+
+```typescript
+// Change current user's password (requires current password)
+await baasix.auth.changePassword('currentPassword', 'newPassword');
+```
+
+### Token Management
+
+```typescript
+// Get current access token
+const token = await baasix.auth.getToken();
+
+// Set a static token (for server-side/service accounts)
+await baasix.auth.setToken('your-api-token');
+
+// Refresh the current token
+const { token, expiresIn } = await baasix.auth.refreshToken();
+```
+
+### Session & State Management
+
+```typescript
+// Initialize auth state from storage (call on app startup)
+const state = await baasix.auth.initialize();
+
+// Get current auth state
+const { user, isAuthenticated } = await baasix.auth.getState();
+
+// Check if session is valid with server
+const isValid = await baasix.auth.checkSession();
+```
+
+### Email Verification
+
+```typescript
+// Request email verification
+await baasix.auth.requestEmailVerification('https://myapp.com/verify-email');
+
+// Verify email with token
+await baasix.auth.verifyEmail('verification-token');
+```
+
 ### Multi-Tenant
 
 ```typescript
@@ -200,6 +246,29 @@ const tenants = await baasix.auth.getTenants();
 
 // Switch tenant
 const { user, token } = await baasix.auth.switchTenant('tenant-uuid');
+
+// Send invitation
+await baasix.auth.sendInvite({
+  email: 'newuser@example.com',
+  roleId: 'editor-role-uuid',
+  tenantId: 'tenant-uuid',
+  redirectUrl: 'https://myapp.com/accept-invite',
+});
+
+// Verify invitation
+const inviteInfo = await baasix.auth.verifyInvite('invite-token');
+
+// Accept invitation (for existing users)
+const { user, token } = await baasix.auth.acceptInvite('invite-token');
+
+// Register with invitation (for new users)
+const { user, token } = await baasix.auth.registerWithInvite({
+  email: 'newuser@example.com',
+  password: 'password123',
+  firstName: 'John',
+  lastName: 'Doe',
+  inviteToken: 'invite-token',
+});
 ```
 
 ## Items (CRUD Operations)

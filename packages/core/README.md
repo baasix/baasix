@@ -329,6 +329,12 @@ SECRET_KEY=your-secret-key-min-32-chars
 
 # File Upload (optional)
 # MAX_UPLOAD_FILE_SIZE=50          # Default: 50MB, set to 100 for 100MB
+
+# Log Cleanup (optional - disabled by default)
+# AUDIT_LOG_CLEANUP_ENABLED=true   # Enable automatic audit log cleanup
+# AUDIT_LOG_RETENTION_DAYS=90      # Retention period in days
+# EMAIL_LOG_CLEANUP_ENABLED=true   # Enable automatic email log cleanup
+# EMAIL_LOG_RETENTION_DAYS=30      # Retention period in days
 ```
 
 > **Multi-Instance Deployments:** When running multiple instances (PM2 cluster, Kubernetes, etc.), enable Redis for Socket.IO and Tasks to ensure proper coordination. See the [Deployment Guide](https://baasix.com/docs/deploy#multi-instance-deployment-scaling) for details.
@@ -521,12 +527,13 @@ import {
 } from "@baasix/baasix";
 
 // Utilities
-import { 
-  APIError, 
-  env, 
+import {
+  APIError,
+  env,
   schemaManager,
   getDatabase,
-  getSqlClient 
+  getSqlClient,
+  triggerLogCleanup
 } from "@baasix/baasix";
 
 // Logger

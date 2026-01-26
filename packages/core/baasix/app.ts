@@ -19,6 +19,7 @@ import { hooksManager } from "./services/HooksManager.js";
 import { db, initializeDatabaseWithCache } from "./utils/db.js";
 import { schemaManager } from "./utils/schemaManager.js";
 import { startSessionCleanup } from "./utils/sessionCleanup.js";
+import { startLogCleanup } from "./utils/logCleanup.js";
 import schedule from "node-schedule";
 import { rateLimit } from "express-rate-limit";
 import socketService from "./services/SocketService.js";
@@ -476,6 +477,11 @@ export async function startServer(options?: StartServerOptions | number) {
       startSessionCleanup();
     }
 
+    // Start log cleanup (audit logs and email logs)
+    if (env.get("TEST_MODE") !== "true") {
+      startLogCleanup();
+    }
+
     // Initialize Socket.IO if enabled
     if (env.get("SOCKET_ENABLED") === "true") {
       await socketService.initialize(server);
@@ -575,6 +581,11 @@ export async function startServerForTesting(options?: {
     // Start session cleanup
     if (env.get("DISABLE_SESSION_CLEANUP") !== "true" && env.get("TEST_MODE") !== "true") {
       startSessionCleanup();
+    }
+
+    // Start log cleanup (audit logs and email logs)
+    if (env.get("TEST_MODE") !== "true") {
+      startLogCleanup();
     }
 
     // Attach the server to the app for proper cleanup later

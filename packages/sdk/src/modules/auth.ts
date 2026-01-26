@@ -224,6 +224,20 @@ export class AuthModule {
   }
 
   /**
+   * Alias for getUser() - Get the current authenticated user from the server
+   * Calls the /auth/me endpoint
+   *
+   * @example
+   * ```typescript
+   * const user = await baasix.auth.me();
+   * console.log(user?.email);
+   * ```
+   */
+  async me(): Promise<User | null> {
+    return this.getUser();
+  }
+
+  /**
    * Get the cached current user (does not make an API call)
    *
    * @example
@@ -395,7 +409,7 @@ export class AuthModule {
    */
   async forgotPassword(options: PasswordResetOptions): Promise<void> {
     await this.client.post(
-      "/auth/forgot-password",
+      "/auth/password/reset",
       {
         email: options.email,
         link: options.redirectUrl,
@@ -414,8 +428,8 @@ export class AuthModule {
    */
   async resetPassword(token: string, newPassword: string): Promise<void> {
     await this.client.post(
-      "/auth/reset-password",
-      { token, password: newPassword },
+      `/auth/password/reset/${encodeURIComponent(token)}`,
+      { password: newPassword },
       { skipAuth: true }
     );
   }
@@ -432,28 +446,10 @@ export class AuthModule {
     currentPassword: string,
     newPassword: string
   ): Promise<void> {
-    await this.client.post("/auth/change-password", {
+    await this.client.post("/auth/password/change", {
       currentPassword,
       newPassword,
     });
-  }
-
-  /**
-   * Update the current user's profile
-   *
-   * @example
-   * ```typescript
-   * const updatedUser = await baasix.auth.updateProfile({
-   *   firstName: 'Jane',
-   *   lastName: 'Doe'
-   * });
-   * ```
-   */
-  async updateProfile(data: Partial<User>): Promise<User> {
-    const response = await this.client.patch<{ data: User }>("/auth/me", data);
-    await this.storage.set(STORAGE_KEYS.USER, JSON.stringify(response.data));
-    this.emitAuthStateChange("USER_UPDATED", response.data);
-    return response.data;
   }
 
   /**
@@ -465,8 +461,8 @@ export class AuthModule {
    * ```
    */
   async getTenants(): Promise<Tenant[]> {
-    const response = await this.client.get<{ data: Tenant[] }>("/auth/tenants");
-    return response.data;
+    const response = await this.client.get<{ tenants: Tenant[] }>("/auth/tenants");
+    return response.tenants;
   }
 
   /**
@@ -607,7 +603,7 @@ export class AuthModule {
    * ```
    */
   async requestEmailVerification(redirectUrl: string): Promise<void> {
-    await this.client.post("/auth/request-verify-email", {
+    await this.client.post("/auth/email/verify", {
       link: redirectUrl,
     });
   }
@@ -624,8 +620,7 @@ export class AuthModule {
    * ```
    */
   async verifyEmail(token: string): Promise<void> {
-    await this.client.get("/auth/verify-email", {
-      params: { token },
+    await this.client.get(`/auth/email/verify/${encodeURIComponent(token)}`, {
       skipAuth: true,
     });
   }
@@ -640,8 +635,8 @@ export class AuthModule {
    */
   async checkSession(): Promise<boolean> {
     try {
-      const response = await this.client.get<{ data: { valid: boolean } }>("/auth/check");
-      return response.data.valid;
+      const response = await this.client.get<{ valid: boolean }>("/auth/check");
+      return response.valid;
     } catch {
       return false;
     }
@@ -688,17 +683,16 @@ export class AuthModule {
    * ```
    */
   async verifyInvite(token: string, redirectUrl?: string): Promise<VerifyInviteResult> {
-    const response = await this.client.get<{ data: VerifyInviteResult }>(
-      "/auth/verify-invite",
+    const response = await this.client.get<VerifyInviteResult>(
+      `/auth/verify-invite/${encodeURIComponent(token)}`,
       {
-        params: { 
-          token,
+        params: {
           link: redirectUrl,
         },
         skipAuth: true,
       }
     );
-    return response.data;
+    return response;
   }
 
   /**
@@ -712,12 +706,12 @@ export class AuthModule {
   async acceptInvite(token: string): Promise<AuthResponse> {
     const response = await this.client.post<AuthResponse>(
       "/auth/accept-invite",
-      { token }
+      { inviteToken: token }
     );
-    
+
     await this.storeTokens(response);
     this.emitAuthStateChange("SIGNED_IN", response.user);
-    
+
     return response;
   }
 

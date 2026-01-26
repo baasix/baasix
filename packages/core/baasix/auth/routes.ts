@@ -277,7 +277,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       await auth.updateUser(user.id, { lastAccess: new Date() });
       
       res.json({
-        user,
+        data: user,
         role: req.accountability.role,
         permissions: req.accountability.permissions,
         tenant: req.accountability.tenant,
@@ -286,7 +286,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       next(error);
     }
   });
-  
+
   // ==================== Logout ====================
   
   app.get(`${basePath}/logout`, async (req: Request, res: Response, next: NextFunction) => {
@@ -303,7 +303,60 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       next(error);
     }
   });
-  
+
+  // ==================== Refresh Token ====================
+
+  app.post(`${basePath}/refresh`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const token = req.headers.authorization?.replace("Bearer ", "") || req.cookies?.token;
+      const { authMode = "jwt" } = req.body;
+
+      if (!token) {
+        return res.status(401).json({ message: "No token provided" });
+      }
+
+      // Validate current session
+      const sessionResult = await auth.validateSession(token);
+      if (!sessionResult) {
+        return res.status(401).json({ message: "Invalid or expired token" });
+      }
+
+      const { user, role, tenant } = sessionResult;
+
+      // Create new session
+      const ipAddress = req.ip || (req.connection as any)?.remoteAddress || null;
+      const userAgent = req.headers["user-agent"] || null;
+
+      const session = await auth.sessionService.createSession({
+        user: user as any,
+        tenantId: tenant?.id || null,
+        ipAddress,
+        userAgent,
+      });
+
+      // Invalidate old session
+      await auth.invalidateSession(token);
+
+      // Generate new token
+      const newToken = auth.tokenService.generateUserToken({
+        user: user as any,
+        role,
+        session,
+        tenant,
+      });
+
+      // Set token in response based on authMode
+      const tokenResponse = setTokenInResponse(res, newToken, authMode, options.env);
+
+      res.json({
+        ...tokenResponse,
+        expiresIn: options.session?.expiresIn || 604800,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ==================== Social Sign In ====================
   
   app.post(`${basePath}/social/signin`, async (req: Request, res: Response, next: NextFunction) => {

@@ -111,6 +111,9 @@ export type { SortOptions, SortResult } from './sortUtils.js';
 // Error handling utilities
 export { APIError, errorHandler } from './errorHandler.js';
 
+// Log cleanup utilities
+export { triggerLogCleanup, startLogCleanup } from './logCleanup.js';
+
 // Logger utilities
 export { initializeLogger, getLogger, getOriginalConsole } from './logger.js';
 export type { BaasixLoggerOptions, Logger, LoggerOptions, DestinationStream } from './logger.js';
