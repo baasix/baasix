@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.4
+
+### Patch Changes
+
+- Fixed `/auth/me` response format to return `{ user: ... }` instead of `{ data: ... }` for backwards compatibility with existing code and tests.
+
 ## 0.1.3
 
 ### Patch Changes

@@ -277,7 +277,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       await auth.updateUser(user.id, { lastAccess: new Date() });
       
       res.json({
-        data: user,
+        user,
         role: req.accountability.role,
         permissions: req.accountability.permissions,
         tenant: req.accountability.tenant,

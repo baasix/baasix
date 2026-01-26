@@ -210,10 +210,10 @@ export class AuthModule {
    */
   async getUser(): Promise<User | null> {
     try {
-      const response = await this.client.get<{ data: User }>("/auth/me");
-      this.currentUser = response.data;
-      await this.storage.set(STORAGE_KEYS.USER, JSON.stringify(response.data));
-      return response.data;
+      const response = await this.client.get<{ user: User }>("/auth/me");
+      this.currentUser = response.user;
+      await this.storage.set(STORAGE_KEYS.USER, JSON.stringify(response.user));
+      return response.user;
     } catch (error) {
       if (error instanceof BaasixError && error.status === 401) {
         await this.clearAuth();
