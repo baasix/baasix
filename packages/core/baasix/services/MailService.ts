@@ -2,6 +2,7 @@ import env from "../utils/env.js";
 import nodemailer from "nodemailer";
 import { Liquid } from "liquidjs";
 import fs from "fs";
+import juice from "juice";
 import settingsService from "./SettingsService.js";
 import type { MailOptions, SenderConfig, TenantTransporter } from '../types/index.js';
 import { getBaasixPath, getProjectPath } from "../utils/dirname.js";
@@ -15,7 +16,7 @@ class MailService {
   private defaultLayoutTemplatePath: string;
   private defaultLogoPath: string;
   private customLogoPath: string;
-  private logo: Buffer | null = null;
+  private logoDataUri: string | null = null;
   private initialized: boolean = false;
 
   constructor() {
@@ -109,12 +110,15 @@ class MailService {
   loadLogo(): void {
     try {
       const logoPath = fs.existsSync(this.customLogoPath) ? this.customLogoPath : this.defaultLogoPath;
-      this.logo = fs.readFileSync(logoPath);
+      const logoBuffer = fs.readFileSync(logoPath);
+      // Convert to base64 data URI for embedding directly in img src
+      const base64 = logoBuffer.toString('base64');
+      this.logoDataUri = `data:image/png;base64,${base64}`;
 
-      console.info("Logo loaded successfully");
+      console.info("Logo loaded successfully as data URI");
     } catch (error) {
       console.error("Error loading logo:", error);
-      this.logo = null;
+      this.logoDataUri = null;
     }
   }
 
@@ -175,8 +179,97 @@ class MailService {
   }
 
   /**
+   * Wrap body content in a minimal HTML document structure if it's not already a complete document.
+   * Also inlines CSS for Gmail compatibility using juice.
+   * 
+   * Gmail strips <style> tags, so we must inline all CSS onto elements.
+   */
+  private wrapInHtmlDocument(body: string, subject: string): string {
+    const trimmedBody = body.trim();
+    
+    // Check if already a complete HTML document
+    const hasDoctype = trimmedBody.toLowerCase().startsWith('<!doctype');
+    const hasHtmlTag = /<html[\s>]/i.test(trimmedBody);
+    
+    let fullHtml: string;
+    
+    if (hasDoctype || hasHtmlTag) {
+      // Already a complete document, just inline the CSS
+      fullHtml = body;
+    } else {
+      // Extract <style> tags to put in <head>
+      const styleRegex = /<style[^>]*>[\s\S]*?<\/style>/gi;
+      const styleMatches = trimmedBody.match(styleRegex) || [];
+      const stylesForHead = styleMatches.join('\n');
+      const contentWithoutStyles = trimmedBody.replace(styleRegex, '').trim();
+      
+      // Check if content has <body> tag anywhere
+      const hasBodyTag = /<body[\s>]/i.test(contentWithoutStyles);
+      
+      if (hasBodyTag) {
+        // Has body tag - wrap with html structure, put styles in head
+        fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${this.escapeHtml(subject)}</title>
+    ${stylesForHead}
+</head>
+${contentWithoutStyles}
+</html>`;
+      } else {
+        // No body tag - wrap content in body, put styles in head
+        fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${this.escapeHtml(subject)}</title>
+    ${stylesForHead}
+</head>
+<body style="margin: 0; padding: 0;">
+${contentWithoutStyles}
+</body>
+</html>`;
+      }
+    }
+    
+    // Use juice to inline CSS for Gmail compatibility
+    // This converts <style> rules to inline style attributes
+    try {
+      return juice(fullHtml, {
+        preserveImportant: true,
+        preserveMediaQueries: true,
+        preserveFontFaces: true,
+        applyStyleTags: true,
+        removeStyleTags: false, // Keep style tags for clients that support them
+        insertPreservedExtraCss: true,
+      });
+    } catch (error) {
+      console.error('Error inlining CSS with juice:', error);
+      return fullHtml; // Return without inlining if juice fails
+    }
+  }
+
+  /**
+   * Escape HTML special characters for safe insertion into HTML attributes/content
+   */
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  /**
    * Render template from database
    * First tries database, then falls back to hardcoded default templates
+   * 
+   * NOTE: Database templates are NOT wrapped in the default layout - they have full control.
+   * Only hardcoded default templates use the default layout wrapper.
    */
   async renderTemplateWithDB(templateName: string, context: Record<string, any>, tenantId?: string | number): Promise<{ subject: string; html: string }> {
     // Try to get template from database first
@@ -185,10 +278,11 @@ class MailService {
     if (dbTemplate) {
       // Render both subject and body with Liquid
       const renderedSubject = await this.engine.parseAndRender(dbTemplate.subject, context);
-      // Wrap the body in the default layout template
+      // Database templates have full control - do NOT wrap in default layout
+      // The user has customized the template and manages header/footer themselves
       const renderedBody = await this.engine.parseAndRender(dbTemplate.body, context);
-      // Embed the rendered body into the default layout
-      const html = await this.engine.parseAndRender(this.defaultLayoutTemplate, { ...context, content: renderedBody });
+      // Ensure the output is a complete HTML document for email clients
+      const html = this.wrapInHtmlDocument(renderedBody, renderedSubject);
       
       return {
         subject: renderedSubject,
@@ -497,7 +591,6 @@ class MailService {
 
     try {
       const customContext: Record<string, any> = {};
-      let logo_type = "file";
       let useTenantSettings = false;
 
       // Get tenant-specific branding if tenantId is provided
@@ -513,9 +606,8 @@ class MailService {
 
           if (tenantBranding.logo_url) {
             customContext.logo_url = tenantBranding.logo_url;
-            logo_type = "url";
-          } else {
-            customContext.logo_url = "cid:logo";
+          } else if (this.logoDataUri) {
+            customContext.logo_url = this.logoDataUri;
           }
           useTenantSettings = true;
         } catch (error: any) {
@@ -536,9 +628,8 @@ class MailService {
 
         if (settings?.email_icon && settings?.project_url) {
           customContext.logo_url = settings.project_url + "/assets/email_icon";
-          logo_type = "url";
-        } else {
-          customContext.logo_url = "cid:logo";
+        } else if (this.logoDataUri) {
+          customContext.logo_url = this.logoDataUri;
         }
 
         if (settings?.project_color) {
@@ -568,14 +659,6 @@ class MailService {
         html,
         attachments: attachments || [],
       };
-
-      if (this.logo && logo_type === "file") {
-        mailOptions.attachments!.push({
-          filename: "logo.png",
-          content: this.logo,
-          cid: "logo",
-        });
-      }
 
       const info = await transporter.sendMail(mailOptions);
       console.log(`Message sent via ${finalSender}: ${info.messageId}`);

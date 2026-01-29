@@ -1,5 +1,29 @@
 # @baasix/baasix
 
+## 0.1.12
+
+### Patch Changes
+
+- Fixed logo issues
+
+## 0.1.11
+
+### Patch Changes
+
+- Fix for multiple body tags in email.
+
+## 0.1.10
+
+### Patch Changes
+
+- Exported more utils and added html wrapper for emails.
+
+## 0.1.9
+
+### Patch Changes
+
+- Fixed mail template adding header and footer by default issue
+
 ## 0.1.8
 
 ### Patch Changes

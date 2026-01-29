@@ -17,14 +17,25 @@
 // Note: Individual utility files re-export their types from ../types for backward compatibility
 // For direct type imports, prefer importing from '@/types' or '../types'
 
-// Database connection utilities
+// ============================================================================
+// DATABASE UTILITIES (for extensions)
+// ============================================================================
 export {
   initializeDatabase,
+  initializeDatabaseWithCache,
   getDatabase,
   getSqlClient,
+  getReadSqlClient,
   testConnection,
-  closeDatabase
+  closeDatabase,
+  createTransaction,
+  getInstanceId,
+  getPostgresVersion,
+  isPgVersionAtLeast,
+  db,
+  sqlClient,
 } from './db.js';
+export type { TransactionClient, Transaction } from './db.js';
 
 // Environment utilities
 export { default as env } from './env.js';
@@ -49,6 +60,60 @@ export * from './orderUtils.js';
 // @ts-expect-error - applyFullTextSearch is exported from both queryBuilder and aggregationUtils with different signatures
 export * from './aggregationUtils.js';
 export * from './relationLoader.js';
+
+// ============================================================================
+// PATH & DIRECTORY UTILITIES (for extensions)
+// ============================================================================
+export {
+  getBaasixRoot,
+  getBaasixPath,
+  getProjectDir,
+  getProjectPath,
+  toFileURL,
+  isCommonJS,
+} from './dirname.js';
+
+// ============================================================================
+// CACHE UTILITIES (for extensions)
+// ============================================================================
+export {
+  initializeCache,
+  getCache,
+  closeCache,
+} from './cache.js';
+export type { CacheInterface } from './cache.js';
+
+// ============================================================================
+// TENANT UTILITIES (for multi-tenant extensions)
+// ============================================================================
+export {
+  shouldEnforceTenantContext,
+  supportsPublicAccess,
+  buildTenantFilter,
+  enforceTenantContext,
+  validateTenantContext,
+} from './tenantUtils.js';
+
+// ============================================================================
+// AUTH UTILITIES (for extensions needing auth context)
+// ============================================================================
+// Note: Some auth exports like validateSessionLimits and JWTPayload are in auth/index.js
+// to avoid duplicate exports, we only export utils-specific auth functions here
+export {
+  verifyJWT,
+  generateJWT,
+  getRolesAndPermissions,
+  getUserRolesPermissionsAndTenant,
+  extractTokenFromHeader,
+  getPublicRole,
+  authMiddleware,
+  isAdmin,
+  adminOnly,
+  createSession,
+  validateSession,
+  generateToken,
+} from './auth.js';
+export type { UserWithRolesAndPermissions } from './auth.js';
 
 // ============================================================================
 // NEW UTILITIES FOR 100% SEQUELIZE PARITY
@@ -130,40 +195,89 @@ export {
   invalidateSettingsCacheAfterImport,
 } from './common.js';
 
+// Dynamic Variable Resolver (for resolving variables in workflows/filters)
+export { resolveDynamicVariables } from './dynamicVariableResolver.js';
+
 /**
- * USAGE EXAMPLES
- * ==============
+ * USAGE EXAMPLES FOR EXTENSIONS
+ * ==============================
  * 
- * 1. SPATIAL OPERATIONS:
- *    import { spatialUtils } from '@/utils';
+ * 1. DATABASE OPERATIONS:
+ *    import { db, sqlClient, getDatabase, createTransaction } from 'baasix';
+ *    
+ *    // Raw SQL query
+ *    const results = await sqlClient`SELECT * FROM users WHERE active = true`;
+ *    
+ *    // Using transaction
+ *    const tx = await createTransaction();
+ *    try {
+ *      await tx.insert(table).values(data);
+ *      await tx.commit();
+ *    } catch (error) {
+ *      await tx.rollback();
+ *    }
+ * 
+ * 2. PATH UTILITIES:
+ *    import { getBaasixPath, getProjectPath } from 'baasix';
+ *    const templatePath = getBaasixPath('templates', 'email.liquid');
+ *    const extensionPath = getProjectPath('extensions', 'my-plugin');
+ * 
+ * 3. CACHE OPERATIONS:
+ *    import { getCache } from 'baasix';
+ *    const cache = getCache();
+ *    await cache.set('my-key', value, 3600); // 1 hour TTL
+ *    const cached = await cache.get('my-key');
+ * 
+ * 4. TENANT UTILITIES (Multi-tenant mode):
+ *    import { shouldEnforceTenantContext, buildTenantFilter } from 'baasix';
+ *    if (await shouldEnforceTenantContext(service)) {
+ *      const filter = buildTenantFilter('orders', tenantId);
+ *    }
+ * 
+ * 5. AUTH UTILITIES:
+ *    import { verifyJWT, getRolesAndPermissions } from 'baasix';
+ *    const decoded = verifyJWT(token);
+ *    const { role, permissions } = await getRolesAndPermissions(roleId);
+ * 
+ * 6. SPATIAL OPERATIONS:
+ *    import { spatialUtils } from 'baasix';
  *    const point = spatialUtils.pointToGeometry(-122.4194, 37.7749);
  *    const nearby = spatialUtils.dwithin('location', point, 1000, true);
  * 
- * 2. FIELD UTILITIES:
- *    import { fieldUtils } from '@/utils';
+ * 7. FIELD UTILITIES:
+ *    import { fieldUtils } from 'baasix';
  *    const fields = fieldUtils.getFlattenedFields('users');
  *    const validation = fieldUtils.validateRequiredFields('users', data);
  * 
- * 3. IMPORT/EXPORT:
- *    import { importUtils } from '@/utils';
+ * 8. IMPORT/EXPORT:
+ *    import { importUtils } from 'baasix';
  *    const data = importUtils.parseCSV(fileBuffer);
  *    const csv = importUtils.exportToCSV(users, ['id', 'email']);
  * 
- * 4. SCHEMA VALIDATION:
- *    import { schemaValidator } from '@/utils';
+ * 9. SCHEMA VALIDATION:
+ *    import { schemaValidator } from 'baasix';
  *    const result = schemaValidator.validateSchemaBeforeCreate('users', schema);
  * 
- * 5. CACHED OPERATIONS:
- *    import { dbCache } from '@/utils';
- *    const users = await dbCache.findAll_Cached('users', { limit: 10 });
+ * 10. CACHED OPERATIONS:
+ *     import { getCacheService } from 'baasix';
+ *     const cacheService = getCacheService();
  * 
- * 6. DATABASE SEEDING:
- *    import { seedUtility } from '@/utils';
- *    await seedUtility.seedCollection({ collection: 'users', data: [...] });
+ * 11. DATABASE SEEDING:
+ *     import { seedUtility } from 'baasix';
+ *     await seedUtility.seedCollection({ collection: 'users', data: [...] });
  * 
- * 7. WORKFLOW ACCESS CONTROL:
- *    import { checkWorkflowRoleAccess, fetchWorkflowForExecution } from '@/utils';
- *    const workflow = await fetchWorkflowForExecution(workflowId, true);
- *    const hasAccess = checkWorkflowRoleAccess(workflow, req.accountability);
+ * 12. WORKFLOW ACCESS CONTROL:
+ *     import { checkWorkflowRoleAccess, fetchWorkflowForExecution } from 'baasix';
+ *     const workflow = await fetchWorkflowForExecution(workflowId, true);
+ *     const hasAccess = checkWorkflowRoleAccess(workflow, req.accountability);
+ * 
+ * 13. ENVIRONMENT VARIABLES:
+ *     import { env } from 'baasix';
+ *     const dbUrl = env.get('DATABASE_URL');
+ *     const isMultiTenant = env.get('MULTI_TENANT') === 'true';
+ * 
+ * 14. ERROR HANDLING:
+ *     import { APIError } from 'baasix';
+ *     throw new APIError('Not found', 404);
  */
 

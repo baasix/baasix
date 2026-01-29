@@ -1,7 +1,19 @@
 // Import from the installed package
-import { APIError } from "@baasix/baasix";
+import { APIError, MailService } from "@baasix/baasix";
 
 const registerEndpoint = (app, context) => {
+
+  app.get("/sendmail", async (req, res) => {
+    await MailService.sendMail({
+      to: "vivekpalanisamy@gmail.com",
+      subject: "Test Email from Baasix",
+      templateName:"test"
+    });
+
+    res.json({ message: "Email sent successfully" });
+
+  });
+
   app.get("/user-info", async (req, res, next) => {
     try {
       // Check if user is authenticated

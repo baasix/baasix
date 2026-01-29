@@ -1,6 +1,6 @@
 {
     "name": "@baasix/baasix",
-    "version": "0.1.8",
+    "version": "0.1.12",
     "description": "Baasix - Backend-as-a-Service with 40+ tools for schema management, CRUD operations with 50+ filter operators, relationships, permissions, files, workflows, and more",
     "main": "dist/index.js",
     "type": "module",
@@ -39,9 +39,9 @@
         "access": "public"
     },
     "dependencies": {
-        "@baasix/types": "*",
         "@aws-sdk/client-s3": "^3.645.0",
         "@aws-sdk/s3-request-presigner": "^3.645.0",
+        "@baasix/types": "*",
         "@keyv/redis": "^2.8.5",
         "@modelcontextprotocol/sdk": "^1.25.3",
         "@socket.io/redis-adapter": "^8.3.0",
@@ -65,6 +65,7 @@
         "ioredis": "^5.4.1",
         "joi": "^17.13.3",
         "jsonwebtoken": "^9.0.2",
+        "juice": "^11.1.0",
         "liquidjs": "^10.16.3",
         "lodash": "^4.17.21",
         "mime-types": "^2.1.35",
