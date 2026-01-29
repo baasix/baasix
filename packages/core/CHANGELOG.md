@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.13
+
+### Patch Changes
+
+- Security vulnerability fixed for invalid readone dats
+
 ## 0.1.12
 
 ### Patch Changes

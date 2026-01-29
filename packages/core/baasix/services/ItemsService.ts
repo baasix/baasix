@@ -101,9 +101,17 @@ export class ItemsService {
 
   /**
    * Parse ID to correct type (string or number)
+   * SECURITY: Rejects objects to prevent empty WHERE clause attacks
    */
-  private parseId(id: string | number): string | number {
-    return isNaN(Number(id)) ? id : parseInt(String(id));
+  private parseId(id: string | number): string | number | null {
+    // SECURITY: Reject objects - passing an object as ID would create
+    // an empty WHERE clause and return the first row!
+    if (typeof id === 'object' || id === null || id === undefined) {
+      console.error('Security: parseId received invalid type:', typeof id);
+      return null;
+    }
+    
+    return isNaN(Number(id)) ? String(id) : parseInt(String(id));
   }
 
   /**

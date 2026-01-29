@@ -238,17 +238,46 @@ ${contentWithoutStyles}
     // Use juice to inline CSS for Gmail compatibility
     // This converts <style> rules to inline style attributes
     try {
-      return juice(fullHtml, {
+      // Sanitize HTML/CSS - fix problematic patterns that juice can't handle
+      let sanitizedHtml = fullHtml
+        // Fix GrapesJS malformed style pattern: style="text-align:" center";" -> style="text-align: center;"
+        // This handles the specific pattern where quotes are broken around the value
+        .replace(/style="([^":]*):\s*"\s*([^"]+)\s*";\s*"/gi, 'style="$1: $2;"')
+        // Fix another variant: style="property:" value";"" (double ending quotes)
+        .replace(/style="([^":]*):\s*"\s*([^"]+)\s*";"\s*"/gi, 'style="$1: $2;"')
+        // Generic fix for any remaining broken style quotes - multiple quote issues
+        .replace(/style="([^"]*)"([^"]*)"([^"]*)"/gi, (match, p1, p2, p3) => {
+          // Reconstruct: remove the middle quotes
+          return `style="${p1}${p2}${p3}"`;
+        })
+        // Remove CSS comments that might cause issues
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        // Remove @charset declarations
+        .replace(/@charset[^;]+;/gi, '')
+        // Remove @import declarations (not supported in email anyway)
+        .replace(/@import[^;]+;/gi, '')
+        // Remove empty style declarations like "property: ;"
+        .replace(/[a-z-]+\s*:\s*;/gi, '')
+        // Remove empty rule blocks
+        .replace(/[^{}]+\{\s*\}/g, '')
+        // Fix double semicolons
+        .replace(/;;+/g, ';')
+        // Move misplaced <style> tags that are between </head> and <body> into the head
+        .replace(/<\/head>\s*(<style[^>]*>[\s\S]*?<\/style>)\s*<body/gi, '$1</head><body');
+
+      return juice(sanitizedHtml, {
         preserveImportant: true,
         preserveMediaQueries: true,
         preserveFontFaces: true,
         applyStyleTags: true,
         removeStyleTags: false, // Keep style tags for clients that support them
         insertPreservedExtraCss: true,
+        extraCss: '', // Ensure no extra CSS that could cause issues
       });
     } catch (error) {
-      console.error('Error inlining CSS with juice:', error);
-      return fullHtml; // Return without inlining if juice fails
+      console.warn('Warning: Could not inline CSS with juice, email may not display correctly in Gmail:', (error as Error).message);
+      // Return without inlining - still functional, just won't work in Gmail
+      return fullHtml;
     }
   }
 

@@ -5,6 +5,7 @@
  */
 
 import argon2 from "argon2";
+import env from "../utils/env.js";
 import type {
   AuthAdapter,
   AuthOptions,
@@ -173,6 +174,38 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     providers,
     session: null,
   };
+  
+  // Helper to send welcome email to new users
+  async function sendWelcomeEmail(user: User, tenantId?: string | null) {
+    const sendWelcomeEmail = env.get("SEND_WELCOME_EMAIL") === "true";
+    if (!sendWelcomeEmail || !user.email) return;
+    
+    try {
+      // Lazy import to avoid circular dependency
+      const mailServiceModule = await import("../services/MailService.js");
+      const mailService = mailServiceModule.default;
+      
+      const appUrl = env.get("AUTH_APP_URL")?.split(",")[0] || "http://localhost:3000";
+      const customSubject = env.get("WELCOME_EMAIL_SUBJECT");
+      
+      await mailService.sendMail({
+        to: user.email,
+        subject: customSubject || "Welcome!",
+        templateName: "welcome",
+        context: {
+          name: user.firstName || user.email.split("@")[0],
+          email: user.email,
+          loginUrl: `${appUrl}/login`,
+        },
+        tenantId: tenantId || undefined,
+      });
+      
+      console.log(`Welcome email sent to ${user.email}`);
+    } catch (error) {
+      // Don't fail user creation if welcome email fails
+      console.error("Failed to send welcome email:", error);
+    }
+  }
   
   // Helper to get role and permissions
   async function getUserRoleAndPermissions(userId: string, tenantId?: string | null) {
@@ -345,6 +378,9 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       if (options.hooks?.onSignUp) {
         await options.hooks.onSignUp(user, account);
       }
+      
+      // Send welcome email (async, non-blocking)
+      sendWelcomeEmail(user, tenantId);
       
       // Check if email verification is required
       const requireEmailVerification = options.emailAndPassword?.requireEmailVerification === true;
@@ -551,6 +587,9 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         if (options.hooks?.onSignUp) {
           await options.hooks.onSignUp(user, account);
         }
+        
+        // Send welcome email for new OAuth users (async, non-blocking)
+        sendWelcomeEmail(user, null);
       }
       
       return createAuthResponse(user);
@@ -719,10 +758,22 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     },
     
     // Generate Token for User (for extensions)
-    async generateTokenForUser(userId, options = {}) {
+    // Accepts either a userId string or a User object
+    async generateTokenForUser(userOrId: string | User, options: { tenantId?: string | null; sessionType?: string; ipAddress?: string | null; userAgent?: string | null } = {}) {
       const { tenantId = null, sessionType = "default", ipAddress = null, userAgent = null } = options;
 
-      const user = await adapter.findUserById(userId);
+      let user: User | null;
+      
+      if (typeof userOrId === 'string') {
+        // It's a userId - fetch the user
+        user = await adapter.findUserById(userOrId);
+      } else if (userOrId && typeof userOrId === 'object' && 'id' in userOrId) {
+        // It's a User object - use directly
+        user = userOrId as User;
+      } else {
+        throw new Error("Invalid argument: expected userId (string) or User object");
+      }
+
       if (!user) {
         throw new Error("User not found");
       }
