@@ -3210,7 +3210,7 @@ export class ItemsService {
   /**
    * Convert date string fields to Date objects for DateTime/Timestamp fields
    * This is needed because Drizzle expects Date objects for timestamp columns
-   * Note: Date type (date-only) expects strings, not Date objects
+   * Note: Date type (date-only) and Time types expect strings, not Date objects
    */
   private async convertDateFields(
     data: Record<string, any>,
@@ -3239,6 +3239,28 @@ export class ItemsService {
             data[fieldName] = dateValue;
           }
         }
+      }
+      
+      // For Date type (date-only), convert Date objects to ISO date strings (YYYY-MM-DD)
+      // PostgreSQL DATE columns expect string values, not Date objects
+      if (
+        fieldConfig.type === 'Date' &&
+        data[fieldName] !== undefined &&
+        data[fieldName] !== null &&
+        data[fieldName] instanceof Date
+      ) {
+        data[fieldName] = data[fieldName].toISOString().split('T')[0];
+      }
+      
+      // For Time/Time_NO_TZ types, convert Date objects to time strings (HH:MM:SS)
+      // PostgreSQL TIME columns expect string values, not Date objects
+      if (
+        (fieldConfig.type === 'Time' || fieldConfig.type === 'Time_NO_TZ') &&
+        data[fieldName] !== undefined &&
+        data[fieldName] !== null &&
+        data[fieldName] instanceof Date
+      ) {
+        data[fieldName] = data[fieldName].toISOString().split('T')[1].split('.')[0];
       }
     }
   }

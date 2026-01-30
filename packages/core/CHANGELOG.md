@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.14
+
+### Patch Changes
+
+- Fixed date type mismatch issue.
+
 ## 0.1.13
 
 ### Patch Changes

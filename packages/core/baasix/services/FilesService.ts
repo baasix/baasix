@@ -97,7 +97,9 @@ class FilesService {
 
       // Update the entry with full file details
       // Using Drizzle instead of Sequelize
-      await this.itemService.updateOne(uniqueid, fileDetails);
+      // Bypass permissions since user already passed create permission check
+      // and this is an internal update to the record they just created
+      await this.itemService.updateOne(uniqueid, fileDetails, { bypassPermissions: true });
 
       // Clean up temp file
       await fs.unlink(tempPath);
@@ -105,8 +107,9 @@ class FilesService {
       return uniqueid;
     } catch (error) {
       // If an error occurs, attempt to delete the temporary entry
+      // Bypass permissions since this is cleanup for a failed create operation
       if (uniqueid) {
-        await this.itemService.deleteOne(uniqueid).catch(console.error);
+        await this.itemService.deleteOne(uniqueid, { bypassPermissions: true }).catch(console.error);
       }
       throw error;
     }
