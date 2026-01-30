@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.16
+
+### Patch Changes
+
+- Fixed missing accountability fields
+
 ## 0.1.15
 
 ### Patch Changes

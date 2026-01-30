@@ -14,6 +14,7 @@ import { getCache } from "./cache.js";
 import { eq, and } from "drizzle-orm";
 import { schemaManager } from "./schemaManager.js";
 import { permissionService } from '../services/PermissionService.js';
+import fieldUtils from "./fieldUtils.js";
 import type { JWTPayload, UserWithRolesAndPermissions } from '../types/index.js';
 
 // Re-export types for backward compatibility
@@ -338,9 +339,9 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
     // Verify JWT token
     const payload = jwt.verify(token, env.get("SECRET_KEY") as string) as JWTPayload;
 
-    // Validate session
-    const session = await validateSession(payload.sessionToken, payload.tenant_Id?.toString() || null);
-    if (!session) {
+    // Validate session and get user in one query
+    const sessionResult = await validateSession(payload.sessionToken, payload.tenant_Id?.toString() || null);
+    if (!sessionResult) {
       // Session invalid/expired - fall back to public access instead of returning error
       // This allows public routes to work even with expired cookies
       const publicRole = await getPublicRole();
@@ -354,67 +355,46 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
       return next();
     }
 
+    const { user } = sessionResult;
+
     // Get dynamically created tables from schema manager
-    const userTable = schemaManager.getTable("baasix_User");
     const userRoleTable = schemaManager.getTable("baasix_UserRole");
     const permissionTable = schemaManager.getTable("baasix_Permission");
 
-    // Get user details with role
-    let users;
+    // Get user's role assignment
+    let userRoles;
     if (payload.tenant_Id !== undefined && payload.tenant_Id !== null) {
-      users = await db
+      userRoles = await db
         .select({
-          id: userTable.id,
-          email: userTable.email,
-          firstName: userTable.firstName,
-          lastName: userTable.lastName,
           role_Id: userRoleTable.role_Id,
           tenant_Id: userRoleTable.tenant_Id,
         })
-        .from(userTable)
-        .leftJoin(userRoleTable, eq(userTable.id, userRoleTable.user_Id))
+        .from(userRoleTable)
         .where(and(
-          eq(userTable.id, payload.id),
+          eq(userRoleTable.user_Id, user.id),
           eq(userRoleTable.tenant_Id, payload.tenant_Id)
         ))
         .limit(1);
     } else {
-      users = await db
+      userRoles = await db
         .select({
-          id: userTable.id,
-          email: userTable.email,
-          firstName: userTable.firstName,
-          lastName: userTable.lastName,
           role_Id: userRoleTable.role_Id,
           tenant_Id: userRoleTable.tenant_Id,
         })
-        .from(userTable)
-        .leftJoin(userRoleTable, eq(userTable.id, userRoleTable.user_Id))
-        .where(eq(userTable.id, payload.id))
+        .from(userRoleTable)
+        .where(eq(userRoleTable.user_Id, user.id))
         .limit(1);
     }
 
-    if (!users || users.length === 0) {
-      const publicRole = await getPublicRole();
-      req.accountability = {
-        user: null,
-        role: publicRole,
-        tenant: null,
-        permissions: [],
-        ipaddress: req.ip || req.connection?.remoteAddress,
-      };
-      return next();
-    }
-
-    const user = users[0];
+    const userRole = userRoles?.[0];
 
     // Get role and permissions from cache or database
     let role: any = { id: null, name: "user", isTenantSpecific: false };
     let permissions: any[] = [];
 
-    if (user.role_Id) {
+    if (userRole?.role_Id) {
       try {
-        const roleData = await getRolesAndPermissions(user.role_Id);
+        const roleData = await getRolesAndPermissions(userRole.role_Id);
         role = {
           id: roleData.id,
           name: roleData.name,
@@ -423,7 +403,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
         permissions = Object.values(roleData.permissions);
       } catch {
         // Fallback: use PermissionService hybrid cache for role
-        const cachedRole = await permissionService.getRoleByIdAsync(user.role_Id);
+        const cachedRole = await permissionService.getRoleByIdAsync(userRole.role_Id);
         if (cachedRole) {
           role = {
             id: cachedRole.id,
@@ -436,25 +416,25 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
         permissions = await db
           .select()
           .from(permissionTable)
-          .where(eq(permissionTable.role_Id, user.role_Id));
+          .where(eq(permissionTable.role_Id, userRole.role_Id));
       }
     }
 
     // Calculate isAdmin based on role name
     const isAdmin = role.name === 'administrator';
 
-    // Set accountability object
+    // Strip hidden fields (like password) from user object
+    const sanitizedUser = fieldUtils.stripHiddenFields('baasix_User', user);
+
+    // Set accountability object with all user fields
     req.accountability = {
       user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+        ...sanitizedUser,
         isAdmin: isAdmin,
         role: role.name,
       } as any,
       role: role as any,
-      tenant: user.tenant_Id || null,
+      tenant: userRole?.tenant_Id || null,
       permissions: permissions || [],
       ipaddress: req.ip || req.connection?.remoteAddress,
     };
@@ -530,12 +510,14 @@ export async function createSession(
 export async function validateSession(
   token: string,
   expectedTenantId: string | null = null
-): Promise<any> {
+): Promise<{ session: any; user: any } | null> {
   const ItemsService = await getItemsService();
   const sessionService = new ItemsService('baasix_Sessions');
 
+  // Fetch session with user relation to get all user fields in one query
   const sessions = await sessionService.readByQuery({
     filter: { token: { eq: token } },
+    fields: ['*', 'user.*'],
     limit: 1,
   });
 
@@ -557,7 +539,18 @@ export async function validateSession(
     console.warn(`Session tenant mismatch: expected ${expectedTenantId}, got ${session.tenant_Id}`);
   }
 
-  return session;
+  // Get user - either from populated relation or fetch separately
+  let user = session.user;
+  if (!user || typeof user === 'string') {
+    const userService = new ItemsService('baasix_User');
+    user = await userService.readOne(session.user_Id);
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return { session, user };
 }
 
 /**
