@@ -130,7 +130,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   app.post(`${basePath}/register`, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, authMode = "jwt" } = req.body;
+      const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, authMode = "jwt", ...customFields } = req.body;
 
       if (!email || !password || !firstName) {
         return res.status(400).json({ message: "Email, password, and firstName are required" });
@@ -150,6 +150,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         inviteToken,
         ipAddress,
         userAgent,
+        ...customFields,
       });
       
       // Check if email verification is required

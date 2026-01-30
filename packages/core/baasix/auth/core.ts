@@ -279,7 +279,7 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     
     // Email/Password Sign Up
     async signUp(input) {
-      const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, ipAddress, userAgent } = input;
+      const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, ipAddress, userAgent, ...customFields } = input;
       
       // Validate email and password are enabled
       if (options.emailAndPassword?.enabled === false) {
@@ -331,7 +331,7 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         }
       }
       
-      // Create user and credential account
+      // Create user and credential account with custom fields
       const { user, account } = await credentialProvider.signUp({
         adapter,
         email,
@@ -339,6 +339,7 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         firstName,
         lastName,
         phone,
+        customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
       });
       
       // Get role to assign if not from invite

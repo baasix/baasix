@@ -53,6 +53,8 @@ export interface CredentialProvider {
     firstName: string;
     lastName?: string;
     phone?: string;
+    /** Custom fields to be added to the user */
+    customFields?: Record<string, any>;
   }): Promise<{ user: User; account: Account }>;
   
   /**
@@ -113,7 +115,7 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
       return options.verifyPassword({ password, hash });
     },
 
-    async signUp({ adapter, email, password, firstName, lastName, phone }) {
+    async signUp({ adapter, email, password, firstName, lastName, phone, customFields }) {
       // Validate password
       const validation = this.validatePassword(password);
       if (!validation.valid) {
@@ -129,7 +131,7 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
       // Hash password
       const hashedPassword = await this.hashPassword(password);
 
-      // Create user
+      // Create user with custom fields
       const user = await adapter.createUser({
         email: email.toLowerCase(),
         emailVerified: false,
@@ -137,6 +139,7 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
         lastName: lastName || null,
         phone: phone || null,
         status: "active",
+        ...customFields,
       });
 
       // Create credential account

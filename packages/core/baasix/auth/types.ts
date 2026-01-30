@@ -331,6 +331,8 @@ export interface SignUpEmailInput {
   inviteToken?: string;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** Custom fields to be added to the user */
+  [key: string]: any;
 }
 
 export interface SignInEmailInput {
