@@ -2,7 +2,6 @@ import env from "../utils/env.js";
 import nodemailer from "nodemailer";
 import { Liquid } from "liquidjs";
 import fs from "fs";
-import juice from "juice";
 import settingsService from "./SettingsService.js";
 import type { MailOptions, SenderConfig, TenantTransporter } from '../types/index.js';
 import { getBaasixPath, getProjectPath } from "../utils/dirname.js";
@@ -180,9 +179,6 @@ class MailService {
 
   /**
    * Wrap body content in a minimal HTML document structure if it's not already a complete document.
-   * Also inlines CSS for Gmail compatibility using juice.
-   * 
-   * Gmail strips <style> tags, so we must inline all CSS onto elements.
    */
   private wrapInHtmlDocument(body: string, subject: string): string {
     const trimmedBody = body.trim();
@@ -191,24 +187,23 @@ class MailService {
     const hasDoctype = trimmedBody.toLowerCase().startsWith('<!doctype');
     const hasHtmlTag = /<html[\s>]/i.test(trimmedBody);
     
-    let fullHtml: string;
-    
     if (hasDoctype || hasHtmlTag) {
-      // Already a complete document, just inline the CSS
-      fullHtml = body;
-    } else {
-      // Extract <style> tags to put in <head>
-      const styleRegex = /<style[^>]*>[\s\S]*?<\/style>/gi;
-      const styleMatches = trimmedBody.match(styleRegex) || [];
-      const stylesForHead = styleMatches.join('\n');
-      const contentWithoutStyles = trimmedBody.replace(styleRegex, '').trim();
-      
-      // Check if content has <body> tag anywhere
-      const hasBodyTag = /<body[\s>]/i.test(contentWithoutStyles);
-      
-      if (hasBodyTag) {
-        // Has body tag - wrap with html structure, put styles in head
-        fullHtml = `<!DOCTYPE html>
+      // Already a complete document
+      return body;
+    }
+    
+    // Extract <style> tags to put in <head>
+    const styleRegex = /<style[^>]*>[\s\S]*?<\/style>/gi;
+    const styleMatches = trimmedBody.match(styleRegex) || [];
+    const stylesForHead = styleMatches.join('\n');
+    const contentWithoutStyles = trimmedBody.replace(styleRegex, '').trim();
+    
+    // Check if content has <body> tag anywhere
+    const hasBodyTag = /<body[\s>]/i.test(contentWithoutStyles);
+    
+    if (hasBodyTag) {
+      // Has body tag - wrap with html structure, put styles in head
+      return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -218,9 +213,10 @@ class MailService {
 </head>
 ${contentWithoutStyles}
 </html>`;
-      } else {
-        // No body tag - wrap content in body, put styles in head
-        fullHtml = `<!DOCTYPE html>
+    }
+    
+    // No body tag - wrap content in body, put styles in head
+    return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -232,53 +228,6 @@ ${contentWithoutStyles}
 ${contentWithoutStyles}
 </body>
 </html>`;
-      }
-    }
-    
-    // Use juice to inline CSS for Gmail compatibility
-    // This converts <style> rules to inline style attributes
-    try {
-      // Sanitize HTML/CSS - fix problematic patterns that juice can't handle
-      let sanitizedHtml = fullHtml
-        // Fix GrapesJS malformed style pattern: style="text-align:" center";" -> style="text-align: center;"
-        // This handles the specific pattern where quotes are broken around the value
-        .replace(/style="([^":]*):\s*"\s*([^"]+)\s*";\s*"/gi, 'style="$1: $2;"')
-        // Fix another variant: style="property:" value";"" (double ending quotes)
-        .replace(/style="([^":]*):\s*"\s*([^"]+)\s*";"\s*"/gi, 'style="$1: $2;"')
-        // Generic fix for any remaining broken style quotes - multiple quote issues
-        .replace(/style="([^"]*)"([^"]*)"([^"]*)"/gi, (match, p1, p2, p3) => {
-          // Reconstruct: remove the middle quotes
-          return `style="${p1}${p2}${p3}"`;
-        })
-        // Remove CSS comments that might cause issues
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        // Remove @charset declarations
-        .replace(/@charset[^;]+;/gi, '')
-        // Remove @import declarations (not supported in email anyway)
-        .replace(/@import[^;]+;/gi, '')
-        // Remove empty style declarations like "property: ;"
-        .replace(/[a-z-]+\s*:\s*;/gi, '')
-        // Remove empty rule blocks
-        .replace(/[^{}]+\{\s*\}/g, '')
-        // Fix double semicolons
-        .replace(/;;+/g, ';')
-        // Move misplaced <style> tags that are between </head> and <body> into the head
-        .replace(/<\/head>\s*(<style[^>]*>[\s\S]*?<\/style>)\s*<body/gi, '$1</head><body');
-
-      return juice(sanitizedHtml, {
-        preserveImportant: true,
-        preserveMediaQueries: true,
-        preserveFontFaces: true,
-        applyStyleTags: true,
-        removeStyleTags: false, // Keep style tags for clients that support them
-        insertPreservedExtraCss: true,
-        extraCss: '', // Ensure no extra CSS that could cause issues
-      });
-    } catch (error) {
-      console.warn('Warning: Could not inline CSS with juice, email may not display correctly in Gmail:', (error as Error).message);
-      // Return without inlining - still functional, just won't work in Gmail
-      return fullHtml;
-    }
   }
 
   /**
