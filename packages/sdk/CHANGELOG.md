@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.6
+
+### Patch Changes
+
+- Fixed refresh api not working with cookie mode
+
 ## 0.1.5
 
 ### Patch Changes

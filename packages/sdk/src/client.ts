@@ -128,7 +128,11 @@ export class HttpClient {
               "Content-Type": "application/json",
               ...this.config.headers,
             },
-            body: this.config.authMode === "jwt" ? JSON.stringify({ refreshToken }) : undefined,
+            body: JSON.stringify(
+              this.config.authMode === "jwt"
+                ? { refreshToken, authMode: "jwt" }
+                : { authMode: "cookie" }
+            ),
             credentials: this.config.credentials,
           }
         );

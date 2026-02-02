@@ -344,7 +344,9 @@ export class AuthModule {
 
     const response = await this.client.post<AuthResponse>(
       "/auth/refresh",
-      this.authMode === "jwt" ? { refreshToken } : undefined
+      this.authMode === "jwt"
+        ? { refreshToken, authMode: "jwt" }
+        : { authMode: "cookie" }
     );
 
     await this.storeTokens(response);
