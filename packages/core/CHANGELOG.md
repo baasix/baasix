@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.18
+
+### Patch Changes
+
+- Fixed minor bugs and new email template editor.
+
 ## 0.1.17
 
 ### Patch Changes

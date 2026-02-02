@@ -959,7 +959,7 @@ AVAILABLE VARIABLES:
                                 },
                                 body: {
                                     type: "string",
-                                    description: "Template body as HTML string or GrapesJS project JSON",
+                                    description: "Template body as HTML string with Liquid variables",
                                 },
                                 isActive: {
                                     type: "boolean",

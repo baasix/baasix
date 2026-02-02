@@ -45,7 +45,7 @@
 - **⚡ Real-time Updates** — Socket.IO integration with Redis clustering, plus WAL-based CDC for database changes
 - **🚀 High Performance** — Redis-based caching with configurable TTL
 - **🖥️ CLI Tools** — Project scaffolding, TypeScript type generation, and migration management
-- **✉️ Email Template Designer** — Visual drag-and-drop email template editor with variable placeholders
+- **✉️ Email Template Designer** — Visual email editor with code editing and variable placeholders
 
 ---
 

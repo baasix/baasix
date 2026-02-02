@@ -149,6 +149,14 @@ async function resolveCollectedVariables(
     NOW: {},
   };
 
+  // Resolve NOW variables first (including relative dates) - these don't require accountability
+  for (const nowVariable of Object.keys(variablesToResolve)) {
+    if (nowVariable.startsWith("NOW")) {
+      resolved[nowVariable] = { value: resolveNowVariable(nowVariable) };
+    }
+  }
+
+  // Early return if no accountability - CURRENT_USER and CURRENT_ROLE need user context
   if (!accountability?.user?.id) {
     return resolved;
   }
@@ -200,13 +208,6 @@ async function resolveCollectedVariables(
       }
     } catch (error: any) {
       console.error(`Error resolving role data: ${error.message}`);
-    }
-  }
-
-  // Resolve NOW variables (including relative dates)
-  for (const nowVariable of Object.keys(variablesToResolve)) {
-    if (nowVariable.startsWith("NOW")) {
-      resolved[nowVariable] = { value: resolveNowVariable(nowVariable) };
     }
   }
 

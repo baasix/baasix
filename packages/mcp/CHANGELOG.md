@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.1.4
+
+### Patch Changes
+
+- Fixed minor bugs and new email template editor.
+
 ## 0.1.3
 
 ### Patch Changes

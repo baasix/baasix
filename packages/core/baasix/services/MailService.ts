@@ -305,103 +305,138 @@ ${contentWithoutStyles}
    * These are the built-in templates that are seeded into the database
    */
   getDefaultTemplateContent(templateType: string): { subject: string; body: string; description: string } | null {
+    // Styled email wrapper matching default.liquid design
+    const styledWrapper = (content: string, buttonHtml?: string) => `
+<body style="font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif; font-size: 16px; line-height: 1.6; color: #333; background-color: #f8f8f8; margin: 0; padding: 20px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #fff; border: 1px solid #f0f0f0; border-radius: 5px; box-shadow: 0px 0px 10px 8px #e0e0e0;">
+        <header style="text-align: center; padding: 20px; background-color: {{ project_color | default: '#0066cc' }}; border-radius: 5px 5px 0 0;">
+            {% if logo_url %}<img src="{{ logo_url }}" alt="{{ project_name }}" style="max-width: 200px;">{% else %}<h1 style="color: #fff; margin: 0; font-size: 24px;">{{ project_name }}</h1>{% endif %}
+        </header>
+        <main style="padding: 30px;">
+            ${content}
+            ${buttonHtml || ''}
+        </main>
+        <footer style="text-align: center; padding: 20px; font-size: 12px; color: #888; border-top: 1px solid #f0f0f0;">
+            © {{ "now" | date: "%Y" }} {{ project_name }}. All rights reserved.
+        </footer>
+    </div>
+</body>`;
+
+    const buttonStyle = 'background-color: {{ project_color | default: "#0066cc" }}; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;';
+
     const defaultTemplates: Record<string, { subject: string; body: string; description: string }> = {
       inviteNewUser: {
         subject: "You've been invited to join {{ tenant }}",
-        body: `<h2>Welcome!</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Welcome!</h2>
 <p>Hi,</p>
 <p>You've been invited by <strong>{{ inviterName }}</strong> to join <strong>{{ tenant }}</strong>.</p>
-<p>Click the button below to accept your invitation and create your account:</p>
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{ inviteLink }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Accept Invitation</a>
+<p>Click the button below to accept your invitation and create your account:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <a href="{{ inviteLink }}" style="${buttonStyle}">Accept Invitation</a>
 </p>
-<p><strong>Note:</strong> This invitation will expire on {{ expirationDate }}.</p>
-<p>If you didn't expect this invitation, you can safely ignore this email.</p>`,
+<p style="font-size: 14px; color: #666;"><strong>Note:</strong> This invitation will expire on {{ expirationDate }}.</p>
+<p style="font-size: 14px; color: #888;">If you didn't expect this invitation, you can safely ignore this email.</p>`
+        ),
         description: 'Template for inviting new users who do not have an account yet'
       },
       inviteExistingUser: {
         subject: "You've been invited to join {{ tenant }}",
-        body: `<h2>New Invitation</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">New Invitation</h2>
 <p>Hi,</p>
 <p>You've been invited by <strong>{{ inviterName }}</strong> to join <strong>{{ tenant }}</strong>.</p>
-<p>Since you already have an account, click the button below to accept the invitation:</p>
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{ inviteLink }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Accept Invitation</a>
+<p>Since you already have an account, click the button below to accept the invitation:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <a href="{{ inviteLink }}" style="${buttonStyle}">Accept Invitation</a>
 </p>
-<p><strong>Note:</strong> This invitation will expire on {{ expirationDate }}.</p>
-<p>If you didn't expect this invitation, you can safely ignore this email.</p>`,
+<p style="font-size: 14px; color: #666;"><strong>Note:</strong> This invitation will expire on {{ expirationDate }}.</p>
+<p style="font-size: 14px; color: #888;">If you didn't expect this invitation, you can safely ignore this email.</p>`
+        ),
         description: 'Template for inviting existing users to a new tenant'
       },
       magicLinkUrl: {
         subject: 'Sign in to {{ project_name }}',
-        body: `<h2>Sign In Request</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Sign In Request</h2>
 <p>Hi {{ name }},</p>
-<p>Click the button below to sign in to your account:</p>
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{ magicLinkUrl }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Sign In</a>
+<p>Click the button below to sign in to your account:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <a href="{{ magicLinkUrl }}" style="${buttonStyle}">Sign In</a>
 </p>
-<p>This link will expire in 15 minutes for security purposes.</p>
-<p>If you didn't request this sign-in link, you can safely ignore this email.</p>`,
+<p style="font-size: 14px; color: #666;">This link will expire in 15 minutes for security purposes.</p>
+<p style="font-size: 14px; color: #888;">If you didn't request this sign-in link, you can safely ignore this email.</p>`
+        ),
         description: 'Template for magic link URL authentication'
       },
       magicLinkCode: {
         subject: 'Your sign in code for {{ project_name }}',
-        body: `<h2>Sign In Code</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Sign In Code</h2>
 <p>Hi {{ name }},</p>
-<p>Use the following code to sign in to your account:</p>
-<p style="text-align: center; margin: 30px 0;">
-  <span style="background-color: #f5f5f5; padding: 16px 32px; font-size: 24px; font-family: monospace; letter-spacing: 4px; border-radius: 4px; display: inline-block;">{{ code }}</span>
+<p>Use the following code to sign in to your account:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <span style="background-color: #f5f5f5; padding: 16px 32px; font-size: 28px; font-family: monospace; letter-spacing: 6px; border-radius: 8px; display: inline-block; border: 2px solid #e0e0e0;">{{ code }}</span>
 </p>
-<p>This code will expire in 15 minutes for security purposes.</p>
-<p>If you didn't request this code, you can safely ignore this email.</p>`,
+<p style="font-size: 14px; color: #666;">This code will expire in 15 minutes for security purposes.</p>
+<p style="font-size: 14px; color: #888;">If you didn't request this code, you can safely ignore this email.</p>`
+        ),
         description: 'Template for magic link code authentication'
       },
       passwordReset: {
         subject: 'Reset your password for {{ project_name }}',
-        body: `<h2>Password Reset</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Password Reset</h2>
 <p>Hi {{ name }},</p>
-<p>We received a request to reset your password. Click the button below to choose a new password:</p>
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{ resetUrl }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Reset Password</a>
+<p>We received a request to reset your password. Click the button below to choose a new password:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <a href="{{ resetUrl }}" style="${buttonStyle}">Reset Password</a>
 </p>
-<p>This link will expire in 1 hour for security purposes.</p>
-<p>If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>`,
+<p style="font-size: 14px; color: #666;">This link will expire in 1 hour for security purposes.</p>
+<p style="font-size: 14px; color: #888;">If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>`
+        ),
         description: 'Template for password reset emails'
       },
       emailVerification: {
         subject: 'Verify your email for {{ project_name }}',
-        body: `<h2>Email Verification</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Email Verification</h2>
 <p>Hi {{ name }},</p>
-<p>Please verify your email address by clicking the button below:</p>
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{ verifyUrl }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Verify Email</a>
+<p>Please verify your email address by clicking the button below:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <a href="{{ verifyUrl }}" style="${buttonStyle}">Verify Email</a>
 </p>
-<p>This link will expire in 24 hours.</p>
-<p>If you didn't create an account, you can safely ignore this email.</p>`,
+<p style="font-size: 14px; color: #666;">This link will expire in 24 hours.</p>
+<p style="font-size: 14px; color: #888;">If you didn't create an account, you can safely ignore this email.</p>`
+        ),
         description: 'Template for email verification'
       },
       welcome: {
         subject: 'Welcome to {{ project_name }}!',
-        body: `<h2>Welcome!</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Welcome!</h2>
 <p>Hi {{ name }},</p>
-<p>Thank you for joining {{ project_name }}! We're excited to have you on board.</p>
-<p>Your account has been successfully created and you're ready to get started.</p>
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{ loginUrl }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Get Started</a>
+<p>Thank you for joining <strong>{{ project_name }}</strong>! We're excited to have you on board.</p>
+<p>Your account has been successfully created and you're ready to get started.</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <a href="{{ loginUrl }}" style="${buttonStyle}">Get Started</a>
 </p>
-<p>If you have any questions, feel free to reach out to our support team.</p>`,
+<p style="font-size: 14px; color: #888;">If you have any questions, feel free to reach out to our support team.</p>`
+        ),
         description: 'Template for welcome emails to new users'
       },
       notification: {
         subject: '{{ notification_title }}',
-        body: `<h2>{{ notification_title }}</h2>
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">{{ notification_title }}</h2>
 <p>Hi {{ name }},</p>
-<div>{{ notification_message }}</div>
-{% if action_url %}
+<div style="margin: 20px 0;">{{ notification_message }}</div>`,
+          `{% if action_url %}
 <p style="text-align: center; margin: 30px 0;">
-  <a href="{{ action_url }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">{{ action_text | default: 'View Details' }}</a>
+  <a href="{{ action_url }}" style="${buttonStyle}">{{ action_text | default: 'View Details' }}</a>
 </p>
-{% endif %}`,
+{% endif %}`
+        ),
         description: 'Generic notification template'
       }
     };

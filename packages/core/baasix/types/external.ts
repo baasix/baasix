@@ -58,7 +58,7 @@ export interface SocketWithAuth extends Socket {
  */
 export interface MailOptions {
   to: string;
-  subject: string;
+  subject?: string; // Optional - if not provided, template subject will be used
   templateName: string;
   context: Record<string, any>;
   from?: string;

@@ -190,7 +190,8 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       
       await mailService.sendMail({
         to: user.email,
-        subject: customSubject || "Welcome!",
+        // If WELCOME_EMAIL_SUBJECT env is set, use it as override; otherwise undefined lets the template subject be used
+        ...(customSubject ? { subject: customSubject } : {}),
         templateName: "welcome",
         context: {
           name: user.firstName || user.email.split("@")[0],
