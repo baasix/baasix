@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.19
+
+### Patch Changes
+
+- Fixed sort issue with hasmany fields.
+
 ## 0.1.18
 
 ### Patch Changes

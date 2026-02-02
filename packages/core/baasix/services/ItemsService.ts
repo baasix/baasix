@@ -1043,23 +1043,40 @@ export class ItemsService {
     const tableName = this.collection;
     const pkField = `"${tableName}"."${this.primaryKey}"`;
     const distinctOnFields: string[] = [];
+    
+    // Build a map of field -> direction from query.sort for later ORDER BY
+    const sortDirections: Map<string, string> = new Map();
 
     // Add sort fields from query.sort to DISTINCT ON
-    if (query.sort && Array.isArray(query.sort)) {
-      for (const sortItem of query.sort) {
-        if (typeof sortItem === 'string') {
-          // Simple sort: "fieldName" or "-fieldName"
-          const fieldName = sortItem.startsWith('-') ? sortItem.slice(1) : sortItem;
-          distinctOnFields.push(`"${tableName}"."${fieldName}"`);
-        } else if (typeof sortItem === 'object') {
-          // Object sort: { fieldName: 'asc' }
-          for (const [fieldName, direction] of Object.entries(sortItem)) {
-            if (fieldName.includes('.')) {
-              // Relation path - need to resolve it
-              // For now, skip relations in DISTINCT ON (will fallback to pk only)
-              continue;
+    // Handle both object format { field: 'asc' } and array format ['-field', 'field']
+    if (query.sort) {
+      if (Array.isArray(query.sort)) {
+        // Array format: ['-createdAt', 'name'] or [{ createdAt: 'desc' }]
+        for (const sortItem of query.sort) {
+          if (typeof sortItem === 'string') {
+            // Simple sort: "fieldName" or "-fieldName"
+            const isDesc = sortItem.startsWith('-');
+            const fieldName = isDesc ? sortItem.slice(1) : sortItem;
+            if (!fieldName.includes('.')) {
+              distinctOnFields.push(`"${tableName}"."${fieldName}"`);
+              sortDirections.set(fieldName, isDesc ? 'desc' : 'asc');
             }
+          } else if (typeof sortItem === 'object') {
+            // Object in array: { fieldName: 'asc' }
+            for (const [fieldName, dir] of Object.entries(sortItem)) {
+              if (!fieldName.includes('.')) {
+                distinctOnFields.push(`"${tableName}"."${fieldName}"`);
+                sortDirections.set(fieldName, String(dir).toLowerCase());
+              }
+            }
+          }
+        }
+      } else if (typeof query.sort === 'object') {
+        // Object format: { createdAt: 'desc', name: 'asc' }
+        for (const [fieldName, dir] of Object.entries(query.sort)) {
+          if (!fieldName.includes('.')) {
             distinctOnFields.push(`"${tableName}"."${fieldName}"`);
+            sortDirections.set(fieldName, String(dir).toLowerCase());
           }
         }
       }
@@ -1121,25 +1138,17 @@ export class ItemsService {
     // Apply ORDER BY - must match DISTINCT ON for PostgreSQL
     // We need to ensure ORDER BY starts with the same columns as DISTINCT ON
     if (distinctOnFields.length > 0) {
-      // Build ORDER BY from DISTINCT ON fields
+      // Build ORDER BY from DISTINCT ON fields using sortDirections map built earlier
       const orderByClauses: SQL[] = [];
 
       // Add all DISTINCT ON fields to ORDER BY (in same order)
       for (const field of distinctOnFields) {
-        // Determine direction from original sort if available
-        let direction = 'asc';
-        if (query.sort && Array.isArray(query.sort)) {
-          for (const sortItem of query.sort) {
-            if (typeof sortItem === 'object') {
-              for (const [fieldName, dir] of Object.entries(sortItem)) {
-                if (field.includes(fieldName)) {
-                  direction = String(dir).toLowerCase();
-                  break;
-                }
-              }
-            }
-          }
-        }
+        // Extract field name from quoted format: "tableName"."fieldName"
+        const match = field.match(/"([^"]+)"\.?"([^"]+)"?/);
+        const fieldName = match ? match[2] : field;
+        
+        // Look up direction from sort map (built earlier when processing query.sort)
+        const direction = sortDirections.get(fieldName) || 'asc';
         orderByClauses.push(sql.raw(`${field} ${direction.toUpperCase()}`));
       }
 
