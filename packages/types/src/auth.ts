@@ -179,6 +179,10 @@ export interface LoginCredentials {
   email: string;
   password: string;
   tenantId?: string;
+  /** Authentication mode: 'jwt' for token-based or 'cookie' for cookie-based auth */
+  authMode?: "jwt" | "cookie";
+  /** Authentication type for session management (e.g., 'web', 'mobile', 'default') */
+  authType?: string;
 }
 
 /**

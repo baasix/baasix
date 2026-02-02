@@ -140,7 +140,25 @@ const result = await baasix.auth.login({
   password: 'password123',
   tenantId: 'tenant-uuid',
 });
+
+// With authMode and authType for session management
+const result = await baasix.auth.login({
+  email: 'user@example.com',
+  password: 'password123',
+  authMode: 'cookie', // 'jwt' (default) or 'cookie'
+  authType: 'mobile', // 'web', 'mobile', 'default', etc.
+});
 ```
+
+**Login Options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `email` | string | User's email address (required) |
+| `password` | string | User's password (required) |
+| `tenantId` | string | Tenant ID for multi-tenant mode |
+| `authMode` | `'jwt'` \| `'cookie'` | Authentication mode. Use `'jwt'` for token-based auth (default), `'cookie'` for cookie-based auth |
+| `authType` | string | Session type identifier (e.g., `'web'`, `'mobile'`, `'default'`). Used for session limits and management |
 
 ### Get Current User
 

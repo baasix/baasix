@@ -161,6 +161,14 @@ export class AuthModule {
    *   password: 'password123',
    *   tenantId: 'tenant-uuid'
    * });
+   *
+   * // Login with authMode and authType
+   * const result = await baasix.auth.login({
+   *   email: 'user@example.com',
+   *   password: 'password123',
+   *   authMode: 'cookie', // or 'jwt' (default)
+   *   authType: 'mobile'  // for session management
+   * });
    * ```
    */
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
@@ -170,6 +178,8 @@ export class AuthModule {
         email: credentials.email,
         password: credentials.password,
         tenant_Id: credentials.tenantId,
+        authMode: credentials.authMode,
+        authType: credentials.authType,
       },
       { skipAuth: true }
     );

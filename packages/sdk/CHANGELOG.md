@@ -1,5 +1,13 @@
 # @baasix/sdk
 
+## 0.1.5
+
+### Patch Changes
+
+- Added support for authType in SDK.
+- Updated dependencies
+  - @baasix/types@1.0.3
+
 ## 0.1.4
 
 ### Patch Changes
