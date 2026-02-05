@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.20
+
+### Patch Changes
+
+- Added missing tenant selection in import sheets.
+
 ## 0.1.19
 
 ### Patch Changes
