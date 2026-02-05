@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.21
+
+### Patch Changes
+
+- Minor app fixes
+
 ## 0.1.20
 
 ### Patch Changes
