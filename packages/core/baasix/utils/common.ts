@@ -89,8 +89,9 @@ export function getImportAccountability(req: any, collection?: string): any {
     return accountability;
   } else {
     // Administrators or non-tenant-specific users
-    // They must provide tenant in body for tenant-enabled tables
-    const tenant = req.body?.tenant;
+    // They must provide tenant in body or query for tenant-enabled tables
+    // Check req.body (for JSON/form-data), req.query (for query params)
+    const tenant = req.body?.tenant || req.query?.tenant;
     if (tenant) {
       return {
         ...accountability,
@@ -98,7 +99,7 @@ export function getImportAccountability(req: any, collection?: string): any {
       };
     } else {
       throw new APIError(
-        "Tenant is required for importing into tenant-enabled collections. Provide 'tenant' in the request body.",
+        "Tenant is required for importing into tenant-enabled collections. Provide 'tenant' in the request body or as a query parameter.",
         400
       );
     }

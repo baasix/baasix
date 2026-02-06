@@ -256,6 +256,7 @@ const registerEndpoint = (app: Express) => {
 
         const itemsService = new ItemsService(collection, {
           accountability: accountability as any,
+          tenant: accountability?.tenant, // Pass tenant explicitly to ensure it's used for enforcement
         });
 
         // Parse CSV data
@@ -358,6 +359,7 @@ const registerEndpoint = (app: Express) => {
 
         const itemsService = new ItemsService(collection, {
           accountability: accountability as any,
+          tenant: accountability?.tenant, // Pass tenant explicitly to ensure it's used for enforcement
         });
 
         // Parse JSON data

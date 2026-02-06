@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.22
+
+### Patch Changes
+
+- Fixed tenant sent in query for csv and json imports.
+
 ## 0.1.21
 
 ### Patch Changes
