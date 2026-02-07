@@ -227,6 +227,58 @@ export class PermissionsModule {
   async reloadCache(): Promise<void> {
     await this.client.post("/permissions/reload");
   }
+
+  /**
+   * Export all permissions (admin only)
+   *
+   * @example
+   * ```typescript
+   * const exported = await baasix.permissions.export();
+   * // Save to file or transfer
+   * ```
+   */
+  async export(): Promise<{
+    permissions: Permission[];
+    exportedAt: string;
+    version: string;
+  }> {
+    const response = await this.client.post<{ data: {
+      permissions: Permission[];
+      exportedAt: string;
+      version: string;
+    } }>("/permissions-export", {});
+    return response.data;
+  }
+
+  /**
+   * Import permissions from exported data (admin only)
+   *
+   * @example
+   * ```typescript
+   * const result = await baasix.permissions.import(exportedData, {
+   *   overwrite: true
+   * });
+   * console.log('Imported:', result.imported, 'permissions');
+   * ```
+   */
+  async import(
+    data: { permissions: Array<Partial<Permission>> },
+    options?: { overwrite?: boolean }
+  ): Promise<{
+    imported: number;
+    skipped: number;
+    errors: Array<{ permission: Partial<Permission>; error: string }>;
+  }> {
+    const response = await this.client.post<{ data: {
+      imported: number;
+      skipped: number;
+      errors: Array<{ permission: Partial<Permission>; error: string }>;
+    } }>("/permissions-import", {
+      ...data,
+      ...options,
+    });
+    return response.data;
+  }
 }
 
 // Re-export types

@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.7
+
+### Patch Changes
+
+- Added workflow and settings related functions
+
 ## 0.1.6
 
 ### Patch Changes

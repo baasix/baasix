@@ -807,22 +807,196 @@ const categories = await baasix.reports.distinct('products', 'category');
 
 ## Workflows
 
+### Basic Operations
+
+```typescript
+// List workflows
+const { data: workflows } = await baasix.workflows.find();
+
+// Get workflow by ID
+const workflow = await baasix.workflows.findOne('workflow-uuid');
+
+// Create workflow
+const newWorkflow = await baasix.workflows.create({
+  name: 'Order Processing',
+  trigger: { type: 'hook', config: { collection: 'orders', event: 'items.create.after' } },
+  nodes: [...],
+  edges: [...],
+  isActive: true
+});
+
+// Update workflow
+await baasix.workflows.update('workflow-uuid', { name: 'Updated Name' });
+
+// Delete workflow
+await baasix.workflows.delete('workflow-uuid');
+
+// Enable/Disable workflow
+await baasix.workflows.enable('workflow-uuid');
+await baasix.workflows.disable('workflow-uuid');
+
+// Duplicate workflow
+const copy = await baasix.workflows.duplicate('workflow-uuid', { name: 'Copy' });
+```
+
+### Execution
+
 ```typescript
 // Execute workflow
 const result = await baasix.workflows.execute('workflow-uuid', {
   orderId: 'order-123',
 });
 
+// Execute a specific node
+const nodeResult = await baasix.workflows.executeNode('workflow-uuid', 'node-id', {
+  inputData: 'value'
+});
+
+// Test workflow (without persisting)
+const testResult = await baasix.workflows.test('workflow-uuid', { testData: {} });
+
 // Get execution history
-const { data: executions } = await baasix.workflows.getExecutions('workflow-uuid');
+const { data: executions } = await baasix.workflows.getExecutions('workflow-uuid', {
+  limit: 50,
+  status: 'completed'
+});
+
+// Get specific execution
+const execution = await baasix.workflows.getExecution('workflow-uuid', 'execution-uuid');
+
+// Get execution logs
+const logs = await baasix.workflows.getExecutionLogs('workflow-uuid', 'execution-uuid');
+
+// Cancel running execution
+await baasix.workflows.cancelExecution('workflow-uuid', 'execution-uuid');
 
 // Subscribe to execution updates (requires realtime)
 const unsubscribe = baasix.realtime.subscribeToExecution(executionId, (update) => {
-  console.log('Execution progress:', update.progress, '%');
+  console.log('Progress:', update.progress, '%');
   if (update.status === 'complete') {
     console.log('Workflow finished!', update.result);
   }
 });
+```
+
+### Statistics & Validation
+
+```typescript
+// Get workflow statistics
+const stats = await baasix.workflows.getStats('workflow-uuid');
+console.log(`Total: ${stats.totalExecutions}, Success Rate: ${stats.successRate}%`);
+
+// Validate workflow definition
+const validation = await baasix.workflows.validate({
+  name: 'My Workflow',
+  nodes: [...],
+  edges: [...]
+});
+if (!validation.valid) {
+  console.log('Errors:', validation.errors);
+}
+```
+
+### Export/Import
+
+```typescript
+// Export single workflow
+const exported = await baasix.workflows.export('workflow-uuid');
+
+// Export all workflows
+const allExported = await baasix.workflows.exportAll({
+  ids: ['wf-1', 'wf-2'], // Optional: specific workflows
+  includeInactive: true
+});
+
+// Preview import
+const preview = await baasix.workflows.importPreview(file);
+console.log('Will import:', preview.workflows.length);
+console.log('Conflicts:', preview.conflicts);
+
+// Import workflows
+const result = await baasix.workflows.import(file, { overwrite: true });
+console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}`);
+```
+
+## Settings
+
+```typescript
+// Get all settings
+const settings = await baasix.settings.get();
+
+// Get a specific setting
+const appName = await baasix.settings.getKey('appName');
+
+// Update settings
+await baasix.settings.update({
+  appName: 'My Application',
+  theme: 'dark'
+});
+
+// Set a specific setting
+await baasix.settings.set('appName', 'New App Name');
+
+// Get settings by app URL (multi-tenant)
+const tenantSettings = await baasix.settings.getByAppUrl('https://myapp.example.com');
+
+// Get email branding
+const branding = await baasix.settings.getBranding();
+
+// Test email configuration (admin only)
+await baasix.settings.testEmail('admin@example.com');
+
+// Reload settings cache (admin only)
+await baasix.settings.reload();
+
+// Delete tenant settings (admin only)
+await baasix.settings.deleteTenant();
+```
+
+## Permissions
+
+```typescript
+// List all permissions
+const { data: permissions } = await baasix.permissions.find();
+
+// Get permissions for a role
+const { data: rolePerms } = await baasix.permissions.findByRole('role-uuid');
+
+// Get permissions for a collection
+const { data: collectionPerms } = await baasix.permissions.findByCollection('products');
+
+// Create permission
+const permission = await baasix.permissions.create({
+  role_Id: 'editor-role-uuid',
+  collection: 'posts',
+  action: 'update',
+  fields: ['title', 'content'],
+  conditions: { author_Id: { eq: '$CURRENT_USER' } }
+});
+
+// Create CRUD permissions for a collection
+await baasix.permissions.createCrudPermissions('role-uuid', 'products', {
+  create: { fields: ['name', 'price'] },
+  read: { fields: ['*'] },
+  update: { fields: ['name', 'price'] },
+  delete: false
+});
+
+// Update permission
+await baasix.permissions.update('permission-uuid', { fields: ['*'] });
+
+// Delete permission
+await baasix.permissions.delete('permission-uuid');
+
+// Reload permissions cache (admin only)
+await baasix.permissions.reloadCache();
+
+// Export all permissions
+const exported = await baasix.permissions.export();
+
+// Import permissions
+const result = await baasix.permissions.import(exportedData, { overwrite: true });
+console.log(`Imported: ${result.imported}`);
 ```
 
 ## Realtime Subscriptions
