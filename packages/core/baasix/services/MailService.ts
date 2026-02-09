@@ -246,8 +246,8 @@ ${contentWithoutStyles}
    * Render template from database
    * First tries database, then falls back to hardcoded default templates
    * 
-   * NOTE: Database templates are NOT wrapped in the default layout - they have full control.
-   * Only hardcoded default templates use the default layout wrapper.
+   * NOTE: Templates are wrapped in the default layout only if they don't have HTML/body structure.
+   * Templates with full HTML structure have full control over their layout.
    */
   async renderTemplateWithDB(templateName: string, context: Record<string, any>, tenantId?: string | number): Promise<{ subject: string; html: string }> {
     // Try to get template from database first
@@ -256,11 +256,10 @@ ${contentWithoutStyles}
     if (dbTemplate) {
       // Render both subject and body with Liquid
       const renderedSubject = await this.engine.parseAndRender(dbTemplate.subject, context);
-      // Database templates have full control - do NOT wrap in default layout
-      // The user has customized the template and manages header/footer themselves
       const renderedBody = await this.engine.parseAndRender(dbTemplate.body, context);
-      // Ensure the output is a complete HTML document for email clients
-      const html = this.wrapInHtmlDocument(renderedBody, renderedSubject);
+      
+      // Wrap with layout if template doesn't have HTML/body structure
+      const html = await this.wrapWithLayoutIfNeeded(renderedBody, renderedSubject, context);
       
       return {
         subject: renderedSubject,
@@ -273,11 +272,13 @@ ${contentWithoutStyles}
     if (defaultTemplate) {
       const renderedSubject = await this.engine.parseAndRender(defaultTemplate.subject, context);
       const renderedBody = await this.engine.parseAndRender(defaultTemplate.body, context);
-      const html = await this.engine.parseAndRender(this.defaultLayoutTemplate, { ...context, content: renderedBody });
+      
+      // Check if template already has full HTML structure
+      const html = this.wrapWithLayoutIfNeeded(renderedBody, renderedSubject, context);
       
       return {
         subject: renderedSubject,
-        html
+        html: await html
       };
     }
 
@@ -291,11 +292,32 @@ ${contentWithoutStyles}
     };
   }
 
+  /**
+   * Wrap content with default layout template if it doesn't already have HTML/body structure
+   */
+  private async wrapWithLayoutIfNeeded(body: string, subject: string, context: Record<string, any>): Promise<string> {
+    const trimmedBody = body.trim();
+    
+    // Check if already has HTML structure (html tag, body tag, or doctype)
+    const hasDoctype = trimmedBody.toLowerCase().startsWith('<!doctype');
+    const hasHtmlTag = /<html[\s>]/i.test(trimmedBody);
+    const hasBodyTag = /<body[\s>]/i.test(trimmedBody);
+    
+    if (hasDoctype || hasHtmlTag || hasBodyTag) {
+      // Already has structure - just wrap in minimal HTML document if needed
+      return this.wrapInHtmlDocument(body, subject);
+    }
+    
+    // No HTML structure - wrap in default layout template
+    const wrappedHtml = await this.engine.parseAndRender(this.defaultLayoutTemplate, { ...context, content: body });
+    return wrappedHtml;
+  }
+
   async renderTemplate(templateName: string, context: Record<string, any>): Promise<string> {
     const defaultTemplate = this.getDefaultTemplateContent(templateName);
     if (defaultTemplate) {
       const renderedBody = await this.engine.parseAndRender(defaultTemplate.body, context);
-      return this.engine.parseAndRender(this.defaultLayoutTemplate, { ...context, content: renderedBody });
+      return this.wrapWithLayoutIfNeeded(renderedBody, context.subject || '', context);
     }
     return this.engine.parseAndRender(this.defaultLayoutTemplate, context);
   }
@@ -312,10 +334,10 @@ ${contentWithoutStyles}
         <header style="text-align: center; padding: 20px; background-color: {{ project_color | default: '#0066cc' }}; border-radius: 5px 5px 0 0;">
             {% if logo_url %}<img src="{{ logo_url }}" alt="{{ project_name }}" style="max-width: 200px;">{% else %}<h1 style="color: #fff; margin: 0; font-size: 24px;">{{ project_name }}</h1>{% endif %}
         </header>
-        <main style="padding: 30px;">
+        <div style="padding: 30px;">
             ${content}
             ${buttonHtml || ''}
-        </main>
+        </div>
         <footer style="text-align: center; padding: 20px; font-size: 12px; color: #888; border-top: 1px solid #f0f0f0;">
             © {{ "now" | date: "%Y" }} {{ project_name }}. All rights reserved.
         </footer>

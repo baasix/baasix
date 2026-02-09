@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.23
+
+### Patch Changes
+
+- Fixed email templete double header issue
+
 ## 0.1.22
 
 ### Patch Changes
