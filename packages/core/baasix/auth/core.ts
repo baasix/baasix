@@ -321,8 +321,28 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       } else {
         // Multi-tenant mode validation - only if no invite
         const isMultiTenant = options.multiTenant?.enabled;
-        if (isMultiTenant && !tenant?.name) {
-          throw new Error("Tenant information is required for registration in multi-tenant mode");
+        
+        if (isMultiTenant) {
+          // First, determine the role to check if it's tenant-specific
+          let roleToCheck: Role | null = null;
+          if (roleName) {
+            roleToCheck = await adapter.findRoleByName(roleName);
+          }
+          if (!roleToCheck) {
+            const defaultRoleName = process.env.DEFAULT_ROLE_REGISTERED || "user";
+            roleToCheck = await adapter.findRoleByName(defaultRoleName);
+          }
+          
+          // Only require tenant info if the role is tenant-specific
+          const requiresTenant = roleToCheck?.isTenantSpecific !== false;
+          if (requiresTenant && !tenant?.name) {
+            throw new Error("Tenant information is required for registration in multi-tenant mode");
+          }
+          
+          // Store the role we found for later use
+          if (roleToCheck) {
+            roleToAssign = roleToCheck;
+          }
         }
         
         // Create tenant if provided

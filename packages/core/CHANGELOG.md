@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.24
+
+### Patch Changes
+
+- Fixed non-tenant specific roles access issues.
+
 ## 0.1.23
 
 ### Patch Changes

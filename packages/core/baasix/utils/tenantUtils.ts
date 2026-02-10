@@ -44,8 +44,17 @@ export async function shouldEnforceTenantContext(service: any): Promise<boolean>
     return false;
   }
 
-  // Check if the role is tenant-specific
-  return service.accountability.role?.isTenantSpecific === true || service.tenant;
+  // If the role is explicitly non-tenant-specific, don't enforce tenant context
+  // (isTenantSpecific: false means the role operates globally without tenant constraints)
+  if (service.accountability.role?.isTenantSpecific === false) {
+    return false;
+  }
+
+  // Enforce tenant context if:
+  // 1. The role is tenant-specific (isTenantSpecific: true)
+  // 2. OR there's an explicit tenant context set AND the role's tenant-specificity is not defined
+  return service.accountability.role?.isTenantSpecific === true || 
+         (service.tenant && service.accountability.role?.isTenantSpecific !== false);
 }
 
 /**

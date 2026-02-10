@@ -426,6 +426,10 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
     // Strip hidden fields (like password) from user object
     const sanitizedUser = fieldUtils.stripHiddenFields('baasix_User', user);
 
+    // For non-tenant-specific roles, don't set tenant context
+    // (they operate globally without tenant constraints)
+    const tenantContext = role.isTenantSpecific === false ? null : (userRole?.tenant_Id || null);
+
     // Set accountability object with all user fields
     req.accountability = {
       user: {
@@ -434,7 +438,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
         role: role.name,
       } as any,
       role: role as any,
-      tenant: userRole?.tenant_Id || null,
+      tenant: tenantContext,
       permissions: permissions || [],
       ipaddress: req.ip || req.connection?.remoteAddress,
     };
