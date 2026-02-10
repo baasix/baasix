@@ -1220,7 +1220,7 @@ export class SchemaManager {
         VALUES 
           (gen_random_uuid(), 'administrator', 'Full system access', false),
           (gen_random_uuid(), 'user', 'Standard user access', true),
-          (gen_random_uuid(), 'public', 'Public access (unauthenticated)', true)
+          (gen_random_uuid(), 'public', 'Public access (unauthenticated)', false)
         ON CONFLICT (name) DO NOTHING
       `;
 

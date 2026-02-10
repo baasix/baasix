@@ -195,7 +195,7 @@ async function getMCPServer(): Promise<{ connect: (transport: StreamableTranspor
 const registerEndpoint = async (app: Express, _context?: unknown): Promise<void> => {
   // Check if MCP is enabled
   if (env.get("MCP_ENABLED") !== "true") {
-    // Don't log when disabled - no need to inform about disabled feature
+    console.info("[MCP] MCP is disabled. Set MCP_ENABLED=true in your .env to enable the MCP endpoint.");
     return;
   }
 

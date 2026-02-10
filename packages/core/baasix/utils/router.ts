@@ -68,7 +68,7 @@ export const loadSystemRoutes = async (app: Express, context: RouteContext): Pro
         const routeModule = await import(relativePath);
 
         if (routeModule && typeof routeModule.default === "object") {
-          routeModule.default.handler(app, context);
+          await routeModule.default.handler(app, context);
           console.info(`Loaded System Route: ${routeModule.default.id}`);
         }
       } catch (error: any) {

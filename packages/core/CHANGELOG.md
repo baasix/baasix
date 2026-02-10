@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.25
+
+### Patch Changes
+
+- Fixed public role having tenant specific enabled by default
+
 ## 0.1.24
 
 ### Patch Changes
