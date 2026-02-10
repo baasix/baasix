@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.26
+
+### Patch Changes
+
+- Added zod direct dependency needed for remote MCP
+
 ## 0.1.25
 
 ### Patch Changes
