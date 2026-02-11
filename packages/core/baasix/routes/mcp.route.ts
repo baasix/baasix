@@ -6,9 +6,8 @@
  * Enable via environment variable: MCP_ENABLED=true
  *
  * Authentication options (in priority order):
- * 1. MCP_AUTH_TOKEN - Static token for MCP access
- * 2. MCP_EMAIL + MCP_PASSWORD - Auto-login and reuse token
- * 3. Authorization header or cookie from request (like normal API calls)
+ * 1. X-MCP-Email + X-MCP-Password headers - Uses internal auth service to login
+ * 2. Authorization header or cookie from request (auth middleware populates accountability)
  *
  * Supports both stateful (with sessions) and stateless modes.
  *
@@ -22,21 +21,33 @@ import env from "../utils/env.js";
 
 // ==================== Type Definitions ====================
 
+/**
+ * MCPAccountability mirrors the shape built by the auth middleware,
+ * so that ItemsService.isAdministrator() works correctly.
+ */
 interface MCPAccountability {
-  user: string | null;
-  role: string | null;
-  admin: boolean;
-  ip: string;
+  user: {
+    id: string | number;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    isAdmin: boolean;
+    role: string;
+    [key: string]: any;
+  } | null;
+  role: {
+    id: string | number;
+    name: string;
+    isTenantSpecific?: boolean;
+    description?: string;
+  } | null;
+  permissions: any[];
+  tenant: string | number | null;
+  ipaddress: string;
 }
 
 interface RequestWithAccountability extends Request {
-  accountability?: MCPAccountability;
-}
-
-interface CachedLogin {
-  token: string;
-  expiry: number;
-  accountability: MCPAccountability;
+  accountability?: any;
 }
 
 interface StreamableTransport {
@@ -77,53 +88,67 @@ async function loadMCPDependencies(): Promise<void> {
   }
 }
 
-// Cache for header-based login (per email)
-const headerLoginCache = new Map<string, CachedLogin>();
+// Cache for email/password-based login (per email)
+const loginCache = new Map<string, { accountability: MCPAccountability; expiry: number }>();
 
 /**
- * Login using email and password from headers
- * Returns accountability object or null if failed
+ * Login using email and password via internal auth service (no HTTP round-trip).
+ * Uses getAuthInstance().signIn() directly, same as the auth route handlers.
  */
-async function performLogin(email: string, password: string, cacheKey: string): Promise<MCPAccountability | null> {
-  // Check if we have a valid cached token for this email
-  const cached = headerLoginCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiry && cached.accountability) {
-    return cached.accountability;
+async function performLogin(email: string, password: string, cacheKey: string, ip: string): Promise<MCPAccountability | null> {
+  // Check if we have a valid cached accountability for this email
+  const cached = loginCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiry) {
+    return { ...cached.accountability, ipaddress: ip };
   }
 
   try {
-    // Import auth utilities
-    const { default: axios } = await import("axios");
-    const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
+    const { getAuthInstance } = await import("./auth.route.js");
+    const auth = getAuthInstance();
+    if (!auth) {
+      console.error("[MCP] Auth service not initialized yet");
+      return null;
+    }
 
-    const response = await axios.post(`${baseUrl}/auth/login`, {
-      email,
-      password,
+    const result = await auth.signIn({ email, password, ipAddress: ip });
+    if (!result || !result.user) {
+      console.error(`[MCP] Login failed for ${email}: invalid credentials`);
+      return null;
+    }
+
+    // Build accountability matching the shape the auth middleware produces
+    const isAdmin = result.role?.name === "administrator";
+    const accountability: MCPAccountability = {
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        firstName: (result.user as any).firstName,
+        lastName: (result.user as any).lastName,
+        isAdmin,
+        role: result.role?.name || "public",
+      },
+      role: result.role ? {
+        id: result.role.id,
+        name: result.role.name,
+        isTenantSpecific: result.role.isTenantSpecific,
+      } : null,
+      permissions: result.permissions || [],
+      tenant: (result as any).tenant?.id || null,
+      ipaddress: ip,
+    };
+
+    // Cache for 55 minutes (tokens typically last 1 hour)
+    loginCache.set(cacheKey, {
+      accountability,
+      expiry: Date.now() + 55 * 60 * 1000,
     });
 
-    if (response.data?.token) {
-      // Extract accountability from token response
-      const accountability: MCPAccountability = {
-        user: response.data.user?.id || null,
-        role: response.data.user?.role?.name || response.data.user?.role_Id || null,
-        admin: response.data.user?.role?.name === "administrator",
-        ip: "127.0.0.1",
-      };
-
-      // Cache for 55 minutes (tokens typically last 1 hour)
-      headerLoginCache.set(cacheKey, {
-        token: response.data.token,
-        expiry: Date.now() + 55 * 60 * 1000,
-        accountability,
-      });
-
-      console.info(`[MCP] Login successful for ${email}`);
-      return accountability;
-    }
+    console.info(`[MCP] Login successful for ${email} (admin: ${isAdmin})`);
+    return accountability;
   } catch (error) {
     const err = error as Error;
     console.error(`[MCP] Login failed for ${email}:`, err.message);
-    headerLoginCache.delete(cacheKey);
+    loginCache.delete(cacheKey);
   }
 
   return null;
@@ -131,18 +156,19 @@ async function performLogin(email: string, password: string, cacheKey: string): 
 
 /**
  * Get accountability from request headers
- * Priority: 1. X-MCP-Email/Password headers, 2. Authorization Bearer token
+ * Priority: 1. X-MCP-Email/Password headers, 2. Authorization Bearer token (auth middleware)
  */
 async function getAccountability(req: RequestWithAccountability): Promise<{ accountability: MCPAccountability | null; error?: string }> {
+  const ip = req.ip || "127.0.0.1";
+
   // Priority 1: X-MCP-Email and X-MCP-Password headers (email/password auth)
-  // Check this first since token header might be empty when using email/password
   const headerEmail = req.headers["x-mcp-email"] as string | undefined;
   const headerPassword = req.headers["x-mcp-password"] as string | undefined;
 
   if (headerEmail && headerPassword) {
-    const result = await performLogin(headerEmail, headerPassword, `header:${headerEmail}`);
+    const result = await performLogin(headerEmail, headerPassword, `header:${headerEmail}`, ip);
     if (result) {
-      return { accountability: { ...result, ip: req.ip || "127.0.0.1" } };
+      return { accountability: result };
     }
     return {
       accountability: null,
@@ -150,19 +176,21 @@ async function getAccountability(req: RequestWithAccountability): Promise<{ acco
     };
   }
 
-  // Priority 2: Authorization Bearer token (direct token auth)
+  // Priority 2: Authorization Bearer token (auth middleware already populated req.accountability)
   const authHeader = req.headers["authorization"] as string | undefined;
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.substring(7).trim();
     if (token) {
-      // Use request's accountability (populated by authMiddleware from Bearer token)
+      // req.accountability is already populated by auth middleware with the full shape:
+      // { user: { id, email, isAdmin, role, ... }, role: { id, name, isTenantSpecific }, permissions, tenant, ipaddress }
       if (req.accountability?.user || req.accountability?.role) {
         return {
           accountability: {
-            user: req.accountability.user,
-            role: req.accountability.role,
-            admin: req.accountability.admin || false,
-            ip: req.ip || "127.0.0.1",
+            user: req.accountability.user || null,
+            role: req.accountability.role || null,
+            permissions: req.accountability.permissions || [],
+            tenant: req.accountability.tenant || null,
+            ipaddress: ip,
           },
         };
       }
@@ -236,7 +264,7 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => sessionId!,
             onsessioninitialized: (sid: string) => {
-              console.info(`[MCP] Session initialized: ${sid} (user: ${sessionAccountability.user}, role: ${sessionAccountability.role})`);
+              console.info(`[MCP] Session initialized: ${sid} (user: ${sessionAccountability.user?.id || 'null'}, role: ${sessionAccountability.role?.name || 'null'}, admin: ${sessionAccountability.user?.isAdmin || false})`);
               setMCPSession(sid, sessionAccountability);
             },
             onsessionclosed: (sid: string) => {

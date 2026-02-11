@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.27
+
+### Patch Changes
+
+- Added MCP to support all roles.
+
 ## 0.1.26
 
 ### Patch Changes

@@ -24,11 +24,31 @@ import env from "../utils/env.js";
 
 // ==================== Type Definitions ====================
 
+/**
+ * MCPAccountability mirrors the shape built by the auth middleware,
+ * so that ItemsService.isAdministrator() works correctly.
+ *
+ * Shape: { user: { id, email, isAdmin, role, ... }, role: { id, name, isTenantSpecific }, permissions[], tenant, ipaddress }
+ */
 interface MCPAccountability {
-  user: string | null;
-  role: string | null;
-  admin: boolean;
-  ip: string;
+  user: {
+    id: string | number;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    isAdmin: boolean;
+    role: string;
+    [key: string]: any;
+  } | null;
+  role: {
+    id: string | number;
+    name: string;
+    isTenantSpecific?: boolean;
+    description?: string;
+  } | null;
+  permissions: any[];
+  tenant: string | number | null;
+  ipaddress: string;
 }
 
 interface ToolExtra {
@@ -349,9 +369,14 @@ function getAccountabilityFromSession(sessionId: string): MCPAccountability | un
 function getDefaultAccountability(): MCPAccountability {
   return {
     user: null,
-    role: "administrator",
-    admin: true,
-    ip: "127.0.0.1",
+    role: {
+      id: "public",
+      name: "public",
+      isTenantSpecific: false,
+    },
+    permissions: [],
+    tenant: null,
+    ipaddress: "127.0.0.1",
   };
 }
 
@@ -1816,12 +1841,12 @@ AVAILABLE VARIABLES:
           return successResult({
             authenticated: false,
             role: accountability.role,
-            admin: accountability.admin,
+            admin: false,
           });
         }
 
         const usersService = new ItemsService("baasix_User", { accountability });
-        const user = await usersService.readOne(accountability.user, {
+        const user = await usersService.readOne(accountability.user.id, {
           fields: fields || ["*", "role.*"],
         });
 
@@ -1829,7 +1854,7 @@ AVAILABLE VARIABLES:
           authenticated: true,
           user,
           role: accountability.role,
-          admin: accountability.admin,
+          admin: accountability.user?.isAdmin || false,
         });
       } catch (error) {
         return errorResult(error as Error);
@@ -2008,9 +2033,9 @@ AVAILABLE VARIABLES:
 
         return successResult({
           authenticated: !!accountability.user,
-          userId: accountability.user,
+          userId: accountability.user?.id || null,
           role: accountability.role,
-          admin: accountability.admin,
+          admin: accountability.user?.isAdmin || false,
           sessionId: extra.sessionId || null,
         });
       } catch (error) {
@@ -2026,21 +2051,55 @@ AVAILABLE VARIABLES:
       email: z.string().email().describe("User email address"),
       password: z.string().describe("User password"),
     },
-    async (args: LoginInput, _extra: ToolExtra): Promise<ToolResult> => {
+    async (args: LoginInput, extra: ToolExtra): Promise<ToolResult> => {
       const { email, password } = args;
       try {
-        const { default: axios } = await import("axios");
-        const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
+        const { getAuthInstance } = await import("../routes/auth.route.js");
+        const auth = getAuthInstance();
+        if (!auth) {
+          return errorResult("Auth service not initialized");
+        }
 
-        const response = await axios.post(`${baseUrl}/auth/login`, {
-          email,
-          password,
+        const result = await auth.signIn({ email, password });
+        if (!result || !result.user) {
+          return errorResult("Login failed: invalid credentials");
+        }
+
+        // Build proper accountability and store in session
+        const isAdmin = result.role?.name === "administrator";
+        const accountability: MCPAccountability = {
+          user: {
+            id: result.user.id,
+            email: result.user.email,
+            firstName: (result.user as any).firstName,
+            lastName: (result.user as any).lastName,
+            isAdmin,
+            role: result.role?.name || "public",
+          },
+          role: result.role ? {
+            id: result.role.id,
+            name: result.role.name,
+            isTenantSpecific: result.role.isTenantSpecific,
+          } : null,
+          permissions: result.permissions || [],
+          tenant: (result as any).tenant?.id || null,
+          ipaddress: "127.0.0.1",
+        };
+
+        // Update the MCP session with the new accountability
+        if (extra.sessionId) {
+          setMCPSession(extra.sessionId, accountability);
+        }
+
+        return successResult({
+          token: result.token,
+          user: result.user,
+          role: result.role,
+          message: "Login successful. Session accountability updated.",
         });
-
-        return successResult(response.data);
       } catch (error: unknown) {
-        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
-        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
+        const err = error as Error;
+        return errorResult(err.message || "Login failed");
       }
     }
   );
@@ -2051,20 +2110,15 @@ AVAILABLE VARIABLES:
     {},
     async (_args: Record<string, never>, extra: ToolExtra): Promise<ToolResult> => {
       try {
-        const { default: axios } = await import("axios");
-        const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-
-        await axios.post(`${baseUrl}/auth/logout`);
-
         // Remove MCP session if exists
         if (extra.sessionId) {
           removeMCPSession(extra.sessionId);
         }
 
-        return successResult({ success: true, message: "Logged out successfully" });
+        return successResult({ success: true, message: "Logged out successfully. Session cleared." });
       } catch (error: unknown) {
-        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
-        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
+        const err = error as Error;
+        return errorResult(err.message || "Logout failed");
       }
     }
   );
@@ -2075,20 +2129,20 @@ AVAILABLE VARIABLES:
     {
       refreshToken: z.string().optional().describe("Refresh token (if not using cookies)"),
     },
-    async (args: RefreshAuthInput, _extra: ToolExtra): Promise<ToolResult> => {
-      const { refreshToken } = args;
+    async (_args: RefreshAuthInput, extra: ToolExtra): Promise<ToolResult> => {
       try {
-        const { default: axios } = await import("axios");
-        const baseUrl = `http://localhost:${env.get("PORT") || "8056"}`;
-
-        const response = await axios.post(`${baseUrl}/auth/refresh`, {
-          refreshToken,
+        // In MCP context, the session is already maintained via session IDs.
+        // Refresh is not needed since accountability is stored per-session.
+        const accountability = getAccountability(extra);
+        return successResult({
+          authenticated: !!accountability.user,
+          userId: accountability.user?.id || null,
+          role: accountability.role,
+          message: "MCP sessions are managed internally. Use baasix_login to re-authenticate if needed.",
         });
-
-        return successResult(response.data);
       } catch (error: unknown) {
-        const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
-        return errorResult(axiosError.response?.data?.message || axiosError.message || "Unknown error");
+        const err = error as Error;
+        return errorResult(err.message || "Refresh failed");
       }
     }
   );
