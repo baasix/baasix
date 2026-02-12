@@ -469,8 +469,8 @@ export class ItemsService {
     allowedFields: string[] | null,
     parentPath: string = ''
   ): void {
-    // If no field restrictions or wildcard access, no filtering needed
-    if (!allowedFields || allowedFields.includes('*')) {
+    // If no field restrictions, no filtering needed
+    if (!allowedFields) {
       return;
     }
 
@@ -672,7 +672,7 @@ export class ItemsService {
         );
         
         // Filter relational field attributes based on allowed fields
-        if (allowedFields && !allowedFields.includes('*')) {
+        if (allowedFields) {
           this.filterIncludesByAllowedFields(allIncludes, allowedFields);
           // Also filter the processedIncludes (which is the same reference used later)
           this.filterIncludesByAllowedFields(processedIncludes, allowedFields);
@@ -990,17 +990,71 @@ export class ItemsService {
     }
 
     // Validate field permissions
+    // allowedFields contains expanded column names ("*" expands to direct columns only)
+    // Relation access requires dotted paths like "relation.field" from "*.*" or "relation.*"
     const dataFields = Object.keys(data);
     const relationNames = schemaManager.getRelationNames(this.collection);
 
     for (const field of dataFields) {
-      // Skip relation fields - they'll be handled separately
-      if (relationNames.includes(field)) continue;
+      if (relationNames.includes(field)) {
+        // Relation field — check if any allowed field references this relation
+        // "*" only covers direct fields; relations need "*.*", "relation.*", or "relation.field"
+        const allowedSubFields = allowedFields
+          .filter(af => af.startsWith(`${field}.`))
+          .map(af => af.substring(field.length + 1));
 
-      // Check if field is allowed
-      if (!allowedFields.includes(field) && !allowedFields.includes('*')) {
+        if (allowedSubFields.length === 0) {
+          throw new APIError(`You don't have permission to ${action} relation: ${field}`, 403);
+        }
+
+        // Validate individual nested fields in the data
+        const value = data[field];
+        if (value != null) {
+          this.validateNestedFieldPermissions(field, value, allowedSubFields, action);
+        }
+
+        continue;
+      }
+
+      // Direct (non-relation) field — check if field is in the expanded allowed list
+      if (!allowedFields.includes(field)) {
         throw new APIError(`You don't have permission to ${action} field: ${field}`, 403);
       }
+    }
+  }
+
+  /**
+   * Validate nested/relational field data against allowed sub-fields
+   * Handles both single object and array of objects for nested relations
+   */
+  private validateNestedFieldPermissions(
+    relationName: string,
+    value: any,
+    allowedSubFields: string[],
+    action: 'create' | 'update'
+  ): void {
+    const validateObject = (obj: Record<string, any>) => {
+      for (const key of Object.keys(obj)) {
+        // Always allow 'id' — needed to reference existing related records
+        if (key === 'id') continue;
+
+        if (!allowedSubFields.includes(key)) {
+          throw new APIError(
+            `You don't have permission to ${action} field: ${relationName}.${key}`,
+            403
+          );
+        }
+      }
+    };
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === 'object') {
+          validateObject(item);
+        }
+      }
+    } else if (typeof value === 'object') {
+      validateObject(value);
     }
   }
 
@@ -2070,6 +2124,20 @@ export class ItemsService {
 
     const isAdmin = await this.isAdministrator();
 
+    // Check permission - explicit action-level check
+    if (!options.bypassPermissions && !isAdmin) {
+      const roleId = this.getRoleId();
+      const hasPermission = await permissionService.canAccess(
+        roleId,
+        this.collection,
+        'create'
+      );
+
+      if (!hasPermission) {
+        throw new APIError("You don't have permission to create items in '" + this.collection + "'", 403);
+      }
+    }
+
     // Apply field permissions
     if (!options.bypassPermissions) {
       await this.applyFieldPermissions(modifiedData, 'create', isAdmin);
@@ -2352,6 +2420,20 @@ export class ItemsService {
     }
 
     const isAdmin = await this.isAdministrator();
+
+    // Check permission - explicit action-level check
+    if (!options.bypassPermissions && !isAdmin) {
+      const roleId = this.getRoleId();
+      const hasPermission = await permissionService.canAccess(
+        roleId,
+        this.collection,
+        'update'
+      );
+
+      if (!hasPermission) {
+        throw new APIError("You don't have permission to update items in '" + this.collection + "'", 403);
+      }
+    }
 
     // Apply field permissions
     if (!options.bypassPermissions) {

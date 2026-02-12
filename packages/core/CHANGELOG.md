@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.29
+
+### Patch Changes
+
+- Fixed nested permission checks missing issue.
+
 ## 0.1.28
 
 ### Patch Changes

@@ -447,7 +447,6 @@ export class PermissionService {
       const fields = collectionPermissions[operation].fields;
       
       if (!fields) return null;
-      if (fields.includes('*')) return ['*'];
       
       return FieldExpansionUtil.expandFields(fields, collection);
     }
