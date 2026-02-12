@@ -44,6 +44,7 @@ interface MCPAccountability {
   permissions: any[];
   tenant: string | number | null;
   ipaddress: string;
+  token?: string;
 }
 
 interface RequestWithAccountability extends Request {
@@ -143,6 +144,9 @@ async function performLogin(email: string, password: string, cacheKey: string, i
       expiry: Date.now() + 55 * 60 * 1000,
     });
 
+    // Store the JWT token so MCP tools can call routes with Bearer auth
+    accountability.token = result.token;
+
     console.info(`[MCP] Login successful for ${email} (admin: ${isAdmin})`);
     return accountability;
   } catch (error) {
@@ -191,6 +195,7 @@ async function getAccountability(req: RequestWithAccountability): Promise<{ acco
             permissions: req.accountability.permissions || [],
             tenant: req.accountability.tenant || null,
             ipaddress: ip,
+            token,
           },
         };
       }

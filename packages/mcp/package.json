@@ -1,6 +1,6 @@
 {
     "name": "@baasix/mcp",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "description": "Model Context Protocol (MCP) server for Baasix Backend-as-a-Service - provides 40+ tools for schema management, CRUD operations with 50+ filter operators, relationships, permissions, files, workflows, and more",
     "type": "module",
     "main": "baasix/index.js",

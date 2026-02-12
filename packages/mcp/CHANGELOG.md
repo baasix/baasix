@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.1.5
+
+### Patch Changes
+
+- Fixed MCP tool definition more LLM friendly.
+
 ## 0.1.4
 
 ### Patch Changes

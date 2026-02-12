@@ -505,6 +505,8 @@ EXAMPLE M2M with custom junction table:
                         name: "baasix_list_items",
                         description: `Query items from a collection with powerful filtering, sorting, pagination, relations, and aggregation.
 
+NOTE: For analytics, summaries, totals, sums, averages, counts, min/max, grouped reports, or dashboards → use baasix_generate_report instead. Use this tool (list_items) for fetching actual row data.
+
 FILTER OPERATORS (50+):
 - Comparison: eq, neq, gt, gte, lt, lte
 - String: contains, icontains, startswith, endswith, like, ilike, regex
@@ -745,29 +747,50 @@ FILTER EXAMPLES:
                     // Reports and Analytics Tools
                     {
                         name: "baasix_generate_report",
-                        description: "Generate reports with grouping and aggregation for a collection",
+                        description: `Run an aggregate/analytics query on a database table. Use this for summaries, totals, averages, counts, grouping, and any analytics query. Prefer this over baasix_list_items when the user asks for sums, counts, averages, min/max, grouped data, dashboards, or reports.
+
+EXAMPLES:
+1. Sum of quantity: aggregate: {"total": {"function": "sum", "field": "quantity"}}
+2. Count by status: groupBy: ["status"], aggregate: {"count": {"function": "count", "field": "*"}}
+3. Average price for active products: filter: {"status": {"eq": "active"}}, aggregate: {"avg": {"function": "avg", "field": "price"}}
+4. Min/max: aggregate: {"min": {"function": "min", "field": "price"}, "max": {"function": "max", "field": "price"}}`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 collection: {
                                     type: "string",
-                                    description: "Collection name",
+                                    description: "Table/collection name to report on",
                                 },
-                                groupBy: {
-                                    type: "string",
-                                    description: "Field to group by",
+                                fields: {
+                                    type: "array",
+                                    items: { type: "string" },
+                                    description: 'Columns to return. Default ["*"]. Use dot notation for relations: ["category.name"].',
                                 },
                                 filter: {
                                     type: "object",
-                                    description: "Filter criteria",
+                                    description: "Row filter applied before aggregation. Same operators as baasix_list_items.",
                                 },
-                                dateRange: {
+                                sort: {
+                                    type: "array",
+                                    items: { type: "string" },
+                                    description: 'Sort results. Format: ["field:direction"]. E.g. ["count:desc", "name:asc"].',
+                                },
+                                limit: {
+                                    type: "number",
+                                    description: "Max rows returned. Default -1 (all). Set to limit grouped results.",
+                                },
+                                page: {
+                                    type: "number",
+                                    description: "Page number for pagination (works with limit).",
+                                },
+                                aggregate: {
                                     type: "object",
-                                    properties: {
-                                        start: { type: "string" },
-                                        end: { type: "string" },
-                                    },
-                                    description: "Date range filter",
+                                    description: 'Aggregation definitions. Each key is the result alias. Value: {function: "count|sum|avg|min|max", field: "columnName"}. E.g. {"total": {"function": "sum", "field": "quantity"}}',
+                                },
+                                groupBy: {
+                                    type: "array",
+                                    items: { type: "string" },
+                                    description: "Columns to group by. Required when using aggregate with breakdowns.",
                                 },
                             },
                             required: ["collection"],
@@ -775,20 +798,43 @@ FILTER EXAMPLES:
                     },
                     {
                         name: "baasix_collection_stats",
-                        description: "Get collection statistics and analytics",
+                        description: `Run multiple aggregate queries across different tables in a single call. Each query uses the full report engine (filter, aggregate, groupBy, etc.).
+
+Each stats entry requires:
+- name: A unique label for this stat in the results (e.g. "total_orders", "active_users")
+- collection: The table to query
+- query: Full report query object with fields, filter, aggregate, groupBy, sort, limit, page
+
+EXAMPLES:
+1. Get counts: stats: [{"name": "users", "collection": "users", "query": {"aggregate": {"total": {"function": "count", "field": "*"}}}}]
+2. Multi-table: stats: [{"name": "orders", "collection": "orders", "query": {"aggregate": {"count": {"function": "count", "field": "*"}}}}, {"name": "revenue", "collection": "orders", "query": {"aggregate": {"total": {"function": "sum", "field": "amount"}}}}]`,
                         inputSchema: {
                             type: "object",
                             properties: {
-                                collections: {
+                                stats: {
                                     type: "array",
-                                    items: { type: "string" },
-                                    description: "Specific collections to get stats for",
-                                },
-                                timeframe: {
-                                    type: "string",
-                                    description: 'Timeframe for stats (e.g., "24h", "7d", "30d")',
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            name: {
+                                                type: "string",
+                                                description: "Unique label for this stat in the results",
+                                            },
+                                            collection: {
+                                                type: "string",
+                                                description: "Table/collection to query",
+                                            },
+                                            query: {
+                                                type: "object",
+                                                description: "Report query: {fields?, filter?, sort?, limit?, page?, aggregate?, groupBy?}",
+                                            },
+                                        },
+                                        required: ["name", "collection", "query"],
+                                    },
+                                    description: "Array of stat queries to run across tables",
                                 },
                             },
+                            required: ["stats"],
                         },
                     },
 
@@ -2101,13 +2147,26 @@ The realtime config is stored in the schema definition and can include specific 
 
     // Reports and Analytics Methods
     async handleGenerateReport(args) {
-        const { collection, groupBy, filter, dateRange } = args;
-        const params = new URLSearchParams();
-        if (groupBy) params.append("groupBy", groupBy);
-        if (filter) params.append("filter", JSON.stringify(filter));
-        if (dateRange) params.append("dateRange", JSON.stringify(dateRange));
+        const { collection, fields, filter, sort, limit, page, aggregate, groupBy } = args;
+        const body = {};
+        if (fields) body.fields = fields;
+        if (filter) body.filter = filter;
+        if (sort) {
+            // Convert "field:desc" → "-field", "field:asc" → "field" for ItemsService
+            body.sort = sort.map(s => {
+                const [field, dir] = s.split(':');
+                return dir?.toLowerCase() === 'desc' ? `-${field}` : field;
+            });
+        }
+        if (limit !== undefined) body.limit = limit;
+        if (page !== undefined) body.page = page;
+        if (aggregate) body.aggregate = aggregate;
+        if (groupBy) body.groupBy = groupBy;
 
-        const report = await baasixRequest(`/reports/${collection}?${params}`);
+        const report = await baasixRequest(`/reports/${encodeURIComponent(collection)}`, {
+            method: 'POST',
+            data: body,
+        });
         return {
             content: [
                 {
@@ -2119,17 +2178,16 @@ The realtime config is stored in the schema definition and can include specific 
     }
 
     async handleGetStats(args) {
-        const { collections, timeframe } = args;
-        const params = new URLSearchParams();
-        if (collections) params.append("collections", JSON.stringify(collections));
-        if (timeframe) params.append("timeframe", timeframe);
-
-        const stats = await baasixRequest(`/reports/stats?${params}`);
+        const { stats } = args;
+        const result = await baasixRequest(`/reports/stats`, {
+            method: 'POST',
+            data: { stats },
+        });
         return {
             content: [
                 {
                     type: "text",
-                    text: JSON.stringify(stats, null, 2),
+                    text: JSON.stringify(result, null, 2),
                 },
             ],
         };
