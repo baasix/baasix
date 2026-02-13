@@ -397,7 +397,7 @@ Baasix includes Model Context Protocol (MCP) support for AI assistants like Clau
 | **Local MCP** | `@baasix/mcp` npm package | Claude Desktop, local development |
 
 ### Features
-- **57 MCP Tools** for comprehensive Baasix operations
+- **52 MCP Tools** for comprehensive Baasix operations
 - **Schema Management** — Create, update, delete collections and relationships
 - **CRUD Operations** — Full item management with powerful query capabilities
 - **50+ Filter Operators** — From basic comparison to geospatial and JSONB queries
@@ -415,6 +415,18 @@ MCP_ENABLED=true
 ```
 
 **For Claude Code / Anthropic CLI** — Create `.mcp.json` in your project:
+```json
+{
+  "mcpServers": {
+    "baasix": {
+      "type": "http",
+      "url": "http://localhost:8056/mcp?email=admin@baasix.com&password=admin@123"
+    }
+  }
+}
+```
+
+Or use headers:
 ```json
 {
   "mcpServers": {

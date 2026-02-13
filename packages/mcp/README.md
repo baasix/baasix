@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) server that provides Claude Desktop and other MCP
 
 ## Features
 
-- **57 MCP Tools** for comprehensive Baasix operations
+- **52 MCP Tools** for comprehensive Baasix operations
 - **Schema Management** - Create, update, delete collections and relationships
 - **CRUD Operations** - Full item management with powerful query capabilities
 - **50+ Filter Operators** - From basic comparison to geospatial and JSONB queries
@@ -26,7 +26,7 @@ A Model Context Protocol (MCP) server that provides Claude Desktop and other MCP
 |---------|--------------------------|----------------------|
 | **Transport** | stdio | HTTP (Streamable HTTP) |
 | **Setup** | Install `@baasix/mcp` | Enable `MCP_ENABLED=true` on server |
-| **Authentication** | Environment variables | HTTP headers |
+| **Authentication** | Environment variables | HTTP headers, query params, or body |
 | **Best For** | Claude Desktop, local dev | Production, cloud, remote servers |
 | **Process** | Runs locally | Runs on Baasix server |
 | **Config File** | `.mcp.json` | `.mcp.json` or `.vscode/mcp.json` |
@@ -139,6 +139,23 @@ For VS Code, you can use either Local MCP (stdio) or Remote MCP (HTTP).
 
 **Remote MCP (HTTP)** - Create `.vscode/mcp.json`:
 
+Using query parameters (simplest):
+```jsonc
+{
+  "servers": {
+    "baasix": {
+      "type": "http",
+      "url": "http://localhost:8056/mcp?email=${input:mcpEmail}&password=${input:mcpPassword}"
+    }
+  },
+  "inputs": [
+    { "id": "mcpEmail", "type": "promptString", "description": "Baasix Email" },
+    { "id": "mcpPassword", "type": "promptString", "description": "Password", "password": true }
+  ]
+}
+```
+
+Or using headers:
 ```jsonc
 {
   "servers": {

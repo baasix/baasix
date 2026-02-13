@@ -7,7 +7,9 @@
  *
  * Authentication options (in priority order):
  * 1. X-MCP-Email + X-MCP-Password headers - Uses internal auth service to login
- * 2. Authorization header or cookie from request (auth middleware populates accountability)
+ * 2. Query params: ?email=...&password=... - Useful for remote MCP clients that can't set custom headers
+ * 3. POST body: { email, password } - Credentials sent in request body
+ * 4. Authorization header or cookie from request (auth middleware populates accountability)
  *
  * Supports both stateful (with sessions) and stateless modes.
  *
@@ -159,8 +161,8 @@ async function performLogin(email: string, password: string, cacheKey: string, i
 }
 
 /**
- * Get accountability from request headers
- * Priority: 1. X-MCP-Email/Password headers, 2. Authorization Bearer token (auth middleware)
+ * Get accountability from request headers, query params, or body
+ * Priority: 1. X-MCP-Email/Password headers, 2. Query params (email/password), 3. POST body (email/password), 4. Authorization Bearer token (auth middleware)
  */
 async function getAccountability(req: RequestWithAccountability): Promise<{ accountability: MCPAccountability | null; error?: string }> {
   const ip = req.ip || "127.0.0.1";
@@ -180,7 +182,39 @@ async function getAccountability(req: RequestWithAccountability): Promise<{ acco
     };
   }
 
-  // Priority 2: Authorization Bearer token (auth middleware already populated req.accountability)
+  // Priority 2: Query parameters (email & password) - useful for remote MCP clients
+  const queryEmail = req.query?.email as string | undefined;
+  const queryPassword = req.query?.password as string | undefined;
+
+  if (queryEmail && queryPassword) {
+    const result = await performLogin(queryEmail, queryPassword, `query:${queryEmail}`, ip);
+    if (result) {
+      return { accountability: result };
+    }
+    return {
+      accountability: null,
+      error: "Invalid email or password.",
+    };
+  }
+
+  // Priority 3: POST body (email & password) - useful for remote MCP clients sending credentials in body
+  if (req.method === "POST" && req.body) {
+    const bodyEmail = req.body.email as string | undefined;
+    const bodyPassword = req.body.password as string | undefined;
+
+    if (bodyEmail && bodyPassword) {
+      const result = await performLogin(bodyEmail, bodyPassword, `body:${bodyEmail}`, ip);
+      if (result) {
+        return { accountability: result };
+      }
+      return {
+        accountability: null,
+        error: "Invalid email or password.",
+      };
+    }
+  }
+
+  // Priority 4: Authorization Bearer token (auth middleware already populated req.accountability)
   const authHeader = req.headers["authorization"] as string | undefined;
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.substring(7).trim();
@@ -210,7 +244,7 @@ async function getAccountability(req: RequestWithAccountability): Promise<{ acco
   // No authentication - return error
   return {
     accountability: null,
-    error: "Authentication required. Provide Authorization Bearer token OR X-MCP-Email/X-MCP-Password headers.",
+    error: "Authentication required. Provide Authorization Bearer token, X-MCP-Email/X-MCP-Password headers, email/password query params, or email/password in POST body.",
   };
 }
 
@@ -309,7 +343,7 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
         // Handle SSE connection for server-initiated messages
         await transport.handleRequest(req, res);
       } else if (req.method === "DELETE") {
-        // DELETE to close a session
+        // DELETE to close a session (idempotent - always 200)
         if (sessionId && activeTransports.has(sessionId)) {
           const transport = activeTransports.get(sessionId);
           if (transport) {
@@ -317,10 +351,9 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
           }
           activeTransports.delete(sessionId);
           removeMCPSession(sessionId);
-          res.status(200).json({ message: "Session closed" });
-        } else {
-          res.status(404).json({ error: "Session not found" });
+          console.info(`[MCP] Session deleted: ${sessionId}`);
         }
+        res.status(200).json({ message: "Session closed" });
       } else if (req.method === "OPTIONS") {
         // Handle CORS preflight
         res.status(204).end();

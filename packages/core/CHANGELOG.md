@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.31
+
+### Patch Changes
+
+- Add more request methods for MCP Authentication.
+
 ## 0.1.30
 
 ### Patch Changes
