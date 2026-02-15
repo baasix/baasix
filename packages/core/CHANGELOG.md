@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.32
+
+### Patch Changes
+
+- MCP: Add clear tool explanation for schema updation.
+
 ## 0.1.31
 
 ### Patch Changes

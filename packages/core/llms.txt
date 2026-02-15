@@ -151,14 +151,25 @@ Authorization: Bearer <token>
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /schemas | List all schemas |
-| GET | /schemas/:collection | Get schema for collection |
+| GET | /schemas/:collection | Get schema for collection (call this BEFORE PATCH to get all existing fields) |
 | POST | /schemas | Create new schema/collection |
-| PATCH | /schemas/:collection | Update schema |
-| DELETE | /schemas/:collection | Delete schema and table |
+| PATCH | /schemas/:collection | Update schema (⚠️ FULL REPLACEMENT — must include ALL fields, not just changes) |
+| DELETE | /schemas/:collection | Delete schema and table permanently |
 | POST | /schemas/:collection/relationships | Create relationship |
+| PATCH | /schemas/:collection/relationships/:name | Update relationship |
 | DELETE | /schemas/:collection/relationships/:name | Delete relationship |
 | POST | /schemas/:collection/indexes | Create index |
 | DELETE | /schemas/:collection/indexes/:name | Delete index |
+
+### ⚠️ IMPORTANT: PATCH /schemas/:collection behavior
+
+The PATCH endpoint performs a **FULL REPLACEMENT** of the schema definition.
+When adding, modifying, or removing columns, you MUST:
+1. First GET /schemas/:collection to retrieve the current full schema
+2. Include ALL existing fields in your PATCH request body (not just new/changed ones)
+3. Add/modify/remove only the specific fields you need
+
+Sending only new fields will DELETE all other field definitions from the schema.
 
 ## Files Routes
 

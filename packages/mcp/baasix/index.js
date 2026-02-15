@@ -160,13 +160,16 @@ class BaasixMCPServer {
                     },
                     {
                         name: "baasix_get_schema",
-                        description: "Get detailed schema information for a specific collection",
+                        description: `Get the full schema definition (columns, types, constraints, relationships, indexes) for a specific database table/collection.
+
+IMPORTANT: Always call this BEFORE using baasix_update_schema to get the current schema.
+The update_schema tool performs a full replacement, so you need the complete current schema to avoid losing existing fields.`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 collection: {
                                     type: "string",
-                                    description: "Collection name",
+                                    description: "Collection name of the table to inspect",
                                 },
                             },
                             required: ["collection"],
@@ -243,17 +246,60 @@ EXAMPLE:
                     },
                     {
                         name: "baasix_update_schema",
-                        description: "Update an existing collection schema",
+                        description: `Modify an existing collection schema — add new columns, change column types, or remove columns.
+Use this when asked to "add a field", "add a column", or "alter a table".
+
+⚠️ CRITICAL: This performs a FULL REPLACEMENT of the schema definition, NOT a merge.
+You MUST first call baasix_get_schema to retrieve the current schema, then spread ALL existing fields
+and add/modify/remove only the fields you need. If you send only new fields, ALL existing fields will
+be LOST from the schema definition.
+
+CORRECT WORKFLOW to add a column:
+1. Call baasix_get_schema for the collection
+2. Copy the entire existing schema (including name, timestamps, paranoid, and ALL fields)
+3. Add/modify/remove the desired fields while keeping all other fields intact
+4. Send the complete schema to baasix_update_schema
+
+EXAMPLE — Adding a "description" field to an existing "products" table that has id, name, price:
+{
+  "collection": "products",
+  "schema": {
+    "name": "Product",
+    "timestamps": true,
+    "fields": {
+      "id": { "type": "UUID", "primaryKey": true, "defaultValue": { "type": "UUIDV4" } },
+      "name": { "type": "String", "allowNull": false, "values": { "length": 255 } },
+      "price": { "type": "Decimal", "values": { "precision": 10, "scale": 2 } },
+      "description": { "type": "Text", "allowNull": true }
+    }
+  }
+}
+
+❌ WRONG — This will DELETE the id, name, and price field definitions:
+{
+  "collection": "products",
+  "schema": {
+    "fields": {
+      "description": { "type": "Text", "allowNull": true }
+    }
+  }
+}
+
+To REMOVE a column: Retrieve the full schema, remove the field from the fields object, and send the complete schema without that field.
+To RENAME a column: Remove the old field and add a new one with the desired name (data will NOT be migrated).
+To CHANGE a field type: Update the type property on the existing field definition.
+
+Field types and options are the same as baasix_create_schema.`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 collection: {
                                     type: "string",
-                                    description: "Collection name",
+                                    description: "Collection name of the table to modify",
                                 },
                                 schema: {
                                     type: "object",
-                                    description: "Updated schema definition",
+                                    description: "The COMPLETE schema definition including ALL existing fields plus any additions/modifications. This REPLACES the entire schema — do NOT send partial fields.",
                                 },
                             },
                             required: ["collection", "schema"],
@@ -261,13 +307,17 @@ EXAMPLE:
                     },
                     {
                         name: "baasix_delete_schema",
-                        description: "Delete a collection schema",
+                        description: `DROP/DELETE an entire database table and all its data permanently.
+Use this when asked to "drop a table", "delete a collection", or "remove a table".
+
+⚠️ WARNING: This is destructive and irreversible. The table, all its data, indexes, and relationships will be permanently deleted.
+Do NOT use this to remove a column — use baasix_update_schema instead to modify the schema without the unwanted field.`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 collection: {
                                     type: "string",
-                                    description: "Collection name",
+                                    description: "Collection name of the table to permanently delete",
                                 },
                             },
                             required: ["collection"],
@@ -275,13 +325,36 @@ EXAMPLE:
                     },
                     {
                         name: "baasix_add_index",
-                        description: "Add an index to a collection schema",
+                        description: `Add a database index to a table for better query performance.
+This is an ADDITIVE operation — it only adds the new index without affecting existing indexes or schema fields.
+
+Supports btree (default), hash, gin, and gist index types. Can be unique.
+Use this when asked to "add an index", "create an index", or "speed up queries on a field".
+
+EXAMPLE — Add a unique index on email:
+{
+  "collection": "users",
+  "indexDefinition": {
+    "name": "users_email_unique",
+    "fields": ["email"],
+    "unique": true
+  }
+}
+
+EXAMPLE — Add a composite index:
+{
+  "collection": "orders",
+  "indexDefinition": {
+    "name": "orders_status_date",
+    "fields": ["status", "createdAt"]
+  }
+}`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 collection: {
                                     type: "string",
-                                    description: "Collection name",
+                                    description: "Collection name of the table to add the index to",
                                 },
                                 indexDefinition: {
                                     type: "object",
@@ -289,16 +362,16 @@ EXAMPLE:
                                     properties: {
                                         name: {
                                             type: "string",
-                                            description: "Index name",
+                                            description: "Index name (e.g., 'users_email_unique'). Use a descriptive name like {table}_{fields}_{type}",
                                         },
                                         fields: {
                                             type: "array",
                                             items: { type: "string" },
-                                            description: "Array of field names to index",
+                                            description: "Array of field names to index (e.g., ['email'] or ['status', 'createdAt'] for composite)",
                                         },
                                         unique: {
                                             type: "boolean",
-                                            description: "Whether the index should be unique",
+                                            description: "Whether the index should enforce uniqueness (default: false)",
                                         },
                                         nullsNotDistinct: {
                                             type: "boolean",
@@ -313,17 +386,19 @@ EXAMPLE:
                     },
                     {
                         name: "baasix_remove_index",
-                        description: "Remove an index from a collection schema",
+                        description: `Remove an existing index from a database table.
+This only removes the index — it does NOT delete any data or columns.
+Use baasix_get_schema first to see the list of existing indexes on the table if you don't know the index name.`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 collection: {
                                     type: "string",
-                                    description: "Collection name",
+                                    description: "Collection name of the table containing the index",
                                 },
                                 indexName: {
                                     type: "string",
-                                    description: "Name of the index to remove",
+                                    description: "Name of the index to remove (use baasix_get_schema to find index names)",
                                 },
                             },
                             required: ["collection", "indexName"],
@@ -438,21 +513,39 @@ EXAMPLE M2M with custom junction table:
                     },
                     {
                         name: "baasix_update_relationship",
-                        description: "Update an existing relationship",
+                        description: `Modify an existing foreign key / relationship between two database tables.
+Use this to change delete behavior, alias, description, or other relationship properties.
+This is a PARTIAL update — only pass the properties you want to change.
+
+Note: You CANNOT change the relationship type or target table. To do that, delete and recreate the relationship.
+
+EXAMPLE — Change onDelete behavior:
+{
+  "sourceCollection": "products",
+  "fieldName": "category",
+  "updateData": { "onDelete": "SET NULL" }
+}
+
+EXAMPLE — Update alias and description:
+{
+  "sourceCollection": "products",
+  "fieldName": "category",
+  "updateData": { "alias": "items", "description": "Product category" }
+}`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 sourceCollection: {
                                     type: "string",
-                                    description: "Source collection name",
+                                    description: "Source collection name that owns the relationship",
                                 },
                                 fieldName: {
                                     type: "string",
-                                    description: "Relationship field name",
+                                    description: "Relationship field name to update (use baasix_get_schema to find relationship names)",
                                 },
                                 updateData: {
                                     type: "object",
-                                    description: "Update data for the relationship",
+                                    description: "Only the relationship properties to change (partial update). Supports: alias, description, onDelete (CASCADE/RESTRICT/SET NULL), onUpdate",
                                 },
                             },
                             required: ["sourceCollection", "fieldName", "updateData"],
@@ -460,17 +553,23 @@ EXAMPLE M2M with custom junction table:
                     },
                     {
                         name: "baasix_delete_relationship",
-                        description: "Delete a relationship",
+                        description: `Remove a foreign key / relationship from a database table.
+This drops the foreign key constraint and the FK column (e.g., category_Id) from the source table.
+For M2M relationships, this also removes the junction table.
+
+⚠️ WARNING: This will remove the FK column and any data stored in it. Use baasix_get_schema first to confirm the relationship field name.
+
+Do NOT confuse with baasix_delete_schema (which deletes an entire table).`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 sourceCollection: {
                                     type: "string",
-                                    description: "Source collection name",
+                                    description: "Source collection name that owns the relationship",
                                 },
                                 fieldName: {
                                     type: "string",
-                                    description: "Relationship field name",
+                                    description: "Relationship field name to delete (use baasix_get_schema to find relationship names)",
                                 },
                             },
                             required: ["sourceCollection", "fieldName"],
@@ -478,7 +577,7 @@ EXAMPLE M2M with custom junction table:
                     },
                     {
                         name: "baasix_export_schemas",
-                        description: "Export all schemas as JSON",
+                        description: "Export all table definitions as JSON for backup or migration. Returns the complete schema definitions of every table in the database, including fields, indexes, and relationships.",
                         inputSchema: {
                             type: "object",
                             properties: {},
@@ -487,13 +586,13 @@ EXAMPLE M2M with custom junction table:
                     },
                     {
                         name: "baasix_import_schemas",
-                        description: "Import schemas from JSON data",
+                        description: "Import table definitions from JSON data to recreate tables. Use this to restore schemas from a previous baasix_export_schemas backup or to migrate table structures between environments.",
                         inputSchema: {
                             type: "object",
                             properties: {
                                 schemas: {
                                     type: "object",
-                                    description: "Schema data to import",
+                                    description: "Schema data to import (format should match the output of baasix_export_schemas)",
                                 },
                             },
                             required: ["schemas"],

@@ -432,7 +432,8 @@ KEY CONCEPTS:
 
 COMMON TASK MAPPING:
 - "Create a table" or "create a collection" → use baasix_create_schema (this creates both the schema definition AND the database table)
-- "Add a column/field" → use baasix_update_schema
+- "Add a column/field" → use baasix_update_schema (⚠️ MUST first call baasix_get_schema to get ALL existing fields, then send complete schema with additions)
+- "Remove a column/field" → use baasix_update_schema (retrieve full schema, remove the field, send complete schema without it)
 - "Insert/add data" or "create a record" → use baasix_create_item
 - "Query/list/fetch data" or "get rows" → use baasix_list_items
 - "Sum", "count", "average", "total", "report", "stats", "analytics", "dashboard", "min/max" → use baasix_generate_report (NOT baasix_list_items)
@@ -441,6 +442,13 @@ COMMON TASK MAPPING:
 - "Add an index" → use baasix_add_index
 - "Set permissions" → use baasix_create_permission or baasix_update_permissions
 - "Check what tables exist" → use baasix_list_schemas
+
+⚠️ CRITICAL — baasix_update_schema performs a FULL REPLACEMENT of the schema definition.
+When adding/modifying/removing columns, you MUST:
+1. Call baasix_get_schema first to get ALL existing fields
+2. Include ALL existing fields in your update (not just new ones)
+3. Add/modify/remove only the specific fields you need
+Sending only new fields will DELETE all other field definitions from the schema.
 
 WORKFLOW FOR CREATING A NEW TABLE:
 1. baasix_create_schema — define the table name and fields
@@ -541,7 +549,10 @@ Call baasix_create_schema with:
 
   server.tool(
     "baasix_get_schema",
-    "Get the full schema definition (columns, types, constraints, relationships) for a specific database table/collection.",
+    `Get the full schema definition (columns, types, constraints, relationships, indexes) for a specific database table/collection.
+
+IMPORTANT: Always call this BEFORE using baasix_update_schema to get the current schema.
+The update_schema tool performs a full replacement, so you need the complete current schema to avoid losing existing fields.`,
     {
       collection: z.string().describe("Collection name"),
     },
@@ -603,15 +614,52 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
 
   server.tool(
     "baasix_update_schema",
-    "Modify an existing database table — add new columns, change column types, or remove columns. Use this when asked to 'add a field', 'add a column', or 'alter a table'.",
+    `Modify an existing database table — add new columns, change column types, or remove columns.
+Use this when asked to 'add a field', 'add a column', or 'alter a table'.
+
+⚠️ CRITICAL: This performs a FULL REPLACEMENT of the schema definition, NOT a merge.
+You MUST first call baasix_get_schema to retrieve the current schema, then include ALL existing fields
+and add/modify/remove only the fields you need. If you send only new fields, ALL existing fields will
+be LOST from the schema definition.
+
+CORRECT WORKFLOW to add a column:
+1. Call baasix_get_schema for the collection
+2. Copy the entire existing schema (including name, timestamps, paranoid, and ALL fields)
+3. Add/modify/remove the desired fields while keeping all other fields intact
+4. Send the complete schema to baasix_update_schema
+
+EXAMPLE — Adding a "description" field to an existing "products" table that has id, name, price:
+{
+  "collection": "products",
+  "schema": {
+    "name": "Product",
+    "timestamps": true,
+    "fields": {
+      "id": { "type": "UUID", "primaryKey": true, "defaultValue": { "type": "UUIDV4" } },
+      "name": { "type": "String", "allowNull": false, "values": { "length": 255 } },
+      "price": { "type": "Decimal", "values": { "precision": 10, "scale": 2 } },
+      "description": { "type": "Text", "allowNull": true }
+    }
+  }
+}
+
+❌ WRONG — This will DELETE the id, name, and price field definitions:
+{
+  "collection": "products",
+  "schema": {
+    "fields": {
+      "description": { "type": "Text", "allowNull": true }
+    }
+  }
+}`,
     {
       collection: z.string().describe("Collection name"),
       schema: z
         .object({
-          fields: z.record(z.any()).optional().describe("Updated field definitions"),
+          fields: z.record(z.any()).optional().describe("The COMPLETE field definitions including ALL existing fields plus any additions/modifications. This REPLACES the entire schema — do NOT send partial fields."),
         })
         .passthrough()
-        .describe("Schema updates"),
+        .describe("The COMPLETE schema definition. This REPLACES the entire schema — include ALL fields, not just changes."),
     },
     async (args: UpdateSchemaInput, extra: ToolExtra): Promise<ToolResult> => {
       const { collection, schema } = args;
@@ -623,7 +671,11 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
 
   server.tool(
     "baasix_delete_schema",
-    "DROP/DELETE an entire database table and all its data permanently. Use this when asked to 'drop a table', 'delete a collection', or 'remove a table'.",
+    `DROP/DELETE an entire database table and all its data permanently.
+Use this when asked to 'drop a table', 'delete a collection', or 'remove a table'.
+
+⚠️ WARNING: This is destructive and irreversible. The table, all its data, indexes, and relationships will be permanently deleted.
+Do NOT use this to remove a column — use baasix_update_schema instead to modify the schema without the unwanted field.`,
     {
       collection: z.string().describe("Collection name to delete"),
     },
@@ -637,7 +689,15 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
 
   server.tool(
     "baasix_add_index",
-    "Add a database index to a table for better query performance. Supports btree, hash, gin, and gist index types. Can be unique.",
+    `Add a database index to a table for better query performance.
+This is an ADDITIVE operation — it only adds the new index without affecting existing indexes or schema fields.
+Supports btree (default), hash, gin, and gist index types. Can be unique.
+
+EXAMPLE — Add a unique index on email:
+{ "collection": "users", "indexDefinition": { "fields": ["email"], "unique": true } }
+
+EXAMPLE — Add a composite index:
+{ "collection": "orders", "indexDefinition": { "fields": ["status", "createdAt"] } }`,
     {
       collection: z.string().describe("Collection name"),
       indexDefinition: z
@@ -659,7 +719,7 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
 
   server.tool(
     "baasix_remove_index",
-    "Remove a database index from a table.",
+    "Remove an existing index from a database table. This only removes the index — it does NOT delete any data or columns. Use baasix_get_schema first to see the list of existing indexes if you don't know the index name.",
     {
       collection: z.string().describe("Collection name"),
       indexName: z.string().describe("Name of the index to remove"),
@@ -722,7 +782,12 @@ relationshipData: { "name": "category", "type": "M2O", "target": "categories", "
 
   server.tool(
     "baasix_delete_relationship",
-    "Remove a foreign key / relationship from a database table.",
+    `Remove a foreign key / relationship from a database table.
+This drops the foreign key constraint and the FK column (e.g., category_Id) from the source table.
+For M2M relationships, this also removes the junction table.
+
+⚠️ WARNING: This will remove the FK column and any data stored in it. Use baasix_get_schema first to confirm the relationship field name.
+Do NOT confuse with baasix_delete_schema (which deletes an entire table).`,
     {
       sourceCollection: z.string().describe("Source collection name"),
       fieldName: z.string().describe("Relationship field name"),
