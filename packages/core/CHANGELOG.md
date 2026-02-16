@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.33
+
+### Patch Changes
+
+- Added fix for update and delete permission checks with OR.
+
 ## 0.1.32
 
 ### Patch Changes

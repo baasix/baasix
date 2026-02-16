@@ -2481,13 +2481,15 @@ export class ItemsService {
     filter = await resolveDynamicVariables(filter, this.accountability);
 
     // Check if record exists and user has permission
+    // Use LEFT JOINs (not INNER) so OR conditions across multiple relations work correctly.
+    // INNER JOINs would eliminate rows before the OR is evaluated, breaking conditions like:
+    //   OR: [ {"$rel1.field$": ...}, {"$rel2.field$": ...}, {"direct_field": ...} ]
     const filterJoins: any[] = [];
     const whereClause = drizzleWhere(filter, {
       table: this.table,
       tableName: this.collection,
       schema: this.table as any,
-      joins: filterJoins,
-      forPermissionCheck: true
+      joins: filterJoins
     });
 
     // Deduplicate filter joins by alias
@@ -2507,9 +2509,8 @@ export class ItemsService {
       // Use transaction for reads to prevent deadlocks and ensure consistency
       let query: any = transaction.select().from(this.table);
       filterJoins.forEach((join) => {
-        const { table: joinTable, condition, type = 'left' } = join;
-        const joinMethod = type === 'inner' ? 'innerJoin' : 'leftJoin';
-        query = query[joinMethod](joinTable, condition);
+        const { table: joinTable, condition } = join;
+        query = query.leftJoin(joinTable, condition);
       });
       existingItems = await query.where(whereClause).limit(1);
     } else {
@@ -2884,13 +2885,13 @@ export class ItemsService {
     filter = await resolveDynamicVariables(filter, this.accountability);
 
     // Check if record exists and user has permission
+    // Use LEFT JOINs (not INNER) so OR conditions across multiple relations work correctly.
     const filterJoins: any[] = [];
     const whereClause = drizzleWhere(filter, {
       table: this.table,
       tableName: this.collection,
       schema: this.table as any,
-      joins: filterJoins,
-      forPermissionCheck: true
+      joins: filterJoins
     });
 
     // Deduplicate filter joins by alias
@@ -2910,9 +2911,8 @@ export class ItemsService {
       // Use transaction for reads to prevent deadlocks and ensure consistency
       let query: any = transaction.select().from(this.table);
       filterJoins.forEach((join) => {
-        const { table: joinTable, condition, type = 'left' } = join;
-        const joinMethod = type === 'inner' ? 'innerJoin' : 'leftJoin';
-        query = query[joinMethod](joinTable, condition);
+        const { table: joinTable, condition } = join;
+        query = query.leftJoin(joinTable, condition);
       });
       existingItems = await query.where(whereClause).limit(1);
     } else {
