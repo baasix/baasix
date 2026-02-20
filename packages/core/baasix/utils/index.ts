@@ -187,7 +187,6 @@ export type { BaasixLoggerOptions, Logger, LoggerOptions, DestinationStream } fr
 export {
   modelExistsMiddleware,
   requireAuth,
-  getImportAccountability,
   collectionHasTenantField,
   invalidateAuthCache,
   invalidateCollectionCache,

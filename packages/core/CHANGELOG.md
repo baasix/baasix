@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.34
+
+### Patch Changes
+
+- Added fixes for cascade operations
+
 ## 0.1.33
 
 ### Patch Changes

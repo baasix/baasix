@@ -13,7 +13,7 @@ import {
   modelExistsMiddleware,
   invalidateSettingsCache,
   invalidateSettingsCacheAfterImport,
-  getImportAccountability,
+  requireAuth,
 } from "../utils/common.js";
 
 const registerEndpoint = (app: Express) => {
@@ -247,16 +247,16 @@ const registerEndpoint = (app: Express) => {
     async (req, res, next) => {
       try {
         const { collection } = req.params;
+        requireAuth(req);
 
         // Validate file exists and type
         const csvFile = validateFileType((req as any).files?.csvFile, [".csv"], ["text/csv"], "CSV");
 
-        // Handle tenant parameter based on user role and collection tenant support
-        const accountability = getImportAccountability(req, collection);
+        // Tenant explicitly provided by admin users; tenant-specific users are handled automatically by ItemsService
+        const tenantId = req.body?.tenant;
 
         const itemsService = new ItemsService(collection, {
-          accountability: accountability as any,
-          tenant: accountability?.tenant, // Pass tenant explicitly to ensure it's used for enforcement
+          accountability: req.accountability as any,
         });
 
         // Parse CSV data
@@ -291,6 +291,11 @@ const registerEndpoint = (app: Express) => {
               // Process fields using CSV-specific processing
               const table = schemaManager.getTable(collection);
               const processedRow = processCSVSpecificFields(row, table);
+
+              // Add tenant_Id if tenant context is available
+              if (tenantId) {
+                processedRow.tenant_Id = tenantId;
+              }
 
               // Create the item using ItemsService with transaction
               await itemsService.createOne(processedRow, {
@@ -350,16 +355,16 @@ const registerEndpoint = (app: Express) => {
     async (req, res, next) => {
       try {
         const { collection } = req.params;
+        requireAuth(req);
 
         // Validate file exists and type
         const jsonFile = validateFileType((req as any).files?.jsonFile, [".json"], ["application/json"], "JSON");
 
-        // Handle tenant parameter based on user role and collection tenant support
-        const accountability = getImportAccountability(req, collection);
+        // Tenant explicitly provided by admin users; tenant-specific users are handled automatically by ItemsService
+        const tenantId = req.body?.tenant;
 
         const itemsService = new ItemsService(collection, {
-          accountability: accountability as any,
-          tenant: accountability?.tenant, // Pass tenant explicitly to ensure it's used for enforcement
+          accountability: req.accountability as any,
         });
 
         // Parse JSON data
@@ -401,6 +406,11 @@ const registerEndpoint = (app: Express) => {
               // Process fields using JSON-specific processing
               const table = schemaManager.getTable(collection);
               const processedItem = processJSONSpecificFields(item, table);
+
+              // Add tenant_Id if tenant context is available
+              if (tenantId) {
+                processedItem.tenant_Id = tenantId;
+              }
 
               // Create the item using ItemsService with transaction
               await itemsService.createOne(processedItem, {

@@ -608,16 +608,14 @@ export async function handleRelatedRecordsBeforeDelete(
   const dbOrTx = transaction || db;
 
   for (const [associationName, association] of Object.entries(associations)) {
-    const onDelete = association.onDelete || 'CASCADE';
-
-    if (association.type === 'HasMany') {
+    // Only handle M2A target → junction cleanup at app level.
+    // M2A target fields have constraints: false (no DB FK on polymorphic item_id),
+    // so orphaned junction rows would remain without app-level cleanup.
+    // All other relation types (HasMany, HasOne, M2M) have DB FK constraints
+    // on the BelongsTo side that handle cascade/set-null automatically.
+    if (association.type === 'HasMany' && (association as any).constraints === false) {
+      const onDelete = association.onDelete || 'CASCADE';
       await handleHasManyDelete(item, association, associationName, service, dbOrTx, onDelete);
-    } else if (association.type === 'HasOne') {
-      await handleHasOneDelete(item, association, associationName, service, dbOrTx, onDelete);
-    } else if (association.type === 'BelongsToMany') {
-      await handleBelongsToManyDelete(item, association, associationName, service, dbOrTx);
-    } else if (isPolymorphicRelation(association)) {
-      await handleM2ADelete(item, association, associationName, service, dbOrTx);
     }
   }
 }
