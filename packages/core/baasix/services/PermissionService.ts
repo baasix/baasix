@@ -445,13 +445,62 @@ export class PermissionService {
 
     if (collectionPermissions && collectionPermissions[operation]) {
       const fields = collectionPermissions[operation].fields;
-      
+
       if (!fields) return null;
-      
+
       return FieldExpansionUtil.expandFields(fields, collection);
     }
 
     return null;
+  }
+
+  /**
+   * Combined permission lookup — single cache hit returns canAccess, filter, and allowedFields.
+   * Use this instead of calling canAccess + getFilter + getAllowedFields separately.
+   */
+  async getFullPermissionData(
+    role_Id: string | number,
+    collection: string,
+    operation: 'create' | 'read' | 'update' | 'delete',
+    accountability: any
+  ): Promise<{
+    canAccess: boolean;
+    filter: PermissionFilter;
+    allowedFields: string[] | null;
+  }> {
+    const permissions = await this.getPermissions(role_Id);
+    const collectionPermissions = permissions[collection];
+
+    if (!collectionPermissions || !collectionPermissions[operation]) {
+      return {
+        canAccess: false,
+        filter: { conditions: {}, relConditions: {} },
+        allowedFields: null,
+      };
+    }
+
+    const permData = collectionPermissions[operation];
+
+    // canAccess
+    const canAccess = true;
+
+    // filter
+    const conditions = permData.conditions || {};
+    const relConditions = permData.relConditions || {};
+    const resolvedConditions = await resolveDynamicVariables(conditions, accountability);
+    const resolvedRelConditions = await resolveDynamicVariables(relConditions, accountability);
+    const filter: PermissionFilter = {
+      conditions: resolvedConditions,
+      relConditions: resolvedRelConditions,
+    };
+
+    // allowedFields
+    let allowedFields: string[] | null = null;
+    if (permData.fields) {
+      allowedFields = FieldExpansionUtil.expandFields(permData.fields, collection);
+    }
+
+    return { canAccess, filter, allowedFields };
   }
 }
 

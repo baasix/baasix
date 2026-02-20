@@ -3,12 +3,14 @@ import { APIError } from "./errorHandler.js";
 
 // Use TENANT_IGNORED_TABLES from .env file to determine which collections are not tenant-specific
 const tenantIgnoredTablesString = env.get("TENANT_IGNORED_TABLES");
-const tenantIgnoredTables = tenantIgnoredTablesString
-  ? tenantIgnoredTablesString.split(",").map((table: string) => table.trim())
-  : [];
+const tenantIgnoredTables = new Set(
+  tenantIgnoredTablesString
+    ? tenantIgnoredTablesString.split(",").map((table: string) => table.trim())
+    : []
+);
 
-// List of system collections that are tenant-specific
-const tenantSpecificSystemCollections = [
+// List of system collections that are tenant-specific (Set for O(1) lookups)
+const tenantSpecificSystemCollections = new Set([
   "baasix_Sessions",
   "baasix_File",
   "baasix_AuditLog",
@@ -18,10 +20,10 @@ const tenantSpecificSystemCollections = [
   "baasix_Workflow",
   "baasix_WorkflowExecution",
   "baasix_WorkflowExecutionLog",
-];
+]);
 
 // Collections that support public access bypass (isPublic field)
-const publicAccessCollections = ["baasix_File"];
+const publicAccessCollections = new Set(["baasix_File"]);
 
 /**
  * Determines whether tenant context should be enforced for the current operation
@@ -30,12 +32,12 @@ const publicAccessCollections = ["baasix_File"];
  */
 export async function shouldEnforceTenantContext(service: any): Promise<boolean> {
   // Skip tenant enforcement for system collections
-  if (service.collection.startsWith("baasix_") && !tenantSpecificSystemCollections.includes(service.collection)) {
+  if (service.collection.startsWith("baasix_") && !tenantSpecificSystemCollections.has(service.collection)) {
     return false;
   }
 
   // Skip tenant enforcement for collections that are explicitly ignored
-  if (tenantIgnoredTables.includes(service.collection)) {
+  if (tenantIgnoredTables.has(service.collection)) {
     return false;
   }
 
@@ -63,7 +65,7 @@ export async function shouldEnforceTenantContext(service: any): Promise<boolean>
  * @returns Whether the collection supports isPublic field
  */
 export function supportsPublicAccess(collection: string): boolean {
-  return publicAccessCollections.includes(collection);
+  return publicAccessCollections.has(collection);
 }
 
 /**

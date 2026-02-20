@@ -135,12 +135,28 @@ async function syncFromRedis(): Promise<void> {
 }
 
 /**
- * Increment the cache version in Redis to signal changes to other instances
+ * Debounce tracking for cache version increments.
+ * During bulk operations (e.g. permission invalidation), many hybrid-key writes
+ * happen in quick succession. Since the periodic sync already runs every 5s,
+ * we coalesce rapid increments by skipping if one happened within the last 100ms.
+ */
+let lastVersionIncrementTime = 0;
+const VERSION_DEBOUNCE_MS = 100;
+
+/**
+ * Increment the cache version in Redis to signal changes to other instances.
+ * Debounced: skips if already incremented within VERSION_DEBOUNCE_MS.
  */
 async function incrementCacheVersion(): Promise<void> {
   const redisClient = getRedisClient();
   if (!redisClient) return;
-  
+
+  const now = Date.now();
+  if (now - lastVersionIncrementTime < VERSION_DEBOUNCE_MS) {
+    return; // Already incremented recently, skip
+  }
+  lastVersionIncrementTime = now;
+
   try {
     await redisClient.incr("cache:version");
   } catch (error: any) {

@@ -211,7 +211,8 @@ export class SchemaManager {
 
     for (const schemaData of allSchemas) {
       // Prepare schema with timestamp fields added if timestamps: true
-      const schemaToStore = JSON.parse(JSON.stringify(schemaData.schema));
+      // Shallow clone: only spread top-level and fields (the only mutated property)
+      const schemaToStore: any = { ...schemaData.schema, fields: { ...(schemaData.schema as any).fields } };
       if (schemaToStore.timestamps !== false) {
         // Add createdAt and updatedAt fields to schema definition if not already present
         if (!schemaToStore.fields.createdAt) {
@@ -1765,24 +1766,11 @@ export class SchemaManager {
    * Get schema definition with flags from baasix_SchemaDefinition table
    */
   async getSchemaDefinition(collectionName: string): Promise<any | null> {
-    try {
-      const schemaDefTable = this.getTable('baasix_SchemaDefinition');
-      if (!schemaDefTable) return null;
-
-      const db = getDatabase();
-      const result = await db
-        .select()
-        .from(schemaDefTable)
-        .where(eq(schemaDefTable.collectionName, collectionName))
-        .limit(1);
-
-      if (result.length === 0) return null;
-
-      return result[0].schema;
-    } catch (error) {
-      console.error(`Error getting schema definition for ${collectionName}:`, error);
-      return null;
-    }
+    // Use the in-memory schemaDefinitions map (populated during initialization)
+    // instead of querying the DB on every call
+    const cached = this.schemaDefinitions.get(collectionName);
+    if (cached) return cached.schema;
+    return null;
   }
 
   /**
@@ -1849,6 +1837,9 @@ export class SchemaManager {
       });
     }
 
+    // Update in-memory cache
+    this.schemaDefinitions.set(collectionName, { collectionName, schema });
+
     // Reload the schema
     await this.createOrUpdateModel(collectionName, schema);
   }
@@ -1867,6 +1858,7 @@ export class SchemaManager {
     // Remove from memory
     this.schemas.delete(collectionName);
     this.relations.delete(collectionName);
+    this.schemaDefinitions.delete(collectionName);
   }
 
   /**

@@ -57,15 +57,11 @@ const registerEndpoint = (app: Express) => {
       // Reload permissions
       await permissionService.loadPermissions();
 
-      // Invalidate auth cache for the affected role
-      if (data.role_Id) {
-        await invalidateAuthCache(data.role_Id);
-      }
-
-      // Invalidate cache for the affected collection
-      if (data.collection) {
-        await invalidateCollectionCache(data.collection);
-      }
+      // Invalidate auth and collection caches in parallel
+      await Promise.all([
+        data.role_Id ? invalidateAuthCache(data.role_Id) : Promise.resolve(),
+        data.collection ? invalidateCollectionCache(data.collection) : Promise.resolve(),
+      ]);
 
       res.status(201).json(newPermission);
     } catch (error) {
@@ -102,10 +98,6 @@ const registerEndpoint = (app: Express) => {
       if (data.role_Id) {
         rolesToInvalidate.add(data.role_Id);
       }
-      for (const roleId of rolesToInvalidate) {
-        await invalidateAuthCache(roleId);
-      }
-
       // Invalidate cache for both old and new collections (if collection changed)
       const collectionsToInvalidate = new Set<string>();
       if (oldPermission.collection) {
@@ -115,9 +107,11 @@ const registerEndpoint = (app: Express) => {
         collectionsToInvalidate.add(data.collection);
       }
 
-      for (const collection of collectionsToInvalidate) {
-        await invalidateCollectionCache(collection);
-      }
+      // Batch all invalidations in parallel
+      await Promise.all([
+        ...Array.from(rolesToInvalidate).map(roleId => invalidateAuthCache(roleId)),
+        ...Array.from(collectionsToInvalidate).map(collection => invalidateCollectionCache(collection)),
+      ]);
 
       res.json(updatedPermission);
     } catch (error) {
@@ -142,15 +136,11 @@ const registerEndpoint = (app: Express) => {
       // Reload permissions
       await permissionService.loadPermissions();
 
-      // Invalidate auth cache for the affected role
-      if (permission.role_Id) {
-        await invalidateAuthCache(permission.role_Id);
-      }
-
-      // Invalidate cache for the affected collection
-      if (permission.collection) {
-        await invalidateCollectionCache(permission.collection);
-      }
+      // Invalidate auth and collection caches in parallel
+      await Promise.all([
+        permission.role_Id ? invalidateAuthCache(permission.role_Id) : Promise.resolve(),
+        permission.collection ? invalidateCollectionCache(permission.collection) : Promise.resolve(),
+      ]);
 
       res.status(204).end();
     } catch (error) {

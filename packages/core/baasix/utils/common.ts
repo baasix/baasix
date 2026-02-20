@@ -56,6 +56,7 @@ export async function invalidateAuthCache(roleId?: string): Promise<void> {
       const cacheKey = `auth:role:${roleId}:permissions`;
       await cache.delete(cacheKey);
     } else {
+      // Invalidate all auth-related caches including userrole lookups
       await cache.invalidateModel("auth");
     }
   } catch (error) {

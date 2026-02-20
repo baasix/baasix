@@ -62,9 +62,21 @@ export async function getRolesAndPermissions(roleId: string | number): Promise<{
     return cachedRole;
   }
 
-  // Get role from PermissionService (hybrid cache)
-  const role = await permissionService.getRoleByIdAsync(roleId);
-  
+  // Get role from PermissionService (hybrid cache), fall back to DB if not cached
+  let role = await permissionService.getRoleByIdAsync(roleId);
+
+  if (!role) {
+    // Role not in hybrid cache (e.g., freshly created) — query DB directly
+    const sqlClient = getSqlClient();
+    const roles: any[] = await sqlClient`
+      SELECT id, name, description, "isTenantSpecific"
+      FROM "baasix_Role"
+      WHERE id = ${roleId}
+      LIMIT 1
+    `;
+    role = roles[0] || null;
+  }
+
   if (!role) {
     throw new Error(`Role with id ${roleId} not found`);
   }
@@ -357,67 +369,55 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
 
     const { user } = sessionResult;
 
-    // Get dynamically created tables from schema manager
-    const userRoleTable = schemaManager.getTable("baasix_UserRole");
-    const permissionTable = schemaManager.getTable("baasix_Permission");
+    // Get user's role assignment — cached with short TTL to avoid DB hit on every request
+    const cache = getCache();
+    const tenantKey = payload.tenant_Id ?? 'global';
+    const userRoleCacheKey = `auth:userrole:${user.id}:${tenantKey}`;
+    let userRole = await cache.get(userRoleCacheKey);
 
-    // Get user's role assignment
-    let userRoles;
-    if (payload.tenant_Id !== undefined && payload.tenant_Id !== null) {
-      userRoles = await db
-        .select({
-          role_Id: userRoleTable.role_Id,
-          tenant_Id: userRoleTable.tenant_Id,
-        })
-        .from(userRoleTable)
-        .where(and(
-          eq(userRoleTable.user_Id, user.id),
-          eq(userRoleTable.tenant_Id, payload.tenant_Id)
-        ))
-        .limit(1);
-    } else {
-      userRoles = await db
-        .select({
-          role_Id: userRoleTable.role_Id,
-          tenant_Id: userRoleTable.tenant_Id,
-        })
-        .from(userRoleTable)
-        .where(eq(userRoleTable.user_Id, user.id))
-        .limit(1);
+    if (!userRole) {
+      const userRoleTable = schemaManager.getTable("baasix_UserRole");
+      let userRoles;
+      if (payload.tenant_Id !== undefined && payload.tenant_Id !== null) {
+        userRoles = await db
+          .select({
+            role_Id: userRoleTable.role_Id,
+            tenant_Id: userRoleTable.tenant_Id,
+          })
+          .from(userRoleTable)
+          .where(and(
+            eq(userRoleTable.user_Id, user.id),
+            eq(userRoleTable.tenant_Id, payload.tenant_Id)
+          ))
+          .limit(1);
+      } else {
+        userRoles = await db
+          .select({
+            role_Id: userRoleTable.role_Id,
+            tenant_Id: userRoleTable.tenant_Id,
+          })
+          .from(userRoleTable)
+          .where(eq(userRoleTable.user_Id, user.id))
+          .limit(1);
+      }
+      userRole = userRoles?.[0] || null;
+      if (userRole) {
+        await cache.set(userRoleCacheKey, userRole, 60000); // 60s TTL
+      }
     }
-
-    const userRole = userRoles?.[0];
 
     // Get role and permissions from cache or database
     let role: any = { id: null, name: "user", isTenantSpecific: false };
     let permissions: any[] = [];
 
     if (userRole?.role_Id) {
-      try {
-        const roleData = await getRolesAndPermissions(userRole.role_Id);
-        role = {
-          id: roleData.id,
-          name: roleData.name,
-          isTenantSpecific: roleData.isTenantSpecific,
-        };
-        permissions = Object.values(roleData.permissions);
-      } catch {
-        // Fallback: use PermissionService hybrid cache for role
-        const cachedRole = await permissionService.getRoleByIdAsync(userRole.role_Id);
-        if (cachedRole) {
-          role = {
-            id: cachedRole.id,
-            name: cachedRole.name,
-            isTenantSpecific: cachedRole.isTenantSpecific,
-          };
-        }
-
-        // Still need to fetch permissions from DB as fallback
-        permissions = await db
-          .select()
-          .from(permissionTable)
-          .where(eq(permissionTable.role_Id, userRole.role_Id));
-      }
+      const roleData = await getRolesAndPermissions(userRole.role_Id);
+      role = {
+        id: roleData.id,
+        name: roleData.name,
+        isTenantSpecific: roleData.isTenantSpecific,
+      };
+      permissions = Object.values(roleData.permissions);
     }
 
     // Calculate isAdmin based on role name
@@ -515,6 +515,22 @@ export async function validateSession(
   token: string,
   expectedTenantId: string | null = null
 ): Promise<{ session: any; user: any } | null> {
+  // Check short-TTL session cache to avoid DB query on every request
+  const cache = getCache();
+  const sessionCacheKey = `auth:session:${token}`;
+  const cached = await cache.get(sessionCacheKey);
+  if (cached) {
+    // Re-check expiry even from cache
+    if (new Date() > new Date(cached.session.expiresAt)) {
+      await cache.delete(sessionCacheKey);
+      const ItemsService = await getItemsService();
+      const sessionService = new ItemsService('baasix_Sessions');
+      await sessionService.deleteOne(cached.session.id);
+      return null;
+    }
+    return cached;
+  }
+
   const ItemsService = await getItemsService();
   const sessionService = new ItemsService('baasix_Sessions');
 
@@ -554,7 +570,12 @@ export async function validateSession(
     return null;
   }
 
-  return { session, user };
+  const result = { session, user };
+
+  // Cache for 30 seconds — balances performance with session revocation latency
+  await cache.set(sessionCacheKey, result, 30000);
+
+  return result;
 }
 
 /**

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.35
+
+### Patch Changes
+
+- Restructered code to reduce cold start and DB queries.
+
 ## 0.1.34
 
 ### Patch Changes

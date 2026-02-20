@@ -131,6 +131,12 @@ export function createSessionService(adapter: AuthAdapter, config: SessionConfig
 
     async invalidateSession(token) {
       await adapter.deleteSessionByToken(token);
+      // Clear session cache so revocation takes effect immediately
+      try {
+        const { getCache } = await import('../../utils/cache.js');
+        const cache = getCache();
+        await cache.delete(`auth:session:${token}`);
+      } catch {}
     },
 
     async invalidateAllSessions(userId) {

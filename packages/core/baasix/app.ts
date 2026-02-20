@@ -61,7 +61,7 @@ const getStaticAllowedOrigins = () => {
 
 let dynamicOriginsCache: string[] = [];
 let lastDynamicOriginsUpdate = 0;
-const DYNAMIC_ORIGINS_CACHE_TTL = 60000; // 1 minute
+const DYNAMIC_ORIGINS_CACHE_TTL = 300000; // 5 minutes
 
 export const invalidateCorsCache = () => {
   dynamicOriginsCache = [];
@@ -224,23 +224,15 @@ async function initializeApp() {
     // Run pending migrations if auto-run is enabled
     await migrationService.runStartupMigrations();
 
-    console.info("Initializing settings service...");
-    await settingsService.loadSettings();
-
-    console.info("Initializing tasks service...");
-    await tasksService.init();
-
-    console.info("Initializing workflow service...");
-    await workflowService.init();
-
-    console.info("Initializing permission service...");
-    await permissionService.loadPermissions();
-
-    console.info("Initializing mail service...");
-    await mailService.initialize();
-
-    console.info("Initializing storage service...");
-    storageService.initialize();
+    console.info("Initializing services in parallel...");
+    await Promise.all([
+      settingsService.loadSettings(),
+      tasksService.init(),
+      workflowService.init(),
+      permissionService.loadPermissions(),
+      mailService.initialize(),
+      Promise.resolve(storageService.initialize()),
+    ]);
 
     console.info("Loading routes...");
     // Import ItemsService dynamically to avoid circular dependencies

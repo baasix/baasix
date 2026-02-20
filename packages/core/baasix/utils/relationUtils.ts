@@ -9,6 +9,8 @@ import type ItemsService from '../services/ItemsService.js';
  */
 export class RelationBuilder {
   private relationsMap: Map<string, Record<string, AssociationDefinition>> = new Map();
+  /** Reverse index: target collection → M2A junction info for O(1) delete lookups */
+  private m2aTargetIndex: Map<string, Array<{ model: string }>> | null = null;
 
   /**
    * Store association definitions for a table
@@ -29,6 +31,8 @@ export class RelationBuilder {
 
     console.log(`[RelationBuilder] After merge, ${tableName} has:`, Object.keys(merged));
     this.relationsMap.set(tableName, merged);
+    // Invalidate reverse index so it rebuilds on next lookup
+    this.m2aTargetIndex = null;
   }
 
   /**
@@ -73,6 +77,35 @@ export class RelationBuilder {
    */
   isManyToMany(assoc: AssociationDefinition): boolean {
     return assoc.type === 'BelongsToMany';
+  }
+
+  /**
+   * Get M2A junction models that reference a given target collection.
+   * Uses a lazily-built reverse index for O(1) lookups instead of scanning all associations.
+   */
+  getM2AJunctionsForTarget(collection: string): Array<{ model: string }> {
+    if (!this.m2aTargetIndex) {
+      // Build the reverse index once
+      this.m2aTargetIndex = new Map();
+      for (const [, associations] of this.relationsMap) {
+        for (const [, assoc] of Object.entries(associations)) {
+          const { type, model, polymorphic, tables } = assoc as any;
+          if (type !== 'HasMany' || !polymorphic || !tables) continue;
+          for (const target of tables) {
+            let entries = this.m2aTargetIndex.get(target);
+            if (!entries) {
+              entries = [];
+              this.m2aTargetIndex.set(target, entries);
+            }
+            // Avoid duplicates
+            if (!entries.some(e => e.model === model)) {
+              entries.push({ model });
+            }
+          }
+        }
+      }
+    }
+    return this.m2aTargetIndex.get(collection) || [];
   }
 }
 
@@ -607,26 +640,24 @@ export async function handleRelatedRecordsBeforeDelete(
   const parentId = item[service.primaryKey];
   if (parentId == null) return;
 
+  // O(1) lookup via reverse index — skips collections with no M2A references
+  const junctions = relationBuilder.getM2AJunctionsForTarget(collection);
+  if (junctions.length === 0) return;
+
   const { schemaManager } = await import('./schemaManager.js');
   const dbOrTx = transaction || getDatabase();
 
-  for (const [, associations] of relationBuilder.getAllAssociations()) {
-    for (const [, assoc] of Object.entries(associations)) {
-      const { type, model, polymorphic, tables } = assoc as any;
-      if (type !== 'HasMany' || !polymorphic || !tables?.includes(collection)) continue;
+  for (const { model } of junctions) {
+    const junctionTable = schemaManager.getTable(model);
+    if (!junctionTable) continue;
 
-      const junctionTable = schemaManager.getTable(model);
-      if (!junctionTable) continue;
+    const itemIdCol = junctionTable['item_id'];
+    const collectionCol = junctionTable['collection'];
+    if (!itemIdCol || !collectionCol) continue;
 
-      const itemIdCol = junctionTable['item_id'];
-      const collectionCol = junctionTable['collection'];
-      if (!itemIdCol || !collectionCol) continue;
-
-      await dbOrTx.delete(junctionTable).where(
-        and(eq(itemIdCol, parentId), eq(collectionCol, collection))
-      );
-      console.log(`[RelationUtils] M2A cleanup: ${model} where item_id=${parentId}, collection=${collection}`);
-    }
+    await dbOrTx.delete(junctionTable).where(
+      and(eq(itemIdCol, parentId), eq(collectionCol, collection))
+    );
   }
 }
 

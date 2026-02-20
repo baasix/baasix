@@ -118,8 +118,9 @@ export class ItemsService {
    * Extract all table names involved in a query (including relations)
    * This is CRITICAL for proper cache invalidation
    */
-  private extractAllTables(includes?: IncludeConfig[]): string[] {
-    const tables = [this.collection]; // Always include main table
+  private extractAllTables(includes?: IncludeConfig[], collection?: string): string[] {
+    const coll = collection || this.collection;
+    const tables = [coll];
 
     if (!includes || includes.length === 0) {
       return tables;
@@ -127,10 +128,10 @@ export class ItemsService {
 
     for (const include of includes) {
       // Get the relation definition
-      const relationDef = schemaManager.getRelation(this.collection, include.relation);
+      const relationDef = schemaManager.getRelation(coll, include.relation);
 
       if (!relationDef) {
-        console.warn(`[ItemsService.extractAllTables] Relation not found: ${this.collection}.${include.relation}`);
+        console.warn(`[ItemsService.extractAllTables] Relation not found: ${coll}.${include.relation}`);
         continue;
       }
 
@@ -149,19 +150,10 @@ export class ItemsService {
         tables.push(...relationDef.relatedCollections);
       }
 
-      // Recursively handle nested includes
-      if (include.include && include.include.length > 0) {
-        // Create a temporary service for the related collection to extract its tables
-        try {
-          const relatedService = new ItemsService(relationDef.relatedCollection, {
-            accountability: this.accountability,
-            tenant: this.tenant
-          });
-          const nestedTables = relatedService.extractAllTables(include.include);
-          tables.push(...nestedTables);
-        } catch (error) {
-          console.warn(`[ItemsService.extractAllTables] Error extracting nested tables:`, error);
-        }
+      // Recursively handle nested includes using schema manager directly (no ItemsService instantiation)
+      if (include.include && include.include.length > 0 && relationDef.relatedCollection) {
+        const nestedTables = this.extractAllTables(include.include, relationDef.relatedCollection);
+        tables.push(...nestedTables);
       }
     }
 
@@ -383,6 +375,22 @@ export class ItemsService {
   }
 
   /**
+   * Deduplicate joins by alias — removes duplicate join entries in-place.
+   */
+  private deduplicateJoins(joins: any[]): void {
+    const seen = new Set<string>();
+    const unique: any[] = [];
+    for (const join of joins) {
+      if (!seen.has(join.alias)) {
+        seen.add(join.alias);
+        unique.push(join);
+      }
+    }
+    joins.length = 0;
+    joins.push(...unique);
+  }
+
+  /**
    * Apply tenant context to query filter
    */
   private async enforceTenantContextFilter(filter: FilterObject = {}): Promise<FilterObject> {
@@ -582,41 +590,31 @@ export class ItemsService {
       });
     }
 
-    // Apply permission filters
+    // Apply permission filters (single combined lookup instead of 3 separate calls)
     let permissionRelConditions: Record<string, any> = {};
+    let permAllowedFields: string[] | null = null;
     if (!bypassPermissions && !isAdmin) {
       const roleId = this.getRoleId();
 
-      // First, check if user has permission to perform this action
-      const hasAccess = await permissionService.canAccess(
-        roleId,
-        this.collection,
-        action
-      );
+      const { canAccess, filter: permFilter, allowedFields } =
+        await permissionService.getFullPermissionData(roleId, this.collection, action, this.accountability);
 
-      if (!hasAccess) {
+      if (!canAccess) {
         throw new APIError(
           `You don't have permission to ${action} items in '${this.collection}'`,
           403
         );
       }
 
-      // Then apply permission filters
-      const permissionFilter = await permissionService.getFilter(
-        roleId,
-        this.collection,
-        action,
-        this.accountability
-      );
-
-      if (permissionFilter.conditions) {
-        filter = combineFilters(filter, permissionFilter.conditions);
+      if (permFilter.conditions) {
+        filter = combineFilters(filter, permFilter.conditions);
       }
 
-      // Capture relConditions from permissions to apply later
-      if (permissionFilter.relConditions && Object.keys(permissionFilter.relConditions).length > 0) {
-        permissionRelConditions = permissionFilter.relConditions;
+      if (permFilter.relConditions && Object.keys(permFilter.relConditions).length > 0) {
+        permissionRelConditions = permFilter.relConditions;
       }
+
+      permAllowedFields = allowedFields;
     }
 
     // Apply tenant context
@@ -660,24 +658,10 @@ export class ItemsService {
     const allIncludes = [...processedIncludes];
 
     // Apply field-level permission filtering for relational fields
-    // This ensures that when a user requests "relation.*", only the fields they have
-    // permission to access are included, not all fields from the related table
-    if (!bypassPermissions && !isAdmin) {
-      const roleId = this.getRoleId();
-      if (roleId) {
-        const allowedFields = await permissionService.getAllowedFields(
-          roleId,
-          this.collection,
-          action
-        );
-        
-        // Filter relational field attributes based on allowed fields
-        if (allowedFields) {
-          this.filterIncludesByAllowedFields(allIncludes, allowedFields);
-          // Also filter the processedIncludes (which is the same reference used later)
-          this.filterIncludesByAllowedFields(processedIncludes, allowedFields);
-        }
-      }
+    // Uses allowedFields from the combined permission lookup above
+    if (!bypassPermissions && !isAdmin && permAllowedFields) {
+      this.filterIncludesByAllowedFields(allIncludes, permAllowedFields);
+      this.filterIncludesByAllowedFields(processedIncludes, permAllowedFields);
     }
 
     // Merge permission relConditions with query relConditions
@@ -805,17 +789,7 @@ export class ItemsService {
     console.log(`[ItemsService.buildQuery] WHERE clause generated:`, whereClause ? 'yes' : 'no (undefined)');
 
     // Deduplicate filter joins by alias (multiple conditions on same relation create duplicates)
-    const uniqueFilterJoins: any[] = [];
-    const seenAliases = new Set<string>();
-    for (const join of filterJoins) {
-      if (!seenAliases.has(join.alias)) {
-        seenAliases.add(join.alias);
-        uniqueFilterJoins.push(join);
-      }
-    }
-    // Replace filterJoins with deduplicated version
-    filterJoins.length = 0;
-    filterJoins.push(...uniqueFilterJoins);
+    this.deduplicateJoins(filterJoins);
 
     // Log filter joins if any were created
     if (filterJoins.length > 0) {
@@ -973,17 +947,14 @@ export class ItemsService {
   private async applyFieldPermissions(
     data: Record<string, any>,
     action: 'create' | 'update',
-    isAdmin: boolean
+    isAdmin: boolean,
+    prefetchedAllowedFields?: string[] | null
   ): Promise<void> {
     if (isAdmin) return;
 
-    const roleId = this.getRoleId();
-
-    const allowedFields = await permissionService.getAllowedFields(
-      roleId,
-      this.collection,
-      action
-    );
+    const allowedFields = prefetchedAllowedFields !== undefined
+      ? prefetchedAllowedFields
+      : await permissionService.getAllowedFields(this.getRoleId(), this.collection, action);
 
     if (!allowedFields || allowedFields.length === 0) {
       throw new APIError(`You don't have permission to ${action} this item`, 403);
@@ -1699,30 +1670,18 @@ export class ItemsService {
     if (!bypassPermissions && !isAdmin) {
       const roleId = this.getRoleId();
 
-      // First, check if user has permission to read this collection
-      const hasAccess = await permissionService.canAccess(
-        roleId,
-        this.collection,
-        'read'
-      );
+      const { canAccess, filter: permFilter } =
+        await permissionService.getFullPermissionData(roleId, this.collection, 'read', this.accountability);
 
-      if (!hasAccess) {
+      if (!canAccess) {
         throw new APIError(
           `You don't have permission to read items in '${this.collection}'`,
           403
         );
       }
 
-      // Then apply permission filters
-      const permissionFilter = await permissionService.getFilter(
-        roleId,
-        this.collection,
-        'read',
-        this.accountability
-      );
-
-      if (permissionFilter.conditions) {
-        combinedFilter = combineFilters(combinedFilter, permissionFilter.conditions);
+      if (permFilter.conditions) {
+        combinedFilter = combineFilters(combinedFilter, permFilter.conditions);
       }
     }
 
@@ -1739,16 +1698,7 @@ export class ItemsService {
     });
 
     // Deduplicate filter joins by alias
-    const uniqueFilterJoins: any[] = [];
-    const seenAliases = new Set<string>();
-    for (const join of filterJoins) {
-      if (!seenAliases.has(join.alias)) {
-        seenAliases.add(join.alias);
-        uniqueFilterJoins.push(join);
-      }
-    }
-    filterJoins.length = 0;
-    filterJoins.push(...uniqueFilterJoins);
+    this.deduplicateJoins(filterJoins);
 
     // Resolve all relation paths to joins
     const allJoins: any[] = [...filterJoins];
@@ -2124,22 +2074,21 @@ export class ItemsService {
 
     const isAdmin = await this.isAdministrator();
 
-    // Check permission - explicit action-level check
+    // Check permission and apply field permissions (single cache lookup)
     if (!options.bypassPermissions && !isAdmin) {
       const roleId = this.getRoleId();
-      const hasPermission = await permissionService.canAccess(
-        roleId,
-        this.collection,
-        'create'
-      );
+      const { canAccess, allowedFields } =
+        await permissionService.getFullPermissionData(roleId, this.collection, 'create', this.accountability);
 
-      if (!hasPermission) {
+      if (!canAccess) {
         throw new APIError("You don't have permission to create items in '" + this.collection + "'", 403);
       }
-    }
 
-    // Apply field permissions
-    if (!options.bypassPermissions) {
+      await this.applyFieldPermissions(modifiedData, 'create', isAdmin, allowedFields);
+      const defaultValues = await this.getDefaultValues('create');
+      modifiedData = { ...defaultValues, ...modifiedData };
+    } else if (!options.bypassPermissions) {
+      // Admin — skip canAccess check but still apply defaults
       await this.applyFieldPermissions(modifiedData, 'create', isAdmin);
       const defaultValues = await this.getDefaultValues('create');
       modifiedData = { ...defaultValues, ...modifiedData };
@@ -2341,11 +2290,11 @@ export class ItemsService {
       // These may have external side effects (emails, third-party calls)
       // that cannot be rolled back, so we only execute them after commit
       for (const result of results) {
-        // Create audit log
-        await this.createAuditLog('create', result.itemId, {
+        // Create audit log (fire-and-forget — non-blocking)
+        this.createAuditLog('create', result.itemId, {
           before: null,
           after: result.document
-        }, options.transaction);
+        }, options.transaction).catch(() => {});
 
         // Execute after-create hooks
         await hooksManager.executeHooks(
@@ -2421,22 +2370,21 @@ export class ItemsService {
 
     const isAdmin = await this.isAdministrator();
 
-    // Check permission - explicit action-level check
+    // Check permission and apply field permissions (single cache lookup)
     if (!options.bypassPermissions && !isAdmin) {
       const roleId = this.getRoleId();
-      const hasPermission = await permissionService.canAccess(
-        roleId,
-        this.collection,
-        'update'
-      );
+      const { canAccess, allowedFields } =
+        await permissionService.getFullPermissionData(roleId, this.collection, 'update', this.accountability);
 
-      if (!hasPermission) {
+      if (!canAccess) {
         throw new APIError("You don't have permission to update items in '" + this.collection + "'", 403);
       }
-    }
 
-    // Apply field permissions
-    if (!options.bypassPermissions) {
+      await this.applyFieldPermissions(modifiedData, 'update', isAdmin, allowedFields);
+      const defaultValues = await this.getDefaultValues('update');
+      modifiedData = { ...defaultValues, ...modifiedData };
+    } else if (!options.bypassPermissions) {
+      // Admin — skip canAccess check but still apply defaults
       await this.applyFieldPermissions(modifiedData, 'update', isAdmin);
       const defaultValues = await this.getDefaultValues('update');
       modifiedData = { ...defaultValues, ...modifiedData };
@@ -2493,16 +2441,7 @@ export class ItemsService {
     });
 
     // Deduplicate filter joins by alias
-    const uniqueJoins: any[] = [];
-    const seenAliases = new Set<string>();
-    for (const join of filterJoins) {
-      if (!seenAliases.has(join.alias)) {
-        seenAliases.add(join.alias);
-        uniqueJoins.push(join);
-      }
-    }
-    filterJoins.length = 0;
-    filterJoins.push(...uniqueJoins);
+    this.deduplicateJoins(filterJoins);
 
     let existingItems;
     if (filterJoins.length > 0) {
@@ -2592,13 +2531,8 @@ export class ItemsService {
       }
       updatedItem = updateResult[0];
     } else {
-      // Use transaction for reads to prevent deadlocks and ensure consistency
-      const updatedItems = await transaction
-        .select()
-        .from(this.table)
-        .where(eq(this.getPrimaryKeyColumn(), parsedId))
-        .limit(1);
-      updatedItem = updatedItems[0];
+      // No main table fields changed — reuse the already-fetched record
+      updatedItem = existingItem;
     }
 
     // Process deferred HasMany relations
@@ -2616,14 +2550,9 @@ export class ItemsService {
       await handleM2ARelationship(updatedItem, association, associationInfo, value, this, ItemsService, transaction);
     }
 
-    // Get final item for hooks - use transaction for consistency
-    const finalItems = await transaction
-      .select()
-      .from(this.table)
-      .where(eq(this.getPrimaryKeyColumn(), parsedId))
-      .limit(1);
-
-    const finalItem = finalItems[0];
+    // Deferred relations (HasMany, M2M, M2A) only modify other tables, not the main record.
+    // The updatedItem from .returning() (or existingItem fallback) is already the final state.
+    const finalItem = updatedItem;
 
     // Collect related tables for cache invalidation
     const relatedTables: string[] = [];
@@ -2711,11 +2640,11 @@ export class ItemsService {
 
       // Phase 3: Execute after hooks AFTER successful commit
       for (const result of results) {
-        // Create audit log
-        await this.createAuditLog('update', result.parsedId, {
+        // Create audit log (fire-and-forget — non-blocking)
+        this.createAuditLog('update', result.parsedId, {
           before: result.previousDocument,
           after: result.finalDocument
-        }, options.transaction);
+        }, options.transaction).catch(() => {});
 
         // Execute after-update hooks
         await hooksManager.executeHooks(
@@ -2895,16 +2824,7 @@ export class ItemsService {
     });
 
     // Deduplicate filter joins by alias
-    const uniqueJoins: any[] = [];
-    const seenAliases = new Set<string>();
-    for (const join of filterJoins) {
-      if (!seenAliases.has(join.alias)) {
-        seenAliases.add(join.alias);
-        uniqueJoins.push(join);
-      }
-    }
-    filterJoins.length = 0;
-    filterJoins.push(...uniqueJoins);
+    this.deduplicateJoins(filterJoins);
 
     let existingItems;
     if (filterJoins.length > 0) {
@@ -3016,11 +2936,11 @@ export class ItemsService {
 
       // Phase 3: Execute after hooks AFTER successful commit
       for (const result of results) {
-        // Create audit log
-        await this.createAuditLog('delete', result.parsedId, {
+        // Create audit log (fire-and-forget — non-blocking)
+        this.createAuditLog('delete', result.parsedId, {
           before: result.document,
           after: null
-        }, options.transaction);
+        }, options.transaction).catch(() => {});
 
         // Execute after-delete hooks
         await hooksManager.executeHooks(
