@@ -1,4 +1,4 @@
-import { relations, type InferSelectModel, sql } from 'drizzle-orm';
+import { relations, type InferSelectModel, sql, eq, and } from 'drizzle-orm';
 import { pgTable } from 'drizzle-orm/pg-core';
 import { getDatabase } from './db.js';
 import type { AssociationType, AssociationDefinition, RelationalResult } from '../types/index.js';
@@ -589,163 +589,45 @@ export async function handleM2ARelationship(
 }
 
 /**
- * Handle related records before delete (CASCADE, SET NULL, etc.)
- * Processes HasMany, HasOne, and BelongsToMany relationships based on onDelete settings
+ * Handle related records before delete.
+ *
+ * Regular relations (HasMany, HasOne, M2M) rely on DB FK constraints for cascade.
+ * M2A targets need app-level cleanup because the polymorphic `item_id` column
+ * in the junction table has no real DB FK (it references multiple tables).
+ *
+ * Scans all associations to find M2A sources whose `tables` array includes
+ * the collection being deleted, then removes the corresponding junction rows.
  */
 export async function handleRelatedRecordsBeforeDelete(
   item: any,
   service: any,
   transaction?: any
 ): Promise<void> {
-  console.log(`[RelationUtils] Handling related records before delete for ${service.collection}`);
+  const collection = service.collection;
+  const parentId = item[service.primaryKey];
+  if (parentId == null) return;
 
-  const associations = relationBuilder.getAssociations(service.collection);
-  if (!associations) {
-    return;
-  }
-
-  const db = getDatabase();
-  const dbOrTx = transaction || db;
-
-  for (const [associationName, association] of Object.entries(associations)) {
-    // Only handle M2A target → junction cleanup at app level.
-    // M2A target fields have constraints: false (no DB FK on polymorphic item_id),
-    // so orphaned junction rows would remain without app-level cleanup.
-    // All other relation types (HasMany, HasOne, M2M) have DB FK constraints
-    // on the BelongsTo side that handle cascade/set-null automatically.
-    if (association.type === 'HasMany' && (association as any).constraints === false) {
-      const onDelete = association.onDelete || 'CASCADE';
-      await handleHasManyDelete(item, association, associationName, service, dbOrTx, onDelete);
-    }
-  }
-}
-
-/**
- * Handle HasMany delete - CASCADE or SET NULL related records
- */
-async function handleHasManyDelete(
-  item: any,
-  association: AssociationDefinition,
-  associationName: string,
-  service: any,
-  dbOrTx: any,
-  onDelete: string
-): Promise<void> {
   const { schemaManager } = await import('./schemaManager.js');
-  const targetTable = schemaManager.getTable(association.model);
+  const dbOrTx = transaction || getDatabase();
 
-  if (!targetTable) {
-    console.warn(`[RelationUtils] Target table ${association.model} not found for HasMany delete`);
-    return;
-  }
+  for (const [, associations] of relationBuilder.getAllAssociations()) {
+    for (const [, assoc] of Object.entries(associations)) {
+      const { type, model, polymorphic, tables } = assoc as any;
+      if (type !== 'HasMany' || !polymorphic || !tables?.includes(collection)) continue;
 
-  const foreignKey = association.foreignKey || `${service.collection.toLowerCase()}_Id`;
-  const parentId = item[service.primaryKey];
+      const junctionTable = schemaManager.getTable(model);
+      if (!junctionTable) continue;
 
-  if (parentId === undefined || parentId === null) {
-    console.warn(`[RelationUtils] Cannot delete HasMany records - parentId is ${parentId}`);
-    return;
-  }
+      const itemIdCol = junctionTable['item_id'];
+      const collectionCol = junctionTable['collection'];
+      if (!itemIdCol || !collectionCol) continue;
 
-  console.log(`[RelationUtils] HandleHasManyDelete: ${associationName}, onDelete=${onDelete}`);
-
-  if (onDelete === 'CASCADE') {
-    // Delete all related records
-    const fkColumn = targetTable[foreignKey];
-    if (fkColumn) {
-      const { eq } = await import('drizzle-orm');
-      await dbOrTx.delete(targetTable).where(eq(fkColumn, parentId));
-      console.log(`[RelationUtils] Cascaded delete for ${associationName}`);
-    }
-  } else if (onDelete === 'SET NULL') {
-    // Set foreign key to null on related records
-    const fkColumn = targetTable[foreignKey];
-    if (fkColumn) {
-      const { eq } = await import('drizzle-orm');
-      await dbOrTx.update(targetTable).set({ [foreignKey]: null }).where(eq(fkColumn, parentId));
-      console.log(`[RelationUtils] Set null for ${associationName}`);
+      await dbOrTx.delete(junctionTable).where(
+        and(eq(itemIdCol, parentId), eq(collectionCol, collection))
+      );
+      console.log(`[RelationUtils] M2A cleanup: ${model} where item_id=${parentId}, collection=${collection}`);
     }
   }
-  // RESTRICT and NO ACTION are handled by database constraints
-}
-
-/**
- * Handle HasOne delete - CASCADE or SET NULL the related record
- */
-async function handleHasOneDelete(
-  item: any,
-  association: AssociationDefinition,
-  associationName: string,
-  service: any,
-  dbOrTx: any,
-  onDelete: string
-): Promise<void> {
-  // HasOne delete works the same as HasMany, just for a single record
-  await handleHasManyDelete(item, association, associationName, service, dbOrTx, onDelete);
-}
-
-/**
- * Handle BelongsToMany delete - Remove junction table records
- */
-async function handleBelongsToManyDelete(
-  item: any,
-  association: AssociationDefinition,
-  associationName: string,
-  service: any,
-  dbOrTx: any
-): Promise<void> {
-  const junctionTable = association.through;
-  if (!junctionTable) {
-    console.warn(`[RelationUtils] No junction table defined for ${associationName}`);
-    return;
-  }
-
-  const sourceKey = association.foreignKey || `${service.collection}_id`;
-  const parentId = item[service.primaryKey];
-
-  if (parentId === undefined || parentId === null) {
-    console.warn(`[RelationUtils] Cannot delete M2M junction records - parentId is ${parentId}`);
-    return;
-  }
-
-  console.log(`[RelationUtils] Removing M2M junction records from ${junctionTable} for ${associationName}`);
-
-  await dbOrTx.execute(sql`
-    DELETE FROM "${sql.raw(junctionTable)}"
-    WHERE "${sql.raw(sourceKey)}" = ${parentId}
-  `);
-}
-
-/**
- * Handle M2A (polymorphic) delete - Remove polymorphic junction table records
- */
-async function handleM2ADelete(
-  item: any,
-  association: AssociationDefinition,
-  associationName: string,
-  service: any,
-  dbOrTx: any
-): Promise<void> {
-  const junctionTable = association.through;
-  if (!junctionTable) {
-    console.warn(`[RelationUtils] No junction table defined for M2A ${associationName}`);
-    return;
-  }
-
-  const sourceKey = `${service.collection}_id`;
-  const parentId = item[service.primaryKey];
-
-  if (parentId === undefined || parentId === null) {
-    console.warn(`[RelationUtils] Cannot delete M2A junction records - parentId is ${parentId}`);
-    return;
-  }
-
-  console.log(`[RelationUtils] Removing M2A junction records from ${junctionTable} for ${associationName}`);
-
-  await dbOrTx.execute(sql`
-    DELETE FROM "${sql.raw(junctionTable)}"
-    WHERE "${sql.raw(sourceKey)}" = ${parentId}
-  `);
 }
 
 /**

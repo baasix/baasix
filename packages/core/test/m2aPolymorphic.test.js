@@ -707,6 +707,200 @@ describe("M2A Polymorphic Relations - Advanced Filters and Relations", () => {
     });
 });
 
+describe("M2A Polymorphic Relations - onDelete Target Cleanup", () => {
+    test("Deleting an M2A target removes its junction rows", async () => {
+        // Create a post and a task
+        const postRes = await request(app)
+            .post("/items/posts")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ title: "Delete Me Post", content: "Will be deleted" });
+        const postId = postRes.body.data.id;
+
+        const taskRes = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ title: "Keep Me Task", status: "pending" });
+        const taskId = taskRes.body.data.id;
+
+        // Create an activity linked to both post and task
+        const activityRes = await request(app)
+            .post("/items/activities")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                action: "delete_test",
+                activityable: [
+                    { item_id: postId, collection: "posts" },
+                    { item_id: taskId, collection: "tasks" },
+                ],
+            });
+        const activityId = activityRes.body.data.id;
+
+        // Verify both junction rows exist
+        const beforeRes = await request(app)
+            .get(`/items/activities/${activityId}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.posts.*", "activityable.tasks.*"] });
+        expect(beforeRes.body.data.activityable).toHaveLength(2);
+
+        // Delete the post (M2A target)
+        const deleteRes = await request(app)
+            .delete(`/items/posts/${postId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(deleteRes.status).toBe(200);
+
+        // Verify the post's junction row is removed but the task's remains
+        const afterRes = await request(app)
+            .get(`/items/activities/${activityId}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.posts.*", "activityable.tasks.*"] });
+        expect(afterRes.body.data.activityable).toHaveLength(1);
+        expect(afterRes.body.data.activityable[0].tasks.id).toBe(taskId);
+    });
+
+    test("Deleting an M2A target cleans up junction rows across multiple activities", async () => {
+        // Create a task that will be linked from multiple activities
+        const taskRes = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ title: "Shared Task", status: "active" });
+        const sharedTaskId = taskRes.body.data.id;
+
+        // Create two activities both linking to the same task
+        const activity1Res = await request(app)
+            .post("/items/activities")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                action: "activity_one",
+                activityable: [{ item_id: sharedTaskId, collection: "tasks" }],
+            });
+        const activity1Id = activity1Res.body.data.id;
+
+        const activity2Res = await request(app)
+            .post("/items/activities")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                action: "activity_two",
+                activityable: [{ item_id: sharedTaskId, collection: "tasks" }],
+            });
+        const activity2Id = activity2Res.body.data.id;
+
+        // Verify both activities have the task linked
+        const before1 = await request(app)
+            .get(`/items/activities/${activity1Id}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.tasks.*"] });
+        expect(before1.body.data.activityable).toHaveLength(1);
+
+        const before2 = await request(app)
+            .get(`/items/activities/${activity2Id}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.tasks.*"] });
+        expect(before2.body.data.activityable).toHaveLength(1);
+
+        // Delete the shared task
+        await request(app)
+            .delete(`/items/tasks/${sharedTaskId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+
+        // Both activities should have empty activityable now
+        const after1 = await request(app)
+            .get(`/items/activities/${activity1Id}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.tasks.*"] });
+        expect(after1.body.data.activityable).toHaveLength(0);
+
+        const after2 = await request(app)
+            .get(`/items/activities/${activity2Id}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.tasks.*"] });
+        expect(after2.body.data.activityable).toHaveLength(0);
+    });
+
+    test("Deleting one target type does not affect other target types with same ID pattern", async () => {
+        // Create a post and a user
+        const postRes = await request(app)
+            .post("/items/posts")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ title: "Isolated Post", content: "Should survive" });
+        const postId = postRes.body.data.id;
+
+        const userRes = await request(app)
+            .post("/items/testusers")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ username: "isolateduser", email: "isolated@test.com" });
+        const userId = userRes.body.data.id;
+
+        // Create an activity linked to both
+        const activityRes = await request(app)
+            .post("/items/activities")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                action: "isolation_test",
+                activityable: [
+                    { item_id: postId, collection: "posts" },
+                    { item_id: userId, collection: "testusers" },
+                ],
+            });
+        const activityId = activityRes.body.data.id;
+
+        // Delete the user
+        await request(app)
+            .delete(`/items/testusers/${userId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+
+        // The post junction row should still be there
+        const afterRes = await request(app)
+            .get(`/items/activities/${activityId}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.posts.*", "activityable.testusers.*"] });
+        expect(afterRes.body.data.activityable).toHaveLength(1);
+        expect(afterRes.body.data.activityable[0].posts.id).toBe(postId);
+    });
+
+    test("Deleting M2A source cascades via DB FK (junction rows removed)", async () => {
+        // Create a task
+        const taskRes = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ title: "Source Delete Task", status: "pending" });
+        const taskId = taskRes.body.data.id;
+
+        // Create an activity linked to the task
+        const activityRes = await request(app)
+            .post("/items/activities")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                action: "source_delete_test",
+                activityable: [{ item_id: taskId, collection: "tasks" }],
+            });
+        const activityId = activityRes.body.data.id;
+
+        // Verify junction row exists
+        const beforeRes = await request(app)
+            .get(`/items/activities/${activityId}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({ fields: ["*", "activityable.tasks.*"] });
+        expect(beforeRes.body.data.activityable).toHaveLength(1);
+
+        // Delete the activity (M2A source) — DB FK on activities_id should cascade
+        await request(app)
+            .delete(`/items/activities/${activityId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+
+        // Activity should be gone (API returns 403 for not found items due to permission check)
+        const afterRes = await request(app)
+            .get(`/items/activities/${activityId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect([403, 404]).toContain(afterRes.status);
+
+        // Task should still exist (it's the target, not the source)
+        const taskCheck = await request(app)
+            .get(`/items/tasks/${taskId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(taskCheck.status).toBe(200);
+    });
+});
+
 afterAll(async () => {
     // Clean up
     if (app.server) {
