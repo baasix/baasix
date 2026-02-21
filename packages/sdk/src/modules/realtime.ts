@@ -73,6 +73,25 @@ export interface RoomUserEvent {
   timestamp: string;
 }
 
+export interface RoomKickEvent {
+  room: string;
+  kickedBy: string | number;
+  timestamp: string;
+}
+
+export interface RoomCreatorChangedEvent {
+  room: string;
+  newCreatorSocketId: string;
+  newCreatorUserId: string | number;
+  timestamp: string;
+}
+
+export interface RoomMember {
+  socketId: string;
+  userId: string | number;
+  isCreator: boolean;
+}
+
 export interface SubscriptionCallback<T = any> {
   (payload: SubscriptionPayload<T>): void;
 }
@@ -120,6 +139,8 @@ export class RealtimeModule {
   private workflowCallbacks: Map<string, Set<(data: WorkflowExecutionUpdate) => void>> = new Map();
   private roomCallbacks: Map<string, Map<string, Set<(data: RoomMessage) => void>>> = new Map(); // room -> event -> callbacks
   private roomUserCallbacks: Map<string, { joined: Set<(data: RoomUserEvent) => void>; left: Set<(data: RoomUserEvent) => void> }> = new Map();
+  private kickCallbacks: Map<string, Set<(data: RoomKickEvent) => void>> = new Map();
+  private creatorChangedCallbacks: Map<string, Set<(data: RoomCreatorChangedEvent) => void>> = new Map();
   private connectionCallbacks: Set<(connected: boolean) => void> = new Set();
   private reconnecting: boolean = false;
   private connectionPromise: Promise<void> | null = null;
@@ -277,6 +298,32 @@ export class RealtimeModule {
           });
         });
 
+        // Fired when the current socket is kicked from a room
+        this.socket.on("room:kicked", (data: RoomKickEvent) => {
+          const callbacks = this.kickCallbacks.get(data.room);
+          callbacks?.forEach((cb) => {
+            try {
+              cb(data);
+            } catch (e) {
+              console.error("[Baasix Realtime] Error in room kicked callback:", e);
+            }
+          });
+          // Auto-clean up listeners since we're no longer in the room
+          this.cleanupRoomListeners(data.room);
+        });
+
+        // Fired when room ownership is transferred
+        this.socket.on("room:creator:changed", (data: RoomCreatorChangedEvent) => {
+          const callbacks = this.creatorChangedCallbacks.get(data.room);
+          callbacks?.forEach((cb) => {
+            try {
+              cb(data);
+            } catch (e) {
+              console.error("[Baasix Realtime] Error in room creator changed callback:", e);
+            }
+          });
+        });
+
         this.socket.connect();
       } catch (error) {
         this.connectionPromise = null;
@@ -308,6 +355,8 @@ export class RealtimeModule {
     this.workflowCallbacks.clear();
     this.roomCallbacks.clear();
     this.roomUserCallbacks.clear();
+    this.kickCallbacks.clear();
+    this.creatorChangedCallbacks.clear();
   }
 
   /**
@@ -634,6 +683,121 @@ export class RealtimeModule {
   }
 
   /**
+   * Get the list of users currently in a room.
+   * You must already be a member of the room to call this.
+   *
+   * @example
+   * ```typescript
+   * const members = await baasix.realtime.getRoomMembers('game:lobby');
+   * members.forEach(m => {
+   *   console.log(m.userId, m.isCreator ? '(owner)' : '');
+   * });
+   * ```
+   */
+  async getRoomMembers(roomName: string): Promise<RoomMember[]> {
+    if (!this.socket?.connected) {
+      throw new Error("Not connected. Call connect() first.");
+    }
+
+    return new Promise((resolve, reject) => {
+      this.socket!.emit("room:members", { room: roomName }, (response: any) => {
+        if (response.status === "success") {
+          resolve(response.members as RoomMember[]);
+        } else {
+          reject(new Error(response.message || "Failed to get room members"));
+        }
+      });
+    });
+  }
+
+  /**
+   * Kick a user from a custom room. Only the room creator may call this.
+   *
+   * @example
+   * ```typescript
+   * await baasix.realtime.kickFromRoom('game:lobby', 'user-id-123');
+   * ```
+   */
+  async kickFromRoom(roomName: string, targetUserId: string | number): Promise<void> {
+    if (!this.socket?.connected) {
+      throw new Error("Not connected. Call connect() first.");
+    }
+
+    return new Promise((resolve, reject) => {
+      this.socket!.emit(
+        "room:kick",
+        { room: roomName, userId: targetUserId },
+        (response: any) => {
+          if (response.status === "success") {
+            resolve();
+          } else {
+            reject(new Error(response.message || "Failed to kick user"));
+          }
+        }
+      );
+    });
+  }
+
+  /**
+   * Listen for being kicked from a room.
+   * The callback fires when the current user is removed by the room creator.
+   * Room listeners are automatically cleaned up after the kick.
+   *
+   * @example
+   * ```typescript
+   * baasix.realtime.onKicked('game:lobby', ({ kickedBy }) => {
+   *   console.log(`You were kicked by user ${kickedBy}`);
+   * });
+   * ```
+   */
+  onKicked(roomName: string, callback: (data: RoomKickEvent) => void): () => void {
+    if (!this.kickCallbacks.has(roomName)) {
+      this.kickCallbacks.set(roomName, new Set());
+    }
+    this.kickCallbacks.get(roomName)!.add(callback);
+
+    return () => {
+      const callbacks = this.kickCallbacks.get(roomName);
+      if (callbacks) {
+        callbacks.delete(callback);
+        if (callbacks.size === 0) {
+          this.kickCallbacks.delete(roomName);
+        }
+      }
+    };
+  }
+
+  /**
+   * Listen for room ownership changes (e.g. when the creator leaves).
+   *
+   * @example
+   * ```typescript
+   * baasix.realtime.onRoomCreatorChanged('game:lobby', ({ newCreatorUserId }) => {
+   *   console.log(`New room owner: ${newCreatorUserId}`);
+   * });
+   * ```
+   */
+  onRoomCreatorChanged(
+    roomName: string,
+    callback: (data: RoomCreatorChangedEvent) => void
+  ): () => void {
+    if (!this.creatorChangedCallbacks.has(roomName)) {
+      this.creatorChangedCallbacks.set(roomName, new Set());
+    }
+    this.creatorChangedCallbacks.get(roomName)!.add(callback);
+
+    return () => {
+      const callbacks = this.creatorChangedCallbacks.get(roomName);
+      if (callbacks) {
+        callbacks.delete(callback);
+        if (callbacks.size === 0) {
+          this.creatorChangedCallbacks.delete(roomName);
+        }
+      }
+    };
+  }
+
+  /**
    * Send a message to a room
    * 
    * @example
@@ -812,6 +976,8 @@ export class RealtimeModule {
   private cleanupRoomListeners(roomName: string): void {
     this.roomCallbacks.delete(roomName);
     this.roomUserCallbacks.delete(roomName);
+    this.kickCallbacks.delete(roomName);
+    this.creatorChangedCallbacks.delete(roomName);
   }
 
   // ===================

@@ -33,6 +33,9 @@ class SocketService {
   
   // Custom room management
   private customRooms: Map<string, Set<string>> = new Map(); // roomName -> Set of socket IDs
+  private roomCreators: Map<string, string> = new Map(); // roomName -> current creator's socketId
+  private roomOriginalCreators: Map<string, string | number> = new Map(); // roomName -> original creator's userId (persistent)
+  private socketIdToUserId: Map<string, string | number> = new Map(); // socketId -> userId (reverse lookup)
   private customMessageHandlers: Map<string, CustomMessageHandler> = new Map();
   private roomValidators: Map<string, RoomValidator> = new Map();
 
@@ -188,6 +191,9 @@ class SocketService {
       }
       this.userSockets.get(socket.userId!)!.add(socket);
 
+      // Register reverse lookup: socketId -> userId
+      this.socketIdToUserId.set(socket.id, socket.userId!);
+
       // Join tenant room if applicable
       if (socket.userTenant) {
         socket.join(`tenant:${socket.userTenant.id}`);
@@ -244,6 +250,26 @@ class SocketService {
       socket.on("room:message", async (data: { room: string; event: string; payload: any }, callback?: (response: any) => void) => {
         try {
           await this.handleRoomMessage(socket, data.room, data.event, data.payload);
+          callback?.({ status: "success" });
+        } catch (error: any) {
+          callback?.({ status: "error", message: error.message });
+        }
+      });
+
+      // Handle room members request — any room member can call this
+      socket.on("room:members", (data: { room: string }, callback?: (response: any) => void) => {
+        try {
+          const members = this.handleRoomMembers(socket, data.room);
+          callback?.({ status: "success", members });
+        } catch (error: any) {
+          callback?.({ status: "error", message: error.message });
+        }
+      });
+
+      // Handle kick request — only the room creator may kick
+      socket.on("room:kick", async (data: { room: string; userId: string | number }, callback?: (response: any) => void) => {
+        try {
+          await this.handleRoomKick(socket, data.room, data.userId);
           callback?.({ status: "success" });
         } catch (error: any) {
           callback?.({ status: "error", message: error.message });
@@ -310,11 +336,31 @@ class SocketService {
         this.userSockets.delete(socket.userId);
       }
     }
+
+    // Clean up reverse socket ID lookup
+    this.socketIdToUserId.delete(socket.id);
     
     // Clean up custom room memberships
     for (const [roomName, members] of this.customRooms.entries()) {
       if (members.has(socket.id)) {
         members.delete(socket.id);
+
+        // Transfer creator if the disconnecting socket was the room owner
+        if (this.roomCreators.get(roomName) === socket.id) {
+          const remaining = Array.from(members);
+          if (remaining.length > 0) {
+            this.roomCreators.set(roomName, remaining[0]);
+            this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
+              room: roomName,
+              newCreatorSocketId: remaining[0],
+              newCreatorUserId: this.socketIdToUserId.get(remaining[0]),
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            this.roomCreators.delete(roomName);
+          }
+        }
+
         // Emit leave event to room
         this.io?.to(`room:${roomName}`).emit("room:user:left", {
           room: roomName,
@@ -325,6 +371,7 @@ class SocketService {
         // Clean up empty rooms
         if (members.size === 0) {
           this.customRooms.delete(roomName);
+          this.roomOriginalCreators.delete(roomName);
         }
       }
     }
@@ -360,6 +407,32 @@ class SocketService {
     }
     this.customRooms.get(roomName)!.add(socket.id);
 
+    if (!this.roomCreators.has(roomName)) {
+      // First joiner creates the room — record them as both current and original creator
+      this.roomCreators.set(roomName, socket.id);
+      this.roomOriginalCreators.set(roomName, socket.userId!);
+    } else {
+      // Room already exists — check if the original creator is rejoining
+      const originalCreatorId = this.roomOriginalCreators.get(roomName);
+      const currentCreatorSocketId = this.roomCreators.get(roomName)!;
+      const currentCreatorUserId = this.socketIdToUserId.get(currentCreatorSocketId);
+
+      if (
+        originalCreatorId !== undefined &&
+        String(socket.userId) === String(originalCreatorId) &&
+        String(socket.userId) !== String(currentCreatorUserId)
+      ) {
+        // Restore original creator's ownership
+        this.roomCreators.set(roomName, socket.id);
+        this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
+          room: roomName,
+          newCreatorSocketId: socket.id,
+          newCreatorUserId: socket.userId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
     // Join the Socket.IO room (prefixed with "room:")
     socket.join(`room:${roomName}`);
 
@@ -385,8 +458,27 @@ class SocketService {
     // Remove from custom room tracking
     if (this.customRooms.has(roomName)) {
       this.customRooms.get(roomName)!.delete(socket.id);
+
+      // Transfer creator role to the next member if the creator is leaving
+      if (this.roomCreators.get(roomName) === socket.id) {
+        const remaining = Array.from(this.customRooms.get(roomName) || []);
+        if (remaining.length > 0) {
+          this.roomCreators.set(roomName, remaining[0]);
+          // Notify room of ownership change
+          this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
+            room: roomName,
+            newCreatorSocketId: remaining[0],
+            newCreatorUserId: this.socketIdToUserId.get(remaining[0]),
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          this.roomCreators.delete(roomName);
+        }
+      }
+
       if (this.customRooms.get(roomName)!.size === 0) {
         this.customRooms.delete(roomName);
+        this.roomOriginalCreators.delete(roomName);
       }
     }
 
@@ -428,6 +520,106 @@ class SocketService {
       },
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /**
+   * Return member list for a room. Only callable by current room members.
+   * Returns userId, socketId, and whether each member is the room creator.
+   */
+  handleRoomMembers(
+    socket: SocketWithAuth,
+    roomName: string
+  ): Array<{ socketId: string; userId: string | number; isCreator: boolean }> {
+    if (!roomName || typeof roomName !== "string") {
+      throw new APIError("Invalid room name", 400);
+    }
+
+    const members = this.customRooms.get(roomName);
+    if (!members) {
+      throw new APIError("Room not found", 404);
+    }
+
+    // Only members of the room may query it
+    if (!members.has(socket.id)) {
+      throw new APIError("Not a member of this room", 403);
+    }
+
+    const creatorSocketId = this.roomCreators.get(roomName);
+    return Array.from(members).map((socketId) => ({
+      socketId,
+      userId: this.socketIdToUserId.get(socketId) ?? socketId,
+      isCreator: socketId === creatorSocketId,
+    }));
+  }
+
+  /**
+   * Kick a user from a custom room. Only the room creator may do this.
+   * All sockets belonging to the target user that are in the room will be removed.
+   */
+  async handleRoomKick(
+    socket: SocketWithAuth,
+    roomName: string,
+    targetUserId: string | number
+  ): Promise<void> {
+    if (!roomName || typeof roomName !== "string") {
+      throw new APIError("Invalid room name", 400);
+    }
+
+    const members = this.customRooms.get(roomName);
+    if (!members) {
+      throw new APIError("Room not found", 404);
+    }
+
+    // Only the room creator may kick
+    if (this.roomCreators.get(roomName) !== socket.id) {
+      throw new APIError("Only the room creator can kick users", 403);
+    }
+
+    // A creator cannot kick themselves
+    if (String(targetUserId) === String(socket.userId)) {
+      throw new APIError("Room creator cannot kick themselves", 400);
+    }
+
+    const targetSockets = this.userSockets.get(targetUserId);
+    if (!targetSockets || targetSockets.size === 0) {
+      throw new APIError("Target user is not connected", 404);
+    }
+
+    let kicked = false;
+    for (const targetSocket of targetSockets) {
+      if (members.has(targetSocket.id)) {
+        members.delete(targetSocket.id);
+        targetSocket.leave(`room:${roomName}`);
+
+        // Tell the kicked socket it was removed
+        targetSocket.emit("room:kicked", {
+          room: roomName,
+          kickedBy: socket.userId,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Notify remaining room members
+        this.io?.to(`room:${roomName}`).emit("room:user:left", {
+          room: roomName,
+          userId: targetUserId,
+          socketId: targetSocket.id,
+          timestamp: new Date().toISOString(),
+        });
+
+        kicked = true;
+      }
+    }
+
+    if (!kicked) {
+      throw new APIError("Target user is not in this room", 404);
+    }
+
+    // Clean up empty room
+    if (members.size === 0) {
+      this.customRooms.delete(roomName);
+      this.roomCreators.delete(roomName);
+      this.roomOriginalCreators.delete(roomName);
+    }
   }
 
   /**

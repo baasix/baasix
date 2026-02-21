@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.36
+
+### Patch Changes
+
+- Added more realtime options - Room host options
+
 ## 0.1.35
 
 ### Patch Changes

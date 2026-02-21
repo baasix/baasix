@@ -1053,6 +1053,52 @@ const channel = baasix.realtime
 channel.unsubscribe();
 ```
 
+### Custom Rooms
+
+Custom rooms enable real-time communication between users for chat, games, or collaborative features. The **first user to join** a room becomes its creator. If the creator leaves temporarily, ownership transfers to the next member — but the **original creator automatically reclaims ownership** when they rejoin. If the room empties and is recreated, the next joiner becomes the new owner.
+
+```typescript
+// Join a room
+await baasix.realtime.joinRoom('game:lobby');
+
+// Get current members (you must be in the room)
+const members = await baasix.realtime.getRoomMembers('game:lobby');
+// [{ socketId: string, userId: string|number, isCreator: boolean }, ...]
+
+// Send a message to all room members
+await baasix.realtime.sendToRoom('game:lobby', 'chat', { text: 'Hello!' });
+
+// Listen for room messages
+const unsubscribe = baasix.realtime.onRoomMessage('game:lobby', 'chat', (data) => {
+  console.log(`${data.sender.userId}: ${data.payload.text}`);
+});
+
+// Listen for users joining / leaving
+baasix.realtime.onRoomUserJoined('game:lobby', (data) => {
+  console.log(`${data.userId} joined`);
+});
+baasix.realtime.onRoomUserLeft('game:lobby', (data) => {
+  console.log(`${data.userId} left`);
+});
+
+// Kick a user — only the room creator can do this
+await baasix.realtime.kickFromRoom('game:lobby', 'target-user-id');
+
+// Listen for being kicked out (fires only on the kicked user's socket)
+baasix.realtime.onKicked('game:lobby', ({ kickedBy }) => {
+  console.log(`You were kicked by user ${kickedBy}`);
+  // Room listeners are automatically cleaned up after a kick
+});
+
+// Listen for ownership changes (fires for all members when creator changes)
+baasix.realtime.onRoomCreatorChanged('game:lobby', ({ newCreatorUserId }) => {
+  console.log(`New room owner: ${newCreatorUserId}`);
+});
+
+// Leave the room
+await baasix.realtime.leaveRoom('game:lobby');
+```
+
 ### Connection Management
 
 ```typescript

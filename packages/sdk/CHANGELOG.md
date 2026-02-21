@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.8
+
+### Patch Changes
+
+- Added more realtime options - Room host options
+
 ## 0.1.7
 
 ### Patch Changes
