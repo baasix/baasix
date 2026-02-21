@@ -70,6 +70,7 @@ export interface RoomUserEvent {
   room: string;
   userId: string | number;
   socketId: string;
+  metadata: Record<string, any>;
   timestamp: string;
 }
 
@@ -90,6 +91,7 @@ export interface RoomMember {
   socketId: string;
   userId: string | number;
   isCreator: boolean;
+  metadata: Record<string, any>;
 }
 
 export interface SubscriptionCallback<T = any> {
@@ -627,26 +629,37 @@ export class RealtimeModule {
   // ===================
 
   /**
-   * Join a custom room for real-time communication
-   * 
+   * Join a custom room for real-time communication.
+   *
+   * You can optionally attach metadata (e.g. display name, avatar, team) that
+   * will be visible to all other members via {@link getRoomMembers} and in
+   * `room:user:joined` events.
+   *
+   * @param roomName - The room to join.
+   * @param metadata - Optional key/value pairs stored alongside this member.
+   *
    * @example
    * ```typescript
-   * // Join a room
-   * await baasix.realtime.joinRoom('game:lobby');
-   * 
-   * // Listen for messages
-   * baasix.realtime.onRoomMessage('game:lobby', 'chat', (data) => {
-   *   console.log(`${data.sender.userId}: ${data.payload.text}`);
+   * // Join a room with metadata
+   * await baasix.realtime.joinRoom('game:lobby', {
+   *   username: 'Alice',
+   *   avatar: 'https://example.com/alice.png',
+   *   team: 'blue',
+   * });
+   *
+   * // Listen for other users joining (includes their metadata)
+   * baasix.realtime.onUserJoined('game:lobby', (data) => {
+   *   console.log(data.metadata.username, 'joined');
    * });
    * ```
    */
-  async joinRoom(roomName: string): Promise<void> {
+  async joinRoom(roomName: string, metadata: Record<string, any> = {}): Promise<void> {
     if (!this.socket?.connected) {
       throw new Error("Not connected. Call connect() first.");
     }
 
     return new Promise((resolve, reject) => {
-      this.socket!.emit("room:join", { room: roomName }, (response: any) => {
+      this.socket!.emit("room:join", { room: roomName, metadata }, (response: any) => {
         if (response.status === "success") {
           this.setupRoomListeners(roomName);
           resolve();
@@ -686,11 +699,14 @@ export class RealtimeModule {
    * Get the list of users currently in a room.
    * You must already be a member of the room to call this.
    *
+   * Each entry includes `userId`, `socketId`, `isCreator`, and `metadata`
+   * (the custom object the member passed to {@link joinRoom}).
+   *
    * @example
    * ```typescript
    * const members = await baasix.realtime.getRoomMembers('game:lobby');
    * members.forEach(m => {
-   *   console.log(m.userId, m.isCreator ? '(owner)' : '');
+   *   console.log(m.metadata.username, m.isCreator ? '(owner)' : '');
    * });
    * ```
    */

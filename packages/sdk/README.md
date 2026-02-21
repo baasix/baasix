@@ -1058,12 +1058,17 @@ channel.unsubscribe();
 Custom rooms enable real-time communication between users for chat, games, or collaborative features. The **first user to join** a room becomes its creator. If the creator leaves temporarily, ownership transfers to the next member — but the **original creator automatically reclaims ownership** when they rejoin. If the room empties and is recreated, the next joiner becomes the new owner.
 
 ```typescript
-// Join a room
-await baasix.realtime.joinRoom('game:lobby');
+// Join a room — pass optional metadata stored alongside your membership
+await baasix.realtime.joinRoom('game:lobby', {
+  username: 'Alice',
+  avatar: 'https://example.com/alice.png',
+  team: 'blue',
+});
 
 // Get current members (you must be in the room)
+// Each entry includes userId, socketId, isCreator, and metadata
 const members = await baasix.realtime.getRoomMembers('game:lobby');
-// [{ socketId: string, userId: string|number, isCreator: boolean }, ...]
+// [{ socketId: string, userId: string|number, isCreator: boolean, metadata: Record<string,any> }, ...]
 
 // Send a message to all room members
 await baasix.realtime.sendToRoom('game:lobby', 'chat', { text: 'Hello!' });
@@ -1073,9 +1078,9 @@ const unsubscribe = baasix.realtime.onRoomMessage('game:lobby', 'chat', (data) =
   console.log(`${data.sender.userId}: ${data.payload.text}`);
 });
 
-// Listen for users joining / leaving
+// Listen for users joining / leaving (joined event includes their metadata)
 baasix.realtime.onRoomUserJoined('game:lobby', (data) => {
-  console.log(`${data.userId} joined`);
+  console.log(`${data.metadata.username} joined`);
 });
 baasix.realtime.onRoomUserLeft('game:lobby', (data) => {
   console.log(`${data.userId} left`);

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.37
+
+### Patch Changes
+
+- Added metadata options for members in room.
+
 ## 0.1.36
 
 ### Patch Changes

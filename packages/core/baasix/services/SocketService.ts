@@ -32,7 +32,8 @@ class SocketService {
   private redisSubscriber: Redis | null = null;
   
   // Custom room management
-  private customRooms: Map<string, Set<string>> = new Map(); // roomName -> Set of socket IDs
+  // roomName -> Map<socketId, memberMeta>
+  private customRooms: Map<string, Map<string, Record<string, any>>> = new Map();
   private roomCreators: Map<string, string> = new Map(); // roomName -> current creator's socketId
   private roomOriginalCreators: Map<string, string | number> = new Map(); // roomName -> original creator's userId (persistent)
   private socketIdToUserId: Map<string, string | number> = new Map(); // socketId -> userId (reverse lookup)
@@ -227,9 +228,9 @@ class SocketService {
       });
 
       // Handle custom room join
-      socket.on("room:join", async (data: { room: string }, callback?: (response: any) => void) => {
+      socket.on("room:join", async (data: { room: string; metadata?: Record<string, any> }, callback?: (response: any) => void) => {
         try {
-          await this.handleRoomJoin(socket, data.room);
+          await this.handleRoomJoin(socket, data.room, data.metadata);
           callback?.({ status: "success", room: data.room });
         } catch (error: any) {
           callback?.({ status: "error", message: error.message });
@@ -347,7 +348,7 @@ class SocketService {
 
         // Transfer creator if the disconnecting socket was the room owner
         if (this.roomCreators.get(roomName) === socket.id) {
-          const remaining = Array.from(members);
+          const remaining = Array.from(members.keys());
           if (remaining.length > 0) {
             this.roomCreators.set(roomName, remaining[0]);
             this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
@@ -384,7 +385,7 @@ class SocketService {
   /**
    * Handle a user joining a custom room
    */
-  async handleRoomJoin(socket: SocketWithAuth, roomName: string): Promise<void> {
+  async handleRoomJoin(socket: SocketWithAuth, roomName: string, metadata: Record<string, any> = {}): Promise<void> {
     // Validate room name
     if (!roomName || typeof roomName !== "string") {
       throw new APIError("Invalid room name", 400);
@@ -401,11 +402,11 @@ class SocketService {
       }
     }
 
-    // Add socket to custom room tracking
+    // Add socket to custom room tracking (with metadata)
     if (!this.customRooms.has(roomName)) {
-      this.customRooms.set(roomName, new Set());
+      this.customRooms.set(roomName, new Map());
     }
-    this.customRooms.get(roomName)!.add(socket.id);
+    this.customRooms.get(roomName)!.set(socket.id, metadata);
 
     if (!this.roomCreators.has(roomName)) {
       // First joiner creates the room — record them as both current and original creator
@@ -443,6 +444,7 @@ class SocketService {
       room: roomName,
       userId: socket.userId,
       socketId: socket.id,
+      metadata,
       timestamp: new Date().toISOString(),
     });
   }
@@ -461,7 +463,7 @@ class SocketService {
 
       // Transfer creator role to the next member if the creator is leaving
       if (this.roomCreators.get(roomName) === socket.id) {
-        const remaining = Array.from(this.customRooms.get(roomName) || []);
+        const remaining = Array.from(this.customRooms.get(roomName)!.keys());
         if (remaining.length > 0) {
           this.roomCreators.set(roomName, remaining[0]);
           // Notify room of ownership change
@@ -524,12 +526,12 @@ class SocketService {
 
   /**
    * Return member list for a room. Only callable by current room members.
-   * Returns userId, socketId, and whether each member is the room creator.
+   * Returns userId, socketId, metadata, and whether each member is the room creator.
    */
   handleRoomMembers(
     socket: SocketWithAuth,
     roomName: string
-  ): Array<{ socketId: string; userId: string | number; isCreator: boolean }> {
+  ): Array<{ socketId: string; userId: string | number; isCreator: boolean; metadata: Record<string, any> }> {
     if (!roomName || typeof roomName !== "string") {
       throw new APIError("Invalid room name", 400);
     }
@@ -545,10 +547,11 @@ class SocketService {
     }
 
     const creatorSocketId = this.roomCreators.get(roomName);
-    return Array.from(members).map((socketId) => ({
+    return Array.from(members.entries()).map(([socketId, metadata]) => ({
       socketId,
       userId: this.socketIdToUserId.get(socketId) ?? socketId,
       isCreator: socketId === creatorSocketId,
+      metadata,
     }));
   }
 
@@ -751,10 +754,16 @@ class SocketService {
   }
 
   /**
-   * Get list of users in a custom room
+   * Get list of users in a custom room (server-side utility for extensions)
    */
-  getRoomMembers(roomName: string): string[] {
-    return Array.from(this.customRooms.get(roomName) || []);
+  getRoomMembers(roomName: string): Array<{ socketId: string; userId: string | number; metadata: Record<string, any> }> {
+    const members = this.customRooms.get(roomName);
+    if (!members) return [];
+    return Array.from(members.entries()).map(([socketId, metadata]) => ({
+      socketId,
+      userId: this.socketIdToUserId.get(socketId) ?? socketId,
+      metadata,
+    }));
   }
 
   /**

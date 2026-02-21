@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.9
+
+### Patch Changes
+
+- Added metadata options for members in room.
+
 ## 0.1.8
 
 ### Patch Changes
