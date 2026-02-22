@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.10
+
+### Patch Changes
+
+- REDIS support added for rooms to support multiple instances.
+
 ## 0.1.9
 
 ### Patch Changes

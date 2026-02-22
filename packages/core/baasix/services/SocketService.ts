@@ -32,13 +32,149 @@ class SocketService {
   private redisSubscriber: Redis | null = null;
   
   // Custom room management
-  // roomName -> Map<socketId, memberMeta>
+  // roomName -> Map<socketId, memberMeta>  (in-memory fallback)
   private customRooms: Map<string, Map<string, Record<string, any>>> = new Map();
   private roomCreators: Map<string, string> = new Map(); // roomName -> current creator's socketId
   private roomOriginalCreators: Map<string, string | number> = new Map(); // roomName -> original creator's userId (persistent)
   private socketIdToUserId: Map<string, string | number> = new Map(); // socketId -> userId (reverse lookup)
   private customMessageHandlers: Map<string, CustomMessageHandler> = new Map();
   private roomValidators: Map<string, RoomValidator> = new Map();
+
+  // Message history per room — capped at ROOM_HISTORY_LIMIT entries
+  // Cleared automatically when the room is destroyed (last member leaves)
+  private static readonly ROOM_HISTORY_LIMIT = 200;
+  private roomMessageHistory: Map<string, Array<{
+    event: string;
+    payload: any;
+    sender: { userId: string | number; socketId: string };
+    timestamp: string;
+  }>> = new Map();
+
+  // ==========================================
+  // Redis-aware room storage helpers
+  // ==========================================
+
+  private get useRedis(): boolean {
+    return !!(this.redisPublisher && this.redisSubscriber);
+  }
+
+  /** Add / update a member in the room's member store */
+  private async rRoomMemberSet(roomName: string, socketId: string, meta: Record<string, any>): Promise<void> {
+    if (this.useRedis) {
+      await this.redisPublisher!.hset(`room:${roomName}:members`, socketId, JSON.stringify(meta));
+    } else {
+      if (!this.customRooms.has(roomName)) this.customRooms.set(roomName, new Map());
+      this.customRooms.get(roomName)!.set(socketId, meta);
+    }
+  }
+
+  /** Remove a member from the room's member store */
+  private async rRoomMemberDel(roomName: string, socketId: string): Promise<void> {
+    if (this.useRedis) {
+      await this.redisPublisher!.hdel(`room:${roomName}:members`, socketId);
+    } else {
+      this.customRooms.get(roomName)?.delete(socketId);
+    }
+  }
+
+  /** Check if a socket is in a room */
+  private async rRoomMemberHas(roomName: string, socketId: string): Promise<boolean> {
+    if (this.useRedis) {
+      return (await this.redisPublisher!.hexists(`room:${roomName}:members`, socketId)) === 1;
+    }
+    return this.customRooms.get(roomName)?.has(socketId) ?? false;
+  }
+
+  /** Get all members of a room as Map<socketId, meta> */
+  private async rRoomMembersAll(roomName: string): Promise<Map<string, Record<string, any>> | null> {
+    if (this.useRedis) {
+      const raw = await this.redisPublisher!.hgetall(`room:${roomName}:members`);
+      if (!raw || Object.keys(raw).length === 0) return null;
+      const m = new Map<string, Record<string, any>>();
+      for (const [k, v] of Object.entries(raw)) m.set(k, JSON.parse(v));
+      return m;
+    }
+    return this.customRooms.get(roomName) ?? null;
+  }
+
+  /** Number of members in a room */
+  private async rRoomMemberCount(roomName: string): Promise<number> {
+    if (this.useRedis) {
+      return await this.redisPublisher!.hlen(`room:${roomName}:members`);
+    }
+    return this.customRooms.get(roomName)?.size ?? 0;
+  }
+
+  /** Delete the entire room (all member keys + creator keys + history) */
+  private async rRoomDestroy(roomName: string): Promise<void> {
+    if (this.useRedis) {
+      await this.redisPublisher!.del(
+        `room:${roomName}:members`,
+        `room:${roomName}:creator`,
+        `room:${roomName}:original_creator`,
+        `room:${roomName}:history`,
+      );
+    } else {
+      this.customRooms.delete(roomName);
+      this.roomCreators.delete(roomName);
+      this.roomOriginalCreators.delete(roomName);
+      this.roomMessageHistory.delete(roomName);
+    }
+  }
+
+  /** Get current creator socketId */
+  private async rCreatorGet(roomName: string): Promise<string | null> {
+    if (this.useRedis) return await this.redisPublisher!.get(`room:${roomName}:creator`);
+    return this.roomCreators.get(roomName) ?? null;
+  }
+
+  /** Set current creator socketId */
+  private async rCreatorSet(roomName: string, socketId: string): Promise<void> {
+    if (this.useRedis) await this.redisPublisher!.set(`room:${roomName}:creator`, socketId);
+    else this.roomCreators.set(roomName, socketId);
+  }
+
+  /** Delete current creator entry */
+  private async rCreatorDel(roomName: string): Promise<void> {
+    if (this.useRedis) await this.redisPublisher!.del(`room:${roomName}:creator`);
+    else this.roomCreators.delete(roomName);
+  }
+
+  /** Get original creator userId */
+  private async rOriginalCreatorGet(roomName: string): Promise<string | null> {
+    if (this.useRedis) return await this.redisPublisher!.get(`room:${roomName}:original_creator`);
+    const v = this.roomOriginalCreators.get(roomName);
+    return v !== undefined ? String(v) : null;
+  }
+
+  /** Set original creator userId (only set once — NX) */
+  private async rOriginalCreatorSet(roomName: string, userId: string | number): Promise<void> {
+    if (this.useRedis) await this.redisPublisher!.setnx(`room:${roomName}:original_creator`, String(userId));
+    else if (!this.roomOriginalCreators.has(roomName)) this.roomOriginalCreators.set(roomName, userId);
+  }
+
+  /** Append a message to history, trimming to ROOM_HISTORY_LIMIT */
+  private async rHistoryPush(roomName: string, record: object): Promise<void> {
+    if (this.useRedis) {
+      const key = `room:${roomName}:history`;
+      await this.redisPublisher!.rpush(key, JSON.stringify(record));
+      await this.redisPublisher!.ltrim(key, -SocketService.ROOM_HISTORY_LIMIT, -1);
+    } else {
+      if (!this.roomMessageHistory.has(roomName)) this.roomMessageHistory.set(roomName, []);
+      const h = this.roomMessageHistory.get(roomName)!;
+      h.push(record as any);
+      if (h.length > SocketService.ROOM_HISTORY_LIMIT) h.shift();
+    }
+  }
+
+  /** Fetch all history entries for a room */
+  private async rHistoryGet(roomName: string): Promise<any[]> {
+    if (this.useRedis) {
+      const items = await this.redisPublisher!.lrange(`room:${roomName}:history`, 0, -1);
+      return items.map((i) => JSON.parse(i));
+    }
+    return this.roomMessageHistory.get(roomName) ?? [];
+  }
 
   constructor() {
     console.info("Socket Service instance created");
@@ -231,16 +367,17 @@ class SocketService {
       socket.on("room:join", async (data: { room: string; metadata?: Record<string, any> }, callback?: (response: any) => void) => {
         try {
           await this.handleRoomJoin(socket, data.room, data.metadata);
-          callback?.({ status: "success", room: data.room });
+          const history = await this.rHistoryGet(data.room);
+          callback?.({ status: "success", room: data.room, history });
         } catch (error: any) {
           callback?.({ status: "error", message: error.message });
         }
       });
 
       // Handle custom room leave
-      socket.on("room:leave", (data: { room: string }, callback?: (response: any) => void) => {
+      socket.on("room:leave", async (data: { room: string }, callback?: (response: any) => void) => {
         try {
-          this.handleRoomLeave(socket, data.room);
+          await this.handleRoomLeave(socket, data.room);
           callback?.({ status: "success", room: data.room });
         } catch (error: any) {
           callback?.({ status: "error", message: error.message });
@@ -248,9 +385,9 @@ class SocketService {
       });
 
       // Handle custom room message (client -> server -> room)
-      socket.on("room:message", async (data: { room: string; event: string; payload: any }, callback?: (response: any) => void) => {
+      socket.on("room:message", async (data: { room: string; event: string; payload: any; history?: boolean }, callback?: (response: any) => void) => {
         try {
-          await this.handleRoomMessage(socket, data.room, data.event, data.payload);
+          await this.handleRoomMessage(socket, data.room, data.event, data.payload, data.history ?? true);
           callback?.({ status: "success" });
         } catch (error: any) {
           callback?.({ status: "error", message: error.message });
@@ -258,9 +395,9 @@ class SocketService {
       });
 
       // Handle room members request — any room member can call this
-      socket.on("room:members", (data: { room: string }, callback?: (response: any) => void) => {
+      socket.on("room:members", async (data: { room: string }, callback?: (response: any) => void) => {
         try {
-          const members = this.handleRoomMembers(socket, data.room);
+          const members = await this.handleRoomMembers(socket, data.room);
           callback?.({ status: "success", members });
         } catch (error: any) {
           callback?.({ status: "error", message: error.message });
@@ -340,17 +477,36 @@ class SocketService {
 
     // Clean up reverse socket ID lookup
     this.socketIdToUserId.delete(socket.id);
-    
-    // Clean up custom room memberships
-    for (const [roomName, members] of this.customRooms.entries()) {
-      if (members.has(socket.id)) {
-        members.delete(socket.id);
 
-        // Transfer creator if the disconnecting socket was the room owner
-        if (this.roomCreators.get(roomName) === socket.id) {
-          const remaining = Array.from(members.keys());
+    // Async cleanup — fire-and-forget (disconnect handler can't be async in Socket.IO)
+    this.handleDisconnectRoomCleanup(socket).catch((err) =>
+      console.error("Room cleanup error on disconnect:", err)
+    );
+  }
+
+  private async handleDisconnectRoomCleanup(socket: SocketWithAuth): Promise<void> {
+    // In-memory: iterate local map; Redis: we need to find rooms this socket was in.
+    // We track socket->rooms in socketIdToRooms for the Redis path.
+    const rooms = this.useRedis
+      ? (await this.redisPublisher!.smembers(`socket:${socket.id}:rooms`))
+      : Array.from(this.customRooms.keys()).filter((r) => this.customRooms.get(r)?.has(socket.id));
+
+    for (const roomName of rooms) {
+      await this.rRoomMemberDel(roomName, socket.id);
+      if (this.useRedis) await this.redisPublisher!.srem(`socket:${socket.id}:rooms`, roomName);
+
+      const count = await this.rRoomMemberCount(roomName);
+
+      if (count === 0) {
+        await this.rRoomDestroy(roomName);
+      } else {
+        // Transfer creator if necessary
+        const creatorSocketId = await this.rCreatorGet(roomName);
+        if (creatorSocketId === socket.id) {
+          const members = await this.rRoomMembersAll(roomName);
+          const remaining = members ? Array.from(members.keys()) : [];
           if (remaining.length > 0) {
-            this.roomCreators.set(roomName, remaining[0]);
+            await this.rCreatorSet(roomName, remaining[0]);
             this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
               room: roomName,
               newCreatorSocketId: remaining[0],
@@ -358,23 +514,22 @@ class SocketService {
               timestamp: new Date().toISOString(),
             });
           } else {
-            this.roomCreators.delete(roomName);
+            await this.rCreatorDel(roomName);
           }
         }
-
-        // Emit leave event to room
-        this.io?.to(`room:${roomName}`).emit("room:user:left", {
-          room: roomName,
-          userId: socket.userId,
-          socketId: socket.id,
-          timestamp: new Date().toISOString(),
-        });
-        // Clean up empty rooms
-        if (members.size === 0) {
-          this.customRooms.delete(roomName);
-          this.roomOriginalCreators.delete(roomName);
-        }
       }
+
+      this.io?.to(`room:${roomName}`).emit("room:user:left", {
+        room: roomName,
+        userId: socket.userId,
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Clean up socket->rooms index in Redis
+    if (this.useRedis) {
+      await this.redisPublisher!.del(`socket:${socket.id}:rooms`);
     }
   }
 
@@ -402,29 +557,32 @@ class SocketService {
       }
     }
 
-    // Add socket to custom room tracking (with metadata)
-    if (!this.customRooms.has(roomName)) {
-      this.customRooms.set(roomName, new Map());
-    }
-    this.customRooms.get(roomName)!.set(socket.id, metadata);
+    // Add socket to room member store (with metadata)
+    await this.rRoomMemberSet(roomName, socket.id, metadata);
 
-    if (!this.roomCreators.has(roomName)) {
-      // First joiner creates the room — record them as both current and original creator
-      this.roomCreators.set(roomName, socket.id);
-      this.roomOriginalCreators.set(roomName, socket.userId!);
+    // Track which rooms this socket is in (needed for fast Redis disconnect lookup)
+    if (this.useRedis) {
+      await this.redisPublisher!.sadd(`socket:${socket.id}:rooms`, roomName);
+    }
+
+    const creatorSocketId = await this.rCreatorGet(roomName);
+
+    if (!creatorSocketId) {
+      // First joiner — becomes both current and original creator
+      await this.rCreatorSet(roomName, socket.id);
+      await this.rOriginalCreatorSet(roomName, socket.userId!);
     } else {
       // Room already exists — check if the original creator is rejoining
-      const originalCreatorId = this.roomOriginalCreators.get(roomName);
-      const currentCreatorSocketId = this.roomCreators.get(roomName)!;
-      const currentCreatorUserId = this.socketIdToUserId.get(currentCreatorSocketId);
+      const originalCreatorId = await this.rOriginalCreatorGet(roomName);
+      const currentCreatorUserId = this.socketIdToUserId.get(creatorSocketId);
 
       if (
-        originalCreatorId !== undefined &&
+        originalCreatorId !== null &&
         String(socket.userId) === String(originalCreatorId) &&
         String(socket.userId) !== String(currentCreatorUserId)
       ) {
         // Restore original creator's ownership
-        this.roomCreators.set(roomName, socket.id);
+        await this.rCreatorSet(roomName, socket.id);
         this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
           room: roomName,
           newCreatorSocketId: socket.id,
@@ -452,21 +610,29 @@ class SocketService {
   /**
    * Handle a user leaving a custom room
    */
-  handleRoomLeave(socket: SocketWithAuth, roomName: string): void {
+  async handleRoomLeave(socket: SocketWithAuth, roomName: string): Promise<void> {
     if (!roomName || typeof roomName !== "string") {
       throw new APIError("Invalid room name", 400);
     }
 
-    // Remove from custom room tracking
-    if (this.customRooms.has(roomName)) {
-      this.customRooms.get(roomName)!.delete(socket.id);
+    const isMember = await this.rRoomMemberHas(roomName, socket.id);
+    if (!isMember) return;
 
-      // Transfer creator role to the next member if the creator is leaving
-      if (this.roomCreators.get(roomName) === socket.id) {
-        const remaining = Array.from(this.customRooms.get(roomName)!.keys());
+    await this.rRoomMemberDel(roomName, socket.id);
+    if (this.useRedis) await this.redisPublisher!.srem(`socket:${socket.id}:rooms`, roomName);
+
+    const count = await this.rRoomMemberCount(roomName);
+
+    if (count === 0) {
+      await this.rRoomDestroy(roomName);
+    } else {
+      // Transfer creator role if the leaving socket was the room owner
+      const creatorSocketId = await this.rCreatorGet(roomName);
+      if (creatorSocketId === socket.id) {
+        const members = await this.rRoomMembersAll(roomName);
+        const remaining = members ? Array.from(members.keys()) : [];
         if (remaining.length > 0) {
-          this.roomCreators.set(roomName, remaining[0]);
-          // Notify room of ownership change
+          await this.rCreatorSet(roomName, remaining[0]);
           this.io?.to(`room:${roomName}`).emit("room:creator:changed", {
             room: roomName,
             newCreatorSocketId: remaining[0],
@@ -474,13 +640,8 @@ class SocketService {
             timestamp: new Date().toISOString(),
           });
         } else {
-          this.roomCreators.delete(roomName);
+          await this.rCreatorDel(roomName);
         }
-      }
-
-      if (this.customRooms.get(roomName)!.size === 0) {
-        this.customRooms.delete(roomName);
-        this.roomOriginalCreators.delete(roomName);
       }
     }
 
@@ -501,42 +662,48 @@ class SocketService {
   /**
    * Handle a message sent to a custom room
    */
-  async handleRoomMessage(socket: SocketWithAuth, roomName: string, event: string, payload: any): Promise<void> {
+  async handleRoomMessage(socket: SocketWithAuth, roomName: string, event: string, payload: any, storeInHistory = true): Promise<void> {
     if (!roomName || typeof roomName !== "string") {
       throw new APIError("Invalid room name", 400);
     }
 
     // Check if the socket is in the room
-    if (!this.customRooms.has(roomName) || !this.customRooms.get(roomName)!.has(socket.id)) {
+    if (!(await this.rRoomMemberHas(roomName, socket.id))) {
       throw new APIError("Not a member of this room", 403);
     }
+
+    const record = {
+      event,
+      payload,
+      sender: { userId: socket.userId!, socketId: socket.id },
+      timestamp: new Date().toISOString(),
+    };
 
     // Broadcast to all room members (including sender)
     this.io?.to(`room:${roomName}`).emit(`room:${event}`, {
       room: roomName,
-      event,
-      payload,
-      sender: {
-        userId: socket.userId,
-        socketId: socket.id,
-      },
-      timestamp: new Date().toISOString(),
+      ...record,
     });
+
+    // Append to history only if requested
+    if (storeInHistory) {
+      await this.rHistoryPush(roomName, record);
+    }
   }
 
   /**
    * Return member list for a room. Only callable by current room members.
    * Returns userId, socketId, metadata, and whether each member is the room creator.
    */
-  handleRoomMembers(
+  async handleRoomMembers(
     socket: SocketWithAuth,
     roomName: string
-  ): Array<{ socketId: string; userId: string | number; isCreator: boolean; metadata: Record<string, any> }> {
+  ): Promise<Array<{ socketId: string; userId: string | number; isCreator: boolean; metadata: Record<string, any> }>> {
     if (!roomName || typeof roomName !== "string") {
       throw new APIError("Invalid room name", 400);
     }
 
-    const members = this.customRooms.get(roomName);
+    const members = await this.rRoomMembersAll(roomName);
     if (!members) {
       throw new APIError("Room not found", 404);
     }
@@ -546,7 +713,7 @@ class SocketService {
       throw new APIError("Not a member of this room", 403);
     }
 
-    const creatorSocketId = this.roomCreators.get(roomName);
+    const creatorSocketId = await this.rCreatorGet(roomName);
     return Array.from(members.entries()).map(([socketId, metadata]) => ({
       socketId,
       userId: this.socketIdToUserId.get(socketId) ?? socketId,
@@ -568,13 +735,14 @@ class SocketService {
       throw new APIError("Invalid room name", 400);
     }
 
-    const members = this.customRooms.get(roomName);
+    const members = await this.rRoomMembersAll(roomName);
     if (!members) {
       throw new APIError("Room not found", 404);
     }
 
     // Only the room creator may kick
-    if (this.roomCreators.get(roomName) !== socket.id) {
+    const creatorSocketId = await this.rCreatorGet(roomName);
+    if (creatorSocketId !== socket.id) {
       throw new APIError("Only the room creator can kick users", 403);
     }
 
@@ -591,7 +759,8 @@ class SocketService {
     let kicked = false;
     for (const targetSocket of targetSockets) {
       if (members.has(targetSocket.id)) {
-        members.delete(targetSocket.id);
+        await this.rRoomMemberDel(roomName, targetSocket.id);
+        if (this.useRedis) await this.redisPublisher!.srem(`socket:${targetSocket.id}:rooms`, roomName);
         targetSocket.leave(`room:${roomName}`);
 
         // Tell the kicked socket it was removed
@@ -618,10 +787,9 @@ class SocketService {
     }
 
     // Clean up empty room
-    if (members.size === 0) {
-      this.customRooms.delete(roomName);
-      this.roomCreators.delete(roomName);
-      this.roomOriginalCreators.delete(roomName);
+    const remaining = await this.rRoomMemberCount(roomName);
+    if (remaining === 0) {
+      await this.rRoomDestroy(roomName);
     }
   }
 
@@ -756,8 +924,8 @@ class SocketService {
   /**
    * Get list of users in a custom room (server-side utility for extensions)
    */
-  getRoomMembers(roomName: string): Array<{ socketId: string; userId: string | number; metadata: Record<string, any> }> {
-    const members = this.customRooms.get(roomName);
+  async getRoomMembers(roomName: string): Promise<Array<{ socketId: string; userId: string | number; metadata: Record<string, any> }>> {
+    const members = await this.rRoomMembersAll(roomName);
     if (!members) return [];
     return Array.from(members.entries()).map(([socketId, metadata]) => ({
       socketId,
@@ -769,24 +937,33 @@ class SocketService {
   /**
    * Get count of users in a custom room
    */
-  getRoomMemberCount(roomName: string): number {
-    return this.customRooms.get(roomName)?.size || 0;
+  async getRoomMemberCount(roomName: string): Promise<number> {
+    return this.rRoomMemberCount(roomName);
   }
 
   /**
    * Check if a room exists
    */
-  roomExists(roomName: string): boolean {
-    return this.customRooms.has(roomName) && this.customRooms.get(roomName)!.size > 0;
+  async roomExists(roomName: string): Promise<boolean> {
+    return (await this.rRoomMemberCount(roomName)) > 0;
   }
 
   /**
-   * Get all custom rooms
+   * Get all custom rooms with member counts
    */
-  getCustomRooms(): Map<string, number> {
+  async getCustomRooms(): Promise<Map<string, number>> {
     const rooms = new Map<string, number>();
-    for (const [name, members] of this.customRooms.entries()) {
-      rooms.set(name, members.size);
+    if (this.useRedis) {
+      // Scan for all room member keys
+      const keys = await this.redisPublisher!.keys("room:*:members");
+      for (const key of keys) {
+        const name = key.replace(/^room:/, "").replace(/:members$/, "");
+        rooms.set(name, await this.redisPublisher!.hlen(key));
+      }
+    } else {
+      for (const [name, members] of this.customRooms.entries()) {
+        rooms.set(name, members.size);
+      }
     }
     return rooms;
   }
@@ -876,20 +1053,20 @@ class SocketService {
       };
     }
 
-    // Build custom rooms summary
+    // Build custom rooms summary (in-memory only; Redis path is async so omitted here)
     const customRoomsSummary: Record<string, number> = {};
     for (const [name, members] of this.customRooms.entries()) {
       customRoomsSummary[name] = members.size;
     }
 
     return {
-      status: env.get("SOCKET_REDIS_ENABLED") === "true" ? "redis" : "in-memory",
+      status: this.useRedis ? "redis" : "in-memory",
       totalConnections: this.io.engine.clientsCount,
       uniqueUsers: this.userSockets.size,
       rooms: this.io.sockets.adapter.rooms,
       customRooms: {
-        count: this.customRooms.size,
-        rooms: customRoomsSummary,
+        count: this.useRedis ? "(see Redis)" : this.customRooms.size,
+        rooms: this.useRedis ? "(see Redis)" : customRoomsSummary,
       },
       registeredHandlers: Array.from(this.customMessageHandlers.keys()),
       registeredValidators: Array.from(this.roomValidators.keys()),

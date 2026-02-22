@@ -94,6 +94,17 @@ export interface RoomMember {
   metadata: Record<string, any>;
 }
 
+/**
+ * A single message from the room's history buffer, replayed when you join.
+ * Has the same shape as a live {@link RoomMessage} (minus the `room` field).
+ */
+export interface RoomHistoryMessage {
+  event: string;
+  payload: any;
+  sender: { userId: string | number; socketId: string };
+  timestamp: string;
+}
+
 export interface SubscriptionCallback<T = any> {
   (payload: SubscriptionPayload<T>): void;
 }
@@ -635,25 +646,30 @@ export class RealtimeModule {
    * will be visible to all other members via {@link getRoomMembers} and in
    * `room:user:joined` events.
    *
+   * Returns the room's message history (up to 200 messages) so late joiners
+   * can replay past messages immediately.
+   *
    * @param roomName - The room to join.
    * @param metadata - Optional key/value pairs stored alongside this member.
+   * @returns An object containing the buffered `history` for the room.
    *
    * @example
    * ```typescript
-   * // Join a room with metadata
-   * await baasix.realtime.joinRoom('game:lobby', {
+   * const { history } = await baasix.realtime.joinRoom('game:lobby', {
    *   username: 'Alice',
    *   avatar: 'https://example.com/alice.png',
-   *   team: 'blue',
    * });
    *
-   * // Listen for other users joining (includes their metadata)
-   * baasix.realtime.onUserJoined('game:lobby', (data) => {
-   *   console.log(data.metadata.username, 'joined');
+   * // Render past messages first
+   * history.forEach((msg) => renderMessage(msg));
+   *
+   * // Then listen for new ones
+   * baasix.realtime.onRoomMessage('game:lobby', 'chat', (data) => {
+   *   renderMessage(data);
    * });
    * ```
    */
-  async joinRoom(roomName: string, metadata: Record<string, any> = {}): Promise<void> {
+  async joinRoom(roomName: string, metadata: Record<string, any> = {}): Promise<{ history: RoomHistoryMessage[] }> {
     if (!this.socket?.connected) {
       throw new Error("Not connected. Call connect() first.");
     }
@@ -662,7 +678,7 @@ export class RealtimeModule {
       this.socket!.emit("room:join", { room: roomName, metadata }, (response: any) => {
         if (response.status === "success") {
           this.setupRoomListeners(roomName);
-          resolve();
+          resolve({ history: (response.history ?? []) as RoomHistoryMessage[] });
         } else {
           reject(new Error(response.message || "Failed to join room"));
         }
@@ -814,26 +830,35 @@ export class RealtimeModule {
   }
 
   /**
-   * Send a message to a room
-   * 
+   * Send a message to a room.
+   *
+   * By default the message is stored in the room's history buffer so late
+   * joiners can replay it. Pass `{ history: false }` to broadcast without
+   * persisting (e.g. ephemeral cursor positions, typing indicators).
+   *
    * @example
    * ```typescript
-   * // Send a chat message
+   * // Persisted — replayed to future joiners
    * await baasix.realtime.sendToRoom('game:lobby', 'chat', { text: 'Hello!' });
-   * 
-   * // Send a game event
-   * await baasix.realtime.sendToRoom('game:123', 'move', { x: 10, y: 20 });
+   *
+   * // Ephemeral — broadcast only, never stored in history
+   * await baasix.realtime.sendToRoom('game:lobby', 'typing', { userId }, { history: false });
+   *
+   * // Game move — skips history
+   * await baasix.realtime.sendToRoom('game:123', 'move', { x: 10, y: 20 }, { history: false });
    * ```
    */
-  async sendToRoom(roomName: string, event: string, payload: any): Promise<void> {
+  async sendToRoom(roomName: string, event: string, payload: any, options: { history?: boolean } = {}): Promise<void> {
     if (!this.socket?.connected) {
       throw new Error("Not connected. Call connect() first.");
     }
 
+    const history = options.history ?? true;
+
     return new Promise((resolve, reject) => {
       this.socket!.emit(
         "room:message",
-        { room: roomName, event, payload },
+        { room: roomName, event, payload, history },
         (response: any) => {
           if (response.status === "success") {
             resolve();

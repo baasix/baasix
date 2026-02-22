@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.38
+
+### Patch Changes
+
+- REDIS support added for rooms to support multiple instances.
+
 ## 0.1.37
 
 ### Patch Changes
