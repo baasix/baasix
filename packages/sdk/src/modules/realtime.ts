@@ -105,6 +105,16 @@ export interface RoomHistoryMessage {
   timestamp: string;
 }
 
+/**
+ * Summary of a single custom room returned by {@link RealtimeModule.listRooms}.
+ */
+export interface RoomInfo {
+  /** Room name (e.g. `"game:lobby"`) */
+  name: string;
+  /** Number of connected members */
+  memberCount: number;
+}
+
 export interface SubscriptionCallback<T = any> {
   (payload: SubscriptionPayload<T>): void;
 }
@@ -737,6 +747,41 @@ export class RealtimeModule {
           resolve(response.members as RoomMember[]);
         } else {
           reject(new Error(response.message || "Failed to get room members"));
+        }
+      });
+    });
+  }
+
+  /**
+   * List all active custom rooms, optionally filtered by a name prefix.
+   *
+   * Returns every room that currently has at least one member.
+   * You do **not** need to be a member of a room to list it.
+   *
+   * @param prefix - Optional prefix to filter rooms. E.g. `"game:"` returns only
+   *   rooms whose name starts with `"game:"`.
+   *
+   * @example
+   * ```typescript
+   * // All active rooms
+   * const rooms = await baasix.realtime.listRooms();
+   * // [{ name: 'game:lobby', memberCount: 4 }, { name: 'chat:general', memberCount: 12 }]
+   *
+   * // Only rooms whose name starts with 'game:'
+   * const gameRooms = await baasix.realtime.listRooms('game:');
+   * ```
+   */
+  async listRooms(prefix?: string): Promise<RoomInfo[]> {
+    if (!this.socket?.connected) {
+      throw new Error("Not connected. Call connect() first.");
+    }
+
+    return new Promise((resolve, reject) => {
+      this.socket!.emit("room:list", { prefix: prefix ?? "" }, (response: any) => {
+        if (response.status === "success") {
+          resolve(response.rooms as RoomInfo[]);
+        } else {
+          reject(new Error(response.message || "Failed to list rooms"));
         }
       });
     });

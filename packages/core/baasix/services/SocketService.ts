@@ -414,6 +414,23 @@ class SocketService {
         }
       });
 
+      // Handle room list request — returns all rooms (optionally filtered by prefix)
+      socket.on("room:list", async (data: { prefix?: string } = {}, callback?: (response: any) => void) => {
+        try {
+          const allRooms = await this.getCustomRooms();
+          const prefix = data?.prefix ?? "";
+          const rooms: Array<{ name: string; memberCount: number }> = [];
+          for (const [name, memberCount] of allRooms.entries()) {
+            if (!prefix || name.startsWith(prefix)) {
+              rooms.push({ name, memberCount });
+            }
+          }
+          callback?.({ status: "success", rooms });
+        } catch (error: any) {
+          callback?.({ status: "error", message: error.message });
+        }
+      });
+
       // Handle custom events with registered handlers
       socket.on("custom", async (data: { event: string; payload: any }, callback?: (response: any) => void) => {
         try {

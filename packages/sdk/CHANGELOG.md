@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.11
+
+### Patch Changes
+
+- Add Room listing option
+
 ## 0.1.10
 
 ### Patch Changes

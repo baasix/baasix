@@ -1077,6 +1077,14 @@ history.forEach((msg) => {
 const members = await baasix.realtime.getRoomMembers('game:lobby');
 // [{ socketId: string, userId: string|number, isCreator: boolean, metadata: Record<string,any> }, ...]
 
+// List all active rooms — no membership required
+const rooms = await baasix.realtime.listRooms();
+// [{ name: 'game:lobby', memberCount: 4 }, { name: 'chat:general', memberCount: 12 }]
+
+// Filter by name prefix — e.g. show only 'game:' rooms
+const gameRooms = await baasix.realtime.listRooms('game:');
+// [{ name: 'game:lobby', memberCount: 4 }, { name: 'game:arena', memberCount: 8 }]
+
 // Send a persisted message — stored in the history buffer (default)
 await baasix.realtime.sendToRoom('game:lobby', 'chat', { text: 'Hello!' });
 

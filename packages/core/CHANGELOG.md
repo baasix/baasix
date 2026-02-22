@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.39
+
+### Patch Changes
+
+- Add Room listing option
+
 ## 0.1.38
 
 ### Patch Changes
