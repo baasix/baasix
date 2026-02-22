@@ -1058,11 +1058,18 @@ channel.unsubscribe();
 Custom rooms enable real-time communication between users for chat, games, or collaborative features. The **first user to join** a room becomes its creator. If the creator leaves temporarily, ownership transfers to the next member — but the **original creator automatically reclaims ownership** when they rejoin. If the room empties and is recreated, the next joiner becomes the new owner.
 
 ```typescript
-// Join a room — pass optional metadata stored alongside your membership
-await baasix.realtime.joinRoom('game:lobby', {
+// Join a room — pass optional metadata stored alongside your membership.
+// Returns { history } — the room's last 200 messages, replayed for late joiners.
+const { history } = await baasix.realtime.joinRoom('game:lobby', {
   username: 'Alice',
   avatar: 'https://example.com/alice.png',
   team: 'blue',
+});
+
+// Replay buffered messages so the user sees missed events immediately
+// Each entry: { event, payload, sender: { userId, socketId }, timestamp }
+history.forEach((msg) => {
+  addMessageToUI(msg.sender.userId, msg.payload.text);
 });
 
 // Get current members (you must be in the room)
@@ -1070,8 +1077,13 @@ await baasix.realtime.joinRoom('game:lobby', {
 const members = await baasix.realtime.getRoomMembers('game:lobby');
 // [{ socketId: string, userId: string|number, isCreator: boolean, metadata: Record<string,any> }, ...]
 
-// Send a message to all room members
+// Send a persisted message — stored in the history buffer (default)
 await baasix.realtime.sendToRoom('game:lobby', 'chat', { text: 'Hello!' });
+
+// Send an ephemeral message — broadcast only, NOT stored in history
+// Ideal for high-frequency events: cursors, typing indicators, presence pings
+await baasix.realtime.sendToRoom('game:lobby', 'typing', { userId }, { history: false });
+await baasix.realtime.sendToRoom('game:lobby', 'cursor', { x: 120, y: 340 }, { history: false });
 
 // Listen for room messages
 const unsubscribe = baasix.realtime.onRoomMessage('game:lobby', 'chat', (data) => {
