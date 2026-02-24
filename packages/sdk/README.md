@@ -493,7 +493,7 @@ const metadata = await baasix.files.upload({
 // Original file
 const url = baasix.files.getAssetUrl('file-uuid');
 
-// With transformations
+// Resize to thumbnail
 const thumbnailUrl = baasix.files.getAssetUrl('file-uuid', {
   width: 200,
   height: 200,
@@ -501,7 +501,31 @@ const thumbnailUrl = baasix.files.getAssetUrl('file-uuid', {
   quality: 80,
   format: 'webp',
 });
+
+// Convert to WebP without resizing (preserves transparency)
+const webpUrl = baasix.files.getAssetUrl('file-uuid', {
+  format: 'webp',
+  quality: 85,
+});
+
+// Resize without upscaling
+const safeUrl = baasix.files.getAssetUrl('file-uuid', {
+  width: 800,
+  format: 'webp',
+  withoutEnlargement: true,
+});
 ```
+
+**`AssetTransformOptions`:**
+
+| Option               | Type                              | Default   | Description                                                                 |
+| -------------------- | --------------------------------- | --------- | --------------------------------------------------------------------------- |
+| `width`              | `number`                          | —         | Target width in pixels                                                      |
+| `height`             | `number`                          | —         | Target height in pixels                                                     |
+| `fit`                | `'cover'\|'contain'\|'fill'\|'inside'\|'outside'` | `'cover'` | Resize fit mode |
+| `quality`            | `number` (1–100)                  | `80`      | Output quality                                                              |
+| `format`             | `'jpeg'\|'png'\|'webp'\|'avif'`   | `'jpeg'`  | Output format. `webp` and `png` preserve alpha transparency; `jpeg` flattens transparency to white |
+| `withoutEnlargement` | `boolean`                         | `false`   | Prevent upscaling images smaller than the target dimensions                 |
 
 ### File Operations
 

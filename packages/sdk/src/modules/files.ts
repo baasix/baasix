@@ -215,6 +215,16 @@ export class FilesModule {
   /**
    * Get the URL for an asset with optional transformations
    *
+   * @param id - File UUID
+   * @param options - Optional transformation options
+   * @param options.width - Target width in pixels
+   * @param options.height - Target height in pixels
+   * @param options.fit - Resize fit mode: 'cover' | 'contain' | 'fill' | 'inside' | 'outside' (default: 'cover')
+   * @param options.quality - Output quality 1–100 (default: 80)
+   * @param options.format - Output format: 'jpeg' | 'png' | 'webp' | 'avif' (default: 'jpeg').
+   *   'webp' and 'png' preserve alpha transparency; 'jpeg' composites transparency over a white background.
+   * @param options.withoutEnlargement - When true, prevents upscaling images smaller than the target dimensions
+   *
    * @example
    * ```typescript
    * // Original file
@@ -228,10 +238,20 @@ export class FilesModule {
    *   quality: 80
    * });
    *
-   * // Convert to WebP
+   * // Convert to WebP (preserves transparency)
    * const webpUrl = baasix.files.getAssetUrl('file-uuid', {
    *   format: 'webp',
    *   quality: 85
+   * });
+   *
+   * // Resize and convert to WebP
+   * const optimizedUrl = baasix.files.getAssetUrl('file-uuid', {
+   *   width: 800,
+   *   height: 600,
+   *   fit: 'cover',
+   *   format: 'webp',
+   *   quality: 80,
+   *   withoutEnlargement: true
    * });
    * ```
    */
@@ -290,7 +310,10 @@ export class FilesModule {
    * @example
    * ```typescript
    * const base64 = await baasix.files.toBase64('file-uuid');
-   * // Use in Image component: <Image source={{ uri: `data:image/jpeg;base64,${base64}` }} />
+   * // Use in Image component: <Image source={{ uri: `data:image/webp;base64,${base64}` }} />
+   *
+   * // Convert to WebP first for smaller payload
+   * const base64Webp = await baasix.files.toBase64('file-uuid', { format: 'webp', quality: 80 });
    * ```
    */
   async toBase64(id: string, options?: AssetTransformOptions): Promise<string> {

@@ -65,8 +65,8 @@ class AssetsService extends FilesService {
       };
     }
 
-    const { width, height, fit, quality, withoutEnlargement } = query;
-    const hasTransformParams = width || height || quality;
+    const { width, height, fit, quality, withoutEnlargement, format } = query;
+    const hasTransformParams = width || height || quality || format;
 
     // Get content type with fallback
     const fileContentType = file.type || await this.getFileType(file.filename) || "application/octet-stream";
@@ -92,9 +92,14 @@ class AssetsService extends FilesService {
       
       if (processedBuffer) {
         // Processed version exists, return it
+        const cachedContentType =
+          processedFilename.endsWith(".webp") ? "image/webp" :
+          processedFilename.endsWith(".png") ? "image/png" :
+          processedFilename.endsWith(".avif") ? "image/avif" :
+          "image/jpeg";
         return {
           buffer: processedBuffer,
-          contentType: "image/jpeg",
+          contentType: cachedContentType,
           filePath: null,
           file: file,
           isS3: isS3
@@ -109,6 +114,7 @@ class AssetsService extends FilesService {
         fit,
         quality,
         withoutEnlargement,
+        format,
       });
 
       // Save processed image to the same storage adapter
@@ -116,7 +122,7 @@ class AssetsService extends FilesService {
 
       return {
         buffer: processedImage.buffer,
-        contentType: "image/jpeg",
+        contentType: processedImage.contentType || "image/jpeg",
         filePath: null,
         file: file,
         isS3: isS3
@@ -170,11 +176,13 @@ class AssetsService extends FilesService {
       fit: query.fit,
       quality: query.quality,
       withoutEnlargement: query.withoutEnlargement,
+      format: query.format,
     };
     const hash = crypto.createHash("md5").update(JSON.stringify(cacheParams)).digest("hex").substring(0, 8);
     const ext = path.extname(originalFilename);
     const baseName = path.basename(originalFilename, ext);
-    return `${baseName}_processed_${hash}.jpg`;
+    const outputExt = query.format === "webp" ? "webp" : query.format === "png" ? "png" : query.format === "avif" ? "avif" : "jpg";
+    return `${baseName}_processed_${hash}.${outputExt}`;
   }
 
   /**
@@ -224,7 +232,7 @@ class AssetsService extends FilesService {
    */
   async processImageBuffer(
     inputBuffer: Buffer,
-    { width, height, fit, quality, withoutEnlargement }: AssetQuery
+    { width, height, fit, quality, withoutEnlargement, format }: AssetQuery
   ): Promise<ProcessedImage> {
     let image = sharp(inputBuffer);
 
@@ -238,12 +246,27 @@ class AssetsService extends FilesService {
       image = image.resize(resizeOptions);
     }
 
-    // Always convert to JPEG for processed images
-    const jpegQuality = quality ? parseInt(quality.toString()) : 80;
-    image = image.jpeg({ quality: jpegQuality });
+    const outputQuality = quality ? parseInt(quality.toString()) : 80;
+    const outputFormat = (format as string) || "jpeg";
 
-    const buffer = await image.toBuffer();
-    return { buffer, contentType: "image/jpeg" };
+    if (outputFormat === "webp") {
+      image = image.webp({ quality: outputQuality });
+      const buffer = await image.toBuffer();
+      return { buffer, contentType: "image/webp" };
+    } else if (outputFormat === "png") {
+      image = image.png({ quality: outputQuality });
+      const buffer = await image.toBuffer();
+      return { buffer, contentType: "image/png" };
+    } else if (outputFormat === "avif") {
+      image = image.avif({ quality: outputQuality });
+      const buffer = await image.toBuffer();
+      return { buffer, contentType: "image/avif" };
+    } else {
+      // JPEG does not support transparency — flatten alpha to white background
+      image = image.flatten({ background: { r: 255, g: 255, b: 255 } }).jpeg({ quality: outputQuality });
+      const buffer = await image.toBuffer();
+      return { buffer, contentType: "image/jpeg" };
+    }
   }
 
   /**

@@ -189,10 +189,15 @@ Sending only new fields will DELETE all other field definitions from the schema.
 | width | Target width | number |
 | height | Target height | number |
 | fit | Resize mode | cover, contain, fill, inside, outside |
-| quality | JPEG quality | 1-100 |
-| format | Output format | jpeg, png, webp, avif |
+| quality | Output quality (1-100); applies to the selected format | 1-100 |
+| format | Output format; defaults to jpeg. webp/png preserve transparency | jpeg, png, webp, avif |
+| withoutEnlargement | Prevent upscaling | true |
 
 ```
+# Resize to WebP
+GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80&format=webp
+
+# Default (JPEG, transparency flattened to white)
 GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80
 ```
 

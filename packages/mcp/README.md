@@ -228,6 +228,22 @@ Or using headers:
 | `baasix_get_file_info` | Get file details |
 | `baasix_delete_file` | Delete file |
 
+> **Image Transformations:** The MCP tools manage file metadata. To serve or display images with on-the-fly transformations (resize, format conversion, quality), construct asset URLs directly:
+>
+> ```
+> GET {BAASIX_URL}/assets/{file-id}?width=400&height=300&fit=cover&format=webp&quality=80
+> ```
+>
+> | Parameter            | Values                         | Description                                                   |
+> | -------------------- | ------------------------------ | ------------------------------------------------------------- |
+> | `width`              | number                         | Target width in pixels                                        |
+> | `height`             | number                         | Target height in pixels                                       |
+> | `fit`                | cover, contain, fill, inside, outside | Resize fit mode (default: cover)                     |
+> | `quality`            | 1–100                          | Output quality (default: 80)                                  |
+> | `format`             | jpeg, png, webp, avif          | Output format (default: jpeg). `webp`/`png` preserve transparency |
+> | `withoutEnlargement` | true                           | Prevent upscaling images smaller than the target              |
+> | `download`           | true                           | Force file download instead of inline display                 |
+
 ### Authentication (10 tools)
 | Tool | Description |
 |------|-------------|

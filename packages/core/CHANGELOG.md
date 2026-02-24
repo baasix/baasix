@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.40
+
+### Patch Changes
+
+- Adding format support to assetservice.
+
 ## 0.1.39
 
 ### Patch Changes
