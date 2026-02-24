@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.41
+
+### Patch Changes
+
+- Fixed default onDelete and onUpdate to cascade
+
 ## 0.1.40
 
 ### Patch Changes

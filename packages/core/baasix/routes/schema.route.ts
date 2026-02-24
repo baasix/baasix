@@ -910,6 +910,8 @@ const registerEndpoint = (app: Express, context?: any) => {
                             foreignKey: sourceIdColumn,
                             description: "M2M Junction",
                             SystemGenerated: true,
+                            onDelete: onDelete || "CASCADE",
+                            onUpdate: onUpdate || "CASCADE",
                         },
                         [isSelfReferential ? `${relationshipData.target}_2` : relationshipData.target]: {
                             relType: "BelongsTo",
@@ -917,6 +919,8 @@ const registerEndpoint = (app: Express, context?: any) => {
                             foreignKey: targetIdColumn,
                             description: "M2M Junction",
                             SystemGenerated: true,
+                            onDelete: onDelete || "CASCADE",
+                            onUpdate: onUpdate || "CASCADE",
                         },
                     },
                     timestamps: true,
