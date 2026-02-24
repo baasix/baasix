@@ -221,6 +221,11 @@ export class ReportsModule {
    * @example
    * ```typescript
    * const categories = await baasix.reports.distinct('products', 'category');
+   *
+   * // With a filter
+   * const folders = await baasix.reports.distinct('baasix_File', 'folder', {
+   *   userId: { eq: '$CURRENT_USER' },
+   * });
    * ```
    */
   async distinct(
@@ -228,15 +233,17 @@ export class ReportsModule {
     field: string,
     filter?: Filter
   ): Promise<unknown[]> {
-    const response = await this.client.get<{ data: Record<string, unknown>[] }>(
-      `/items/${collection}`,
+    // The server requires `aggregate` to be present for the GROUP BY code path
+    // to execute. We use a minimal countDistinct on the target field (semantically
+    // appropriate) and strip it from the result client-side.
+    const response = await this.client.post<{ data: Record<string, unknown>[] }>(
+      `/reports/${collection}`,
       {
-        params: {
-          filter,
-          fields: [field],
-          groupBy: [field],
-          limit: -1,
-        },
+        fields: [field],
+        groupBy: [field],
+        aggregate: { _count: { function: "distinct", field } },
+        filter,
+        limit: -1,
       }
     );
     return response.data.map((item) => item[field]);
