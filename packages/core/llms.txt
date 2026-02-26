@@ -1370,6 +1370,10 @@ export default {
 | min | Minimum | `{"minAge": {"function": "min", "field": "age"}}` |
 | max | Maximum | `{"maxScore": {"function": "max", "field": "score"}}` |
 
+## Return Types
+
+All numeric aggregate functions (`sum`, `avg`, `min`, `max`) return JavaScript numbers, including when applied to Decimal columns. `count` and `distinct` also return numbers. `array_agg` returns an array.
+
 ## Aggregation with groupBy
 
 ```javascript

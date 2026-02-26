@@ -133,7 +133,7 @@ describe("Aggregate Attributes", () => {
         expect(response.status).toBe(200);
         expect(response.body.data).toHaveLength(1);
         // max() returns string from PostgreSQL
-        expect(response.body.data[0].maxPrice).toBe("30.99");
+        expect(response.body.data[0].maxPrice).toBe(30.99);
         expect(response.body.totalCount).toBe(1);
     });
 
@@ -204,8 +204,8 @@ describe("Aggregate Attributes", () => {
         expect(response.status).toBe(200);
         expect(response.body.data).toHaveLength(1);
         // min/max return strings from PostgreSQL
-        expect(response.body.data[0].minPrice).toBe("10.99");
-        expect(response.body.data[0].maxPrice).toBe("30.99");
+        expect(response.body.data[0].minPrice).toBe(10.99);
+        expect(response.body.data[0].maxPrice).toBe(30.99);
         // avg returns number (uses .mapWith(Number))
         expect(response.body.data[0].avgPrice).toBeCloseTo(20.99, 2);
         // count returns number from Drizzle

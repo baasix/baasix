@@ -13,7 +13,7 @@
  * - Aggregate with relations
  */
 
-import { SQL, sql, count, min, max } from 'drizzle-orm';
+import { SQL, sql, count } from 'drizzle-orm';
 import { PgColumn } from 'drizzle-orm/pg-core';
 import type {
   AggregateFunction,
@@ -58,18 +58,20 @@ export function createAggregateFunction(
 ): SQL {
   switch (func.toLowerCase() as AggregateFunction) {
     case 'max':
-      return max(column);
+      // max() returns string for decimal/numeric columns, cast and mapWith for consistent number return
+      return sql<number>`max((${column})::numeric)`.mapWith(Number);
 
     case 'min':
-      return min(column);
+      // min() returns string for decimal/numeric columns, cast and mapWith for consistent number return
+      return sql<number>`min((${column})::numeric)`.mapWith(Number);
 
     case 'avg':
-      // avg() returns string by default in PostgreSQL, use mapWith for number
-      return sql<number>`avg(${column})`.mapWith(Number);
+      // avg() returns string by default in PostgreSQL, cast and mapWith for number
+      return sql<number>`avg((${column})::numeric)`.mapWith(Number);
 
     case 'sum':
-      // sum() returns string by default in PostgreSQL, use mapWith for number
-      return sql<number>`sum(${column})`.mapWith(Number);
+      // sum() returns string by default in PostgreSQL (especially for decimal columns), cast and mapWith for number
+      return sql<number>`sum((${column})::numeric)`.mapWith(Number);
 
     case 'count':
       return count(column);

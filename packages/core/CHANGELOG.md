@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.43
+
+### Patch Changes
+
+- API: Added fix for aggregate functions in decimal not working
+
 ## 0.1.42
 
 ### Patch Changes
