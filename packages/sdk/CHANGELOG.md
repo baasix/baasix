@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.14
+
+### Patch Changes
+
+- Added new dynamic variables CURRENT_TENANT and CURRENT_SETTINGS
+
 ## 0.1.13
 
 ### Patch Changes

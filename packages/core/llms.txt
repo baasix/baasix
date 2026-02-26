@@ -544,6 +544,8 @@ Add `"cast": "type"` to any filter condition:
 | $CURRENT_ROLE | Current role's ID |
 | $CURRENT_ROLE.field | Role's field |
 | $CURRENT_TENANT | Current tenant ID |
+| $CURRENT_TENANT.field | Tenant's field (e.g., $CURRENT_TENANT.name) |
+| $CURRENT_SETTINGS.field | Settings field, tenant-aware (e.g., $CURRENT_SETTINGS.currency) |
 | $NOW | Current timestamp |
 
 ```javascript

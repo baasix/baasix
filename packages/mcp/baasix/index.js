@@ -618,6 +618,12 @@ FILTER OPERATORS (50+):
 
 DYNAMIC VARIABLES:
 - $CURRENT_USER: Current user's ID
+- $CURRENT_USER.field: User field (e.g., $CURRENT_USER.department)
+- $CURRENT_ROLE: Current role's ID
+- $CURRENT_ROLE.field: Role field
+- $CURRENT_TENANT: Current tenant's ID
+- $CURRENT_TENANT.field: Tenant field (e.g., $CURRENT_TENANT.name)
+- $CURRENT_SETTINGS.field: Settings field, tenant-aware (e.g., $CURRENT_SETTINGS.currency)
 - $NOW: Current timestamp
 - $NOW-DAYS_7: 7 days ago
 - $NOW+MONTHS_1: 1 month from now
@@ -627,6 +633,8 @@ FILTER EXAMPLES:
 - {"AND": [{"price": {"gte": 10}}, {"price": {"lte": 100}}]}
 - {"tags": {"arraycontains": ["featured"]}}
 - {"author_Id": {"eq": "$CURRENT_USER"}}
+- {"tenant_Id": {"eq": "$CURRENT_TENANT"}}
+- {"currency": {"eq": "$CURRENT_SETTINGS.currency"}}
 - {"category.name": {"eq": "Electronics"}} (relation filter)`,
                         inputSchema: {
                             type: "object",
@@ -1194,6 +1202,7 @@ CONDITIONS (Row-level security):
 - Uses same filter operators as queries
 - {"published": {"eq": true}} - only published records
 - {"author_Id": {"eq": "$CURRENT_USER"}} - only own records
+- {"tenant_Id": {"eq": "$CURRENT_TENANT"}} - tenant isolation
 
 RELCONDITIONS (Filter related data):
 - {"reviews": {"approved": {"eq": true}}} - only approved reviews in response

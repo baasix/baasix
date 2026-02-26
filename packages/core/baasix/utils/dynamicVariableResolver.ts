@@ -4,6 +4,9 @@
  * Resolves dynamic variables in filter objects:
  * - $CURRENT_USER.field -> actual user field value
  * - $CURRENT_ROLE.field -> actual role field value
+ * - $CURRENT_TENANT -> current tenant ID
+ * - $CURRENT_TENANT.field -> actual tenant field value
+ * - $CURRENT_SETTINGS.field -> settings field (tenant-aware, merged with global)
  * - $NOW -> current timestamp
  * - $NOW+DAYS_7, $NOW-HOURS_2 -> relative date calculations
  */
@@ -82,7 +85,7 @@ function resolveNowVariable(variable: string): string {
 function collectVariables(obj: any, variablesToResolve: Record<string, Set<string>>): void {
   if (typeof obj === "string" && obj.startsWith("$")) {
     const [target, ...parts] = obj.slice(1).split(".");
-    if (target === "CURRENT_USER" || target === "CURRENT_ROLE") {
+    if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
       const field = parts.length > 0 ? parts.join(".") : "id";
       variablesToResolve[target].add(field);
     } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -98,7 +101,7 @@ function collectVariables(obj: any, variablesToResolve: Record<string, Set<strin
     obj.forEach(item => {
       if (typeof item === "string" && item.startsWith("$")) {
         const [target, ...parts] = item.slice(1).split(".");
-        if (target === "CURRENT_USER" || target === "CURRENT_ROLE") {
+        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
           const field = parts.length > 0 ? parts.join(".") : "id";
           variablesToResolve[target].add(field);
         } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -119,7 +122,7 @@ function collectVariables(obj: any, variablesToResolve: Record<string, Set<strin
       // Check keys for variables
       if (key.startsWith("$")) {
         const [target, ...parts] = key.slice(1).split(".");
-        if (target === "CURRENT_USER" || target === "CURRENT_ROLE") {
+        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
           const field = parts.length > 0 ? parts.join(".") : "id";
           variablesToResolve[target].add(field);
         } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -146,6 +149,8 @@ async function resolveCollectedVariables(
   const resolved: Record<string, any> = {
     CURRENT_USER: {},
     CURRENT_ROLE: {},
+    CURRENT_TENANT: {},
+    CURRENT_SETTINGS: {},
     NOW: {},
   };
 
@@ -153,6 +158,41 @@ async function resolveCollectedVariables(
   for (const nowVariable of Object.keys(variablesToResolve)) {
     if (nowVariable.startsWith("NOW")) {
       resolved[nowVariable] = { value: resolveNowVariable(nowVariable) };
+    }
+  }
+
+  // Resolve CURRENT_SETTINGS - uses SettingsService with tenant-aware merging
+  // getTenantSettings already falls back to global settings when no tenantId is provided
+  if (variablesToResolve.CURRENT_SETTINGS.size > 0) {
+    try {
+      // Lazy import to avoid circular dependencies (same pattern as auth.ts)
+      const module = await import('../services/SettingsService.js');
+      const settingsService = module.default;
+      resolved.CURRENT_SETTINGS = await settingsService.getTenantSettings(accountability?.tenant);
+    } catch (error: any) {
+      console.error(`Error resolving settings data: ${error.message}`);
+    }
+  }
+
+  // Resolve CURRENT_TENANT - uses accountability.tenant directly
+  if (variablesToResolve.CURRENT_TENANT.size > 0 && accountability?.tenant) {
+    const tenantFields = Array.from(variablesToResolve.CURRENT_TENANT);
+    
+    if (tenantFields.length === 1 && tenantFields[0] === 'id') {
+      // Simple case: just need the tenant ID
+      resolved.CURRENT_TENANT = { id: accountability.tenant };
+    } else {
+      // Need additional tenant fields - query the database
+      try {
+        const tenantItemsService = new ItemsService("baasix_Tenant", { accountability: undefined });
+        resolved.CURRENT_TENANT = await tenantItemsService.readOne(accountability.tenant, {
+          fields: tenantFields
+        });
+      } catch (error: any) {
+        console.error(`Error resolving tenant data: ${error.message}`);
+        // Fallback: at minimum provide the ID
+        resolved.CURRENT_TENANT = { id: accountability.tenant };
+      }
     }
   }
 
@@ -228,7 +268,7 @@ function getNestedValue(obj: any, path: string[]): any {
 function replaceVariables(obj: any, resolvedVariables: Record<string, any>): any {
   if (typeof obj === "string" && obj.startsWith("$")) {
     const [target, ...parts] = obj.slice(1).split(".");
-    if (target === "CURRENT_USER" || target === "CURRENT_ROLE") {
+    if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
       const field = parts.length > 0 ? parts.join(".") : "id";
       const value = getNestedValue(resolvedVariables[target], field.split("."));
       return value;
@@ -249,7 +289,7 @@ function replaceVariables(obj: any, resolvedVariables: Record<string, any>): any
       let newKey = key;
       if (key.startsWith("$")) {
         const [target, ...parts] = key.slice(1).split(".");
-        if (target === "CURRENT_USER" || target === "CURRENT_ROLE") {
+        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
           // For key replacements, we typically want to keep the path structure
           newKey = parts.join(".");
         } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -267,7 +307,7 @@ function replaceVariables(obj: any, resolvedVariables: Record<string, any>): any
 
 /**
  * Main function to resolve dynamic variables in an object
- * Supports: $CURRENT_USER.field, $CURRENT_ROLE.field, $NOW, $NOW+DAYS_7, etc.
+ * Supports: $CURRENT_USER.field, $CURRENT_ROLE.field, $CURRENT_TENANT, $CURRENT_TENANT.field, $CURRENT_SETTINGS.field, $NOW, $NOW+DAYS_7, etc.
  */
 export async function resolveDynamicVariables(
   obj: any,
@@ -276,6 +316,8 @@ export async function resolveDynamicVariables(
   const variablesToResolve: Record<string, Set<string>> = {
     CURRENT_USER: new Set(),
     CURRENT_ROLE: new Set(),
+    CURRENT_TENANT: new Set(),
+    CURRENT_SETTINGS: new Set(),
     NOW: new Set(),
   };
 

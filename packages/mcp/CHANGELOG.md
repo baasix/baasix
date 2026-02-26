@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.1.7
+
+### Patch Changes
+
+- Added new dynamic variables CURRENT_TENANT and CURRENT_SETTINGS
+
 ## 0.1.6
 
 ### Patch Changes

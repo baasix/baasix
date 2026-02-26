@@ -463,6 +463,8 @@ Baasix supports 50+ filter operators:
 
 // Dynamic variables
 { author_Id: { eq: '$CURRENT_USER' } }
+{ tenant_Id: { eq: '$CURRENT_TENANT' } }
+{ currency: { eq: '$CURRENT_SETTINGS.currency' } }
 { createdAt: { gte: '$NOW-DAYS_30' } }
 ```
 

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.42
+
+### Patch Changes
+
+- Added new dynamic variables CURRENT_TENANT and CURRENT_SETTINGS
+
 ## 0.1.41
 
 ### Patch Changes
