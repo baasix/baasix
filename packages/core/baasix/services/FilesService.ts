@@ -23,7 +23,7 @@ import type { FileData, FileMetadata, InternalUploadedFile } from '../types/inde
 // For now, we'll assume it's available
 
 class FilesService {
-  private accountability?: any;
+  protected accountability?: any;
   protected storageService: typeof storageService;
   private itemService: ItemsService;
   private tempDir: string;

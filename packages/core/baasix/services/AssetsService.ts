@@ -8,6 +8,15 @@ import ItemsService from "./ItemsService.js";
 import type { AssetQuery, AssetResult, ProcessedImage } from '../types/index.js';
 import { getProjectPath } from "../utils/dirname.js";
 
+// Shared asset access configuration
+const sharedAssetAccessMode = env.get("SHARED_ASSET_ACCESS_MODE") as "public" | "authenticated" | undefined;
+const sharedAssetTenantIdsString = env.get("SHARED_ASSET_TENANT_IDS");
+const sharedAssetTenantIds = new Set(
+  sharedAssetTenantIdsString
+    ? sharedAssetTenantIdsString.split(",").map((id: string) => id.trim()).filter(Boolean)
+    : []
+);
+
 class AssetsService extends FilesService {
   private assetTempDir: string;
   private itemsService: ItemsService;
@@ -43,6 +52,19 @@ class AssetsService extends FilesService {
       // If file is public, allow access without permission check
       if (fileCheck.isPublic === true) {
         file = fileCheck;
+      } else if (fileCheck.tenant_Id && sharedAssetTenantIds.size > 0 && sharedAssetTenantIds.has(String(fileCheck.tenant_Id))) {
+        // File belongs to a shared asset tenant
+        const mode = sharedAssetAccessMode;
+        if (mode === "public") {
+          // Public mode: anyone can access shared tenant assets
+          file = fileCheck;
+        } else if (mode === "authenticated" && this.accountability?.user) {
+          // Authenticated mode: only authenticated users can access
+          file = fileCheck;
+        } else {
+          // Mode not matched or user not authenticated, check permissions normally
+          file = await this.itemsService.readOne(id, {}, false);
+        }
       } else {
         // File is not public, check permissions normally
         file = await this.itemsService.readOne(id, {}, false);

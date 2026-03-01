@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.44
+
+### Patch Changes
+
+- Added two env to support asset sharing.
+
 ## 0.1.43
 
 ### Patch Changes
