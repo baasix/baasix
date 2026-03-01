@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.45
+
+### Patch Changes
+
+- Fixed shared asset issues.
+
 ## 0.1.44
 
 ### Patch Changes

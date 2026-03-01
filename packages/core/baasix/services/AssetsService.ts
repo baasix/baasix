@@ -8,18 +8,26 @@ import ItemsService from "./ItemsService.js";
 import type { AssetQuery, AssetResult, ProcessedImage } from '../types/index.js';
 import { getProjectPath } from "../utils/dirname.js";
 
-// Shared asset access configuration
-const sharedAssetAccessMode = env.get("SHARED_ASSET_ACCESS_MODE") as "public" | "authenticated" | undefined;
-const sharedAssetTenantIdsString = env.get("SHARED_ASSET_TENANT_IDS");
-const sharedAssetTenantIds = new Set(
-  sharedAssetTenantIdsString
-    ? sharedAssetTenantIdsString.split(",").map((id: string) => id.trim()).filter(Boolean)
-    : []
-);
+/**
+ * Returns the set of shared asset tenant IDs and the access mode.
+ * Read at call time (not module load) so env overrides take effect.
+ */
+function getSharedAssetConfig() {
+  const mode = env.get("SHARED_ASSET_ACCESS_MODE") as "public" | "authenticated" | undefined;
+  const idsString = env.get("SHARED_ASSET_TENANT_IDS");
+  const ids = new Set(
+    idsString
+      ? idsString.split(",").map((id: string) => id.trim()).filter(Boolean)
+      : []
+  );
+  return { mode, ids };
+}
 
 class AssetsService extends FilesService {
   private assetTempDir: string;
   private itemsService: ItemsService;
+  // ItemsService without accountability - bypasses tenant filtering for file lookups
+  private systemItemsService: ItemsService;
 
   constructor(params: { accountability?: any } = {}) {
     const { accountability } = params;
@@ -32,6 +40,7 @@ class AssetsService extends FilesService {
     }
     
     this.itemsService = new ItemsService("baasix_File", { accountability });
+    this.systemItemsService = new ItemsService("baasix_File", {});
   }
 
   async getAsset(id: string | number, query: AssetQuery, bypassPermissions = false): Promise<AssetResult> {
@@ -39,11 +48,12 @@ class AssetsService extends FilesService {
     
     if (bypassPermissions) {
       // If bypassPermissions is explicitly requested, use it directly
-      file = await this.itemsService.readOne(id, {}, true);
+      file = await this.systemItemsService.readOne(id, {}, true);
     } else {
-      // For public files (isPublic: true), we need to bypass permission checks
-      // First, try to read with bypassed permissions to check if file exists and is public
-      const fileCheck = await this.itemsService.readOne(id, {}, true);
+      // For public files, shared tenant files, and regular files we need different handling.
+      // Use systemItemsService (no accountability = no tenant filter) to check the file first,
+      // then decide based on isPublic / shared tenant config whether to grant access.
+      const fileCheck = await this.systemItemsService.readOne(id, {}, true);
       
       if (!fileCheck) {
         throw new Error("File not found");
@@ -52,22 +62,25 @@ class AssetsService extends FilesService {
       // If file is public, allow access without permission check
       if (fileCheck.isPublic === true) {
         file = fileCheck;
-      } else if (fileCheck.tenant_Id && sharedAssetTenantIds.size > 0 && sharedAssetTenantIds.has(String(fileCheck.tenant_Id))) {
-        // File belongs to a shared asset tenant
-        const mode = sharedAssetAccessMode;
-        if (mode === "public") {
-          // Public mode: anyone can access shared tenant assets
-          file = fileCheck;
-        } else if (mode === "authenticated" && this.accountability?.user) {
-          // Authenticated mode: only authenticated users can access
-          file = fileCheck;
+      } else {
+        // Check shared asset tenant configuration
+        const { mode: sharedMode, ids: sharedTenantIds } = getSharedAssetConfig();
+        if (fileCheck.tenant_Id && sharedTenantIds.size > 0 && sharedTenantIds.has(String(fileCheck.tenant_Id))) {
+          // File belongs to a shared asset tenant
+          if (sharedMode === "public") {
+            // Public mode: anyone can access shared tenant assets
+            file = fileCheck;
+          } else if (sharedMode === "authenticated" && this.accountability?.user) {
+            // Authenticated mode: only authenticated users can access
+            file = fileCheck;
+          } else {
+            // Mode not matched or user not authenticated, check permissions normally
+            file = await this.itemsService.readOne(id, {}, false);
+          }
         } else {
-          // Mode not matched or user not authenticated, check permissions normally
+          // File is not public and not from shared tenant, check permissions normally
           file = await this.itemsService.readOne(id, {}, false);
         }
-      } else {
-        // File is not public, check permissions normally
-        file = await this.itemsService.readOne(id, {}, false);
       }
     }
 
