@@ -417,9 +417,20 @@ export class ItemsService {
     if (!this.isMultiTenant) return data;
 
     const shouldEnforce = await shouldEnforceTenantContext(this);
-    if (!shouldEnforce) return data;
 
+    // Also enforce when tenant is explicitly set on the service (e.g., admin import with tenant context)
+    // even if shouldEnforceTenantContext returns false (admin roles have isTenantSpecific: false)
     const tenantId = this.tenant || this.accountability?.tenant;
+    if (!shouldEnforce && !this.tenant) return data;
+    if (!shouldEnforce && this.tenant) {
+      // Explicit tenant set on service — apply tenant_Id without validation
+      if (this.collection === 'baasix_User') return data;
+      if (!data.tenant_Id) {
+        return { ...data, tenant_Id: this.tenant };
+      }
+      return data;
+    }
+
     if (!tenantId) {
       throw new APIError('Tenant context required but not provided', 403);
     }

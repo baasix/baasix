@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.46
+
+### Patch Changes
+
+- Fixed collection filter in permissions screen.
+
 ## 0.1.45
 
 ### Patch Changes

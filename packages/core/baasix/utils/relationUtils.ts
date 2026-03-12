@@ -263,9 +263,12 @@ export async function processRelationalData(
       const foreignKey = association.foreignKey || `${key}_Id`;
 
       if (typeof value === 'object' && !value.id) {
-        // Create new related record
+        // Create new related record - inherit tenant_Id from parent data if available
+        const belongsToData = data.tenant_Id && !value.tenant_Id
+          ? { ...value, tenant_Id: data.tenant_Id }
+          : value;
         console.log(`[RelationUtils] Creating new ${association.model} for ${key}`);
-        const newRelatedId = await relatedService.createOne(value, { bypassPermissions: true });
+        const newRelatedId = await relatedService.createOne(belongsToData, { bypassPermissions: true });
         console.log(`[RelationUtils] Created ${association.model} with ID:`, newRelatedId);
         console.log(`[RelationUtils] Setting ${foreignKey} =`, newRelatedId);
         result[foreignKey] = newRelatedId;
@@ -432,6 +435,11 @@ export async function handleHasManyRelationship(
       // Set the foreign key to link to parent
       data[foreignKey] = parentId;
 
+      // Inherit tenant_Id from parent item if available and not already set
+      if (item.tenant_Id && !data.tenant_Id) {
+        data.tenant_Id = item.tenant_Id;
+      }
+
       if (relItem.id) {
         // Update existing record
         console.log(`[RelationUtils] Updating HasMany record ${relItem.id} for ${association}`);
@@ -506,8 +514,13 @@ export async function handleM2MRelationship(
           tenant: service.tenant
         });
 
+        // Inherit tenant_Id from parent item if available
+        const createData = (item.tenant_Id && !targetItem.tenant_Id)
+          ? { ...targetItem, tenant_Id: item.tenant_Id }
+          : targetItem;
+
         console.log(`[RelationUtils] Creating new ${associationInfo.model} for M2M relation`);
-        const newId = await relatedService.createOne(targetItem, { bypassPermissions: true, transaction });
+        const newId = await relatedService.createOne(createData, { bypassPermissions: true, transaction });
         processedIds.push(newId);
       }
     } else {

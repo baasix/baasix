@@ -257,6 +257,7 @@ const registerEndpoint = (app: Express) => {
 
         const itemsService = new ItemsService(collection, {
           accountability: req.accountability as any,
+          tenant: tenantId,
         });
 
         // Parse CSV data
@@ -365,6 +366,7 @@ const registerEndpoint = (app: Express) => {
 
         const itemsService = new ItemsService(collection, {
           accountability: req.accountability as any,
+          tenant: tenantId,
         });
 
         // Parse JSON data
