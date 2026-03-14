@@ -691,23 +691,32 @@ Do NOT use this to remove a column — use baasix_update_schema instead to modif
     "baasix_add_index",
     `Add a database index to a table for better query performance.
 This is an ADDITIVE operation — it only adds the new index without affecting existing indexes or schema fields.
-Supports btree (default), hash, gin, and gist index types. Can be unique.
+Supports btree (default), hash, gin, and gist index types.
 
-EXAMPLE — Add a unique index on email:
-{ "collection": "users", "indexDefinition": { "fields": ["email"], "unique": true } }
+To create a UNIQUE index, set "unique": true in the indexDefinition. This enforces that no two rows can have the same value(s) in the indexed field(s).
 
-EXAMPLE — Add a composite index:
-{ "collection": "orders", "indexDefinition": { "fields": ["status", "createdAt"] } }`,
+EXAMPLE — Add a unique index on email (prevents duplicate emails):
+{ "collection": "users", "indexDefinition": { "name": "users_email_unique", "fields": ["email"], "unique": true } }
+
+EXAMPLE — Add a composite unique index (unique combination of fields):
+{ "collection": "orders", "indexDefinition": { "name": "orders_user_product_unique", "fields": ["user_Id", "product_Id"], "unique": true } }
+
+EXAMPLE — Add a regular (non-unique) index for query performance:
+{ "collection": "orders", "indexDefinition": { "name": "orders_status_date", "fields": ["status", "createdAt"] } }
+
+EXAMPLE — Add a GIN index for JSONB or array fields:
+{ "collection": "products", "indexDefinition": { "name": "products_tags_gin", "fields": ["tags"], "type": "gin" } }`,
     {
-      collection: z.string().describe("Collection name"),
+      collection: z.string().describe("Collection name of the table to add the index to"),
       indexDefinition: z
         .object({
-          name: z.string().optional().describe("Index name (auto-generated if not provided)"),
-          fields: z.array(z.string()).describe("Fields to index"),
-          unique: z.boolean().optional().describe("Whether the index should be unique"),
-          type: z.enum(["btree", "hash", "gin", "gist"]).optional().describe("Index type"),
+          name: z.string().describe("Index name — use a descriptive name like {table}_{fields}_{type} e.g. 'users_email_unique'"),
+          fields: z.array(z.string()).describe("Array of field names to index (e.g., ['email'] or ['status', 'createdAt'] for composite)"),
+          unique: z.boolean().optional().describe("Whether the index should enforce uniqueness (default: false). Set to true to prevent duplicate values."),
+          type: z.enum(["btree", "hash", "gin", "gist"]).optional().describe("Index type (default: btree). Use 'gin' for JSONB/array fields, 'gist' for geospatial."),
+          nullsNotDistinct: z.boolean().optional().describe("When true, NULL values are considered equal for unique indexes (PostgreSQL 15+). Only applies when unique is true."),
         })
-        .describe("Index definition"),
+        .describe("Index definition with fields and options"),
     },
     async (args: AddIndexInput, extra: ToolExtra): Promise<ToolResult> => {
       const { collection, indexDefinition } = args;

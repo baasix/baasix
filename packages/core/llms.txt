@@ -46,6 +46,7 @@ SECRET_KEY=your-32-character-secret-key-here
 ```env
 # Server
 PORT=8056                          # HTTP port
+BODY_SIZE_LIMIT=20mb               # Max JSON request body size
 
 # Cache
 CACHE_ENABLED=true

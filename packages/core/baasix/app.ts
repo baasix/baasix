@@ -140,7 +140,7 @@ app.use(
   })
 );
 
-app.use(bodyParser.json({ limit: "20mb" }));
+app.use(bodyParser.json({ limit: env.get("BODY_SIZE_LIMIT") || "20mb" }));
 app.use(cookieParser());
 app.use(morgan("combined"));
 

@@ -1018,6 +1018,7 @@ describe("Products API", () => {
 | PUBLIC_REGISTRATION | No | true | Allow public registration |
 | RATE_LIMIT | No | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | No | 5000 | Rate limit interval (ms) |
+| BODY_SIZE_LIMIT | No | 20mb | Max JSON request body size |
 
 ---
 

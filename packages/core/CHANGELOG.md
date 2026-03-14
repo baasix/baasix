@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.47
+
+### Patch Changes
+
+- Added BODY_SIZE_LIMIT in env for maximum POST data size.
+
 ## 0.1.46
 
 ### Patch Changes

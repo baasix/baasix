@@ -327,6 +327,9 @@ SECRET_KEY=your-secret-key-min-32-chars
 # TASK_REDIS_ENABLED=true          # For multi-instance
 # TASK_REDIS_URL=redis://localhost:6379
 
+# Request Body Size (optional)
+# BODY_SIZE_LIMIT=20mb              # Max JSON body size (default: 20mb)
+
 # File Upload (optional)
 # MAX_UPLOAD_FILE_SIZE=50          # Default: 50MB, set to 100 for 100MB
 
