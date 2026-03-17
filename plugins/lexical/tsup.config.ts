@@ -1,0 +1,18 @@
+import { defineConfig } from 'tsup';
+
+export default defineConfig({
+  entry: ['src/index.tsx'],
+  format: ['esm'],
+  dts: true,
+  sourcemap: true,
+  clean: true,
+  external: ['react', 'react-dom', '@baasix/sdk'],
+  noExternal: ['react-day-picker'],
+  esbuildOptions(options) {
+    options.loader = {
+      ...options.loader,
+      '.svg': 'dataurl',
+      '.png': 'dataurl',
+    };
+  },
+});

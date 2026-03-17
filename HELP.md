@@ -19,7 +19,8 @@ baasix-packages/
     ├── sdk/                  # @baasix/sdk
     └── types/                # @baasix/types - Shared TypeScript types
 └── plugins/
-    └── stripe/               # @baasix/plugin-stripe
+    ├── stripe/               # @baasix/plugin-stripe
+    └── lexical/              # @baasix/lexical
 └── samples/
     └── sample/               # Sample project
 ```
@@ -34,6 +35,7 @@ baasix-packages/
 | [sdk](./packages/sdk) | `@baasix/sdk` | JavaScript/TypeScript SDK |
 | [types](./packages/types) | `@baasix/types` | Shared TypeScript type definitions |
 | [stripe](./plugins/stripe) | `@baasix/plugin-stripe` | Stripe payments plugin |
+| [lexical](./plugins/lexical) | `@baasix/lexical` | Lexical rich text editor component |
 
 ---
 
@@ -76,6 +78,7 @@ npm run build
 | `npm run build:sdk` | Build SDK only |
 | `npm run build:types` | Build types package only |
 | `npm run build:plugin-stripe` | Build Stripe plugin only |
+| `npm run build:plugin-lexical` | Build Lexical plugin only |
 | `npm run dev` | Run core server in dev mode |
 | `npm run dev:core` | Run core server in dev mode |
 | `npm run dev:cli` | Run CLI in dev mode |
@@ -98,6 +101,7 @@ npm run build -w @baasix/baasix
 npm run dev -w baasix
 npm test -w @baasix/sdk
 npm run build -w @baasix/plugin-stripe
+npm run build -w @baasix/lexical
 
 # Install a dependency in a specific package
 npm install <package> -w @baasix/baasix
@@ -356,6 +360,9 @@ baasix (cli)
 @baasix/plugin-stripe
     └── @baasix/types (dependency)
     └── @baasix/baasix (peer dependency)
+
+@baasix/lexical
+    └── @baasix/sdk (peer dependency)
 ```
 
 ## Publishing Order
@@ -367,7 +374,8 @@ Packages must be published in dependency order:
 3. `@baasix/baasix` - Depends on types
 4. `baasix` (cli) - Depends on types
 5. `@baasix/sdk` - Depends on types
-6. `@baasix/plugin-stripe` - Last (depends on types, peer dep on core)
+6. `@baasix/plugin-stripe` - Depends on types, peer dep on core
+7. `@baasix/lexical` - Depends on SDK (peer dep)
 
 ---
 
