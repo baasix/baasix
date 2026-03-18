@@ -134,6 +134,9 @@ export default function ActionsPlugin({
           undefined, // node
           shouldPreserveNewLinesInMarkdown,
         );
+        // Reset selection to end of converted content to prevent stale
+        // selection references after the tree replacement
+        root.selectEnd();
       } else {
         const markdown = $convertToMarkdownString(
           PLAYGROUND_TRANSFORMERS,
@@ -143,9 +146,9 @@ export default function ActionsPlugin({
         const codeNode = $createCodeNode('markdown');
         codeNode.append($createTextNode(markdown));
         root.clear().append(codeNode);
-        if (markdown.length === 0) {
-          codeNode.select();
-        }
+        // Always explicitly set selection after clearing the tree to prevent
+        // stale selection references causing IndexSizeError with offset -1
+        codeNode.select();
       }
     });
   }, [editor, shouldPreserveNewLinesInMarkdown]);

@@ -1,5 +1,11 @@
 # @baasix/lexical
 
+## 0.0.3
+
+### Patch Changes
+
+- Fixed mardown download error.
+
 ## 0.0.2
 
 ### Patch Changes
