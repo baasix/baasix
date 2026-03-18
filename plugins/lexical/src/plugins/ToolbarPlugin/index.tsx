@@ -616,7 +616,7 @@ export default function ToolbarPlugin({
   } = useSettings();
 
   const $handleCodeNode = useCallback(
-    (element: LexicalNode) => {
+    (element: LexicalNode): boolean => {
       if ($isCodeNode(element)) {
         const language = element.getLanguage();
         updateToolbarState(
@@ -631,8 +631,9 @@ export default function ToolbarPlugin({
         );
         const theme = element.getTheme();
         updateToolbarState('codeTheme', theme || '');
-        return;
+        return true;
       }
+      return false;
     },
     [updateToolbarState, isCodeHighlighted, isCodeShiki],
   );
@@ -686,7 +687,9 @@ export default function ToolbarPlugin({
           updateToolbarState('blockType', type);
         } else {
           $handleHeadingNode(element);
-          $handleCodeNode(element);
+          if ($handleCodeNode(element)) {
+            return;
+          }
         }
       }
 

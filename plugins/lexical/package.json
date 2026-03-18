@@ -1,6 +1,6 @@
 {
   "name": "@baasix/lexical",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Baasix-specific Lexical rich text editor",
   "type": "module",
   "main": "dist/index.js",
@@ -12,7 +12,8 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./style.css": "./dist/index.css"
+    "./style.css": "./dist/index.css",
+    "./content.css": "./dist/content.css"
   },
   "files": [
     "dist"

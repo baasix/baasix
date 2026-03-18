@@ -23,6 +23,7 @@ import {
   CLEAR_EDITOR_COMMAND,
   COMMAND_PRIORITY_EDITOR,
   HISTORIC_TAG,
+  SELECTION_CHANGE_COMMAND,
 } from 'lexical';
 import {useCallback, useEffect, useState} from 'react';
 
@@ -83,6 +84,8 @@ export default function ActionsPlugin({
   const [isEditable, setIsEditable] = useState(() => editor.isEditable());
   const [isSpeechToText, setIsSpeechToText] = useState(false);
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  const [isConverting, setIsConverting] = useState(false);
+  const [isMarkdown, setIsMarkdown] = useState(false);
   const [modal, showModal] = useModal();
   const {isFullscreen, toggleFullscreen} = useFullscreen();
 
@@ -107,12 +110,20 @@ export default function ActionsPlugin({
         editor.getEditorState().read(() => {
           const root = $getRoot();
           const children = root.getChildren();
+          const firstChild = children[0];
+
+          // Track whether editor is in markdown (source) mode
+          setIsMarkdown(
+            children.length === 1 &&
+            $isCodeNode(firstChild) &&
+            firstChild.getLanguage() === 'markdown',
+          );
 
           if (children.length > 1) {
             setIsEditorEmpty(false);
           } else {
-            if ($isParagraphNode(children[0])) {
-              const paragraphChildren = children[0].getChildren();
+            if ($isParagraphNode(firstChild)) {
+              const paragraphChildren = firstChild.getChildren();
               setIsEditorEmpty(paragraphChildren.length === 0);
             } else {
               setIsEditorEmpty(false);
@@ -124,34 +135,91 @@ export default function ActionsPlugin({
   }, [editor, isEditable]);
 
   const handleMarkdownToggle = useCallback(() => {
-    editor.update(() => {
+    if (isConverting) return;
+
+    // Check if editor is currently in markdown (code block) mode
+    const currentlyMarkdown = editor.getEditorState().read(() => {
       const root = $getRoot();
       const firstChild = root.getFirstChild();
-      if ($isCodeNode(firstChild) && firstChild.getLanguage() === 'markdown') {
-        $convertFromMarkdownString(
-          firstChild.getTextContent(),
-          PLAYGROUND_TRANSFORMERS,
-          undefined, // node
-          shouldPreserveNewLinesInMarkdown,
-        );
-        // Reset selection to end of converted content to prevent stale
-        // selection references after the tree replacement
-        root.selectEnd();
-      } else {
-        const markdown = $convertToMarkdownString(
-          PLAYGROUND_TRANSFORMERS,
-          undefined, //node
-          shouldPreserveNewLinesInMarkdown,
-        );
-        const codeNode = $createCodeNode('markdown');
-        codeNode.append($createTextNode(markdown));
-        root.clear().append(codeNode);
-        // Always explicitly set selection after clearing the tree to prevent
-        // stale selection references causing IndexSizeError with offset -1
-        codeNode.select();
-      }
+      return $isCodeNode(firstChild) && firstChild.getLanguage() === 'markdown';
     });
-  }, [editor, shouldPreserveNewLinesInMarkdown]);
+
+    if (currentlyMarkdown) {
+      // ── Markdown → Rich text ──
+      setIsConverting(true);
+
+      // Double rAF guarantees the browser has painted the spinner
+      // before the synchronous conversion blocks the main thread.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            // Read the markdown text from the code block first
+            const markdownText = editor.getEditorState().read(() => {
+              const root = $getRoot();
+              const firstChild = root.getFirstChild();
+              return $isCodeNode(firstChild) ? firstChild.getTextContent() : '';
+            });
+
+            editor.update(
+              () => {
+                const root = $getRoot();
+                root.clear();
+                $convertFromMarkdownString(
+                  markdownText,
+                  PLAYGROUND_TRANSFORMERS,
+                  undefined, // operate on $getRoot()
+                  shouldPreserveNewLinesInMarkdown,
+                );
+                // Ensure a valid selection exists on the newly-created content
+                $getRoot().selectEnd();
+              },
+              { tag: 'historic' },
+            );
+            // Force the ToolbarPlugin to re-read the new editor state
+            editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+          } finally {
+            setIsConverting(false);
+          }
+        });
+      });
+    } else {
+      // ── Rich text → Markdown ──
+      setIsConverting(true);
+
+      // Double rAF guarantees the browser has painted the spinner
+      // before the synchronous serialization blocks the main thread.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            // Heavy work: serialize the entire editor tree to markdown
+            const markdown = editor.getEditorState().read(() =>
+              $convertToMarkdownString(
+                PLAYGROUND_TRANSFORMERS,
+                undefined,
+                shouldPreserveNewLinesInMarkdown,
+              ),
+            );
+
+            // Lightweight: swap the tree for a single code block
+            editor.update(
+              () => {
+                const root = $getRoot();
+                const codeNode = $createCodeNode('markdown');
+                codeNode.append($createTextNode(markdown));
+                root.clear().append(codeNode);
+                codeNode.select();
+              },
+              { tag: 'historic' },
+            );
+            // Force the ToolbarPlugin to re-read the new editor state
+            editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+          } finally {
+            setIsConverting(false);
+          }
+        });
+      });
+    }
+  }, [editor, shouldPreserveNewLinesInMarkdown, isConverting]);
 
   return (
     <div className="actions">
@@ -204,11 +272,15 @@ export default function ActionsPlugin({
         <i className={!isEditable ? 'unlock' : 'lock'} />
       </button>
       <button type="button"
-        className="action-button"
+        className={`action-button ${isMarkdown ? 'active' : ''}`}
         onClick={handleMarkdownToggle}
-        title="Convert From Markdown"
-        aria-label="Convert from markdown">
-        <i className="markdown" />
+        title={isMarkdown ? 'Convert to Rich Text' : 'Convert to Markdown'}
+        aria-label={isMarkdown ? 'Convert to rich text' : 'Convert to markdown'}>
+        {isConverting ? (
+          <span className="action-button-spinner" />
+        ) : (
+          <i className="markdown" />
+        )}
       </button>
       {modal}
     </div>

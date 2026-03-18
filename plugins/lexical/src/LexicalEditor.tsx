@@ -10,7 +10,7 @@ import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
-import { $getRoot, $insertNodes, EditorState } from "lexical";
+import { $getRoot, $insertNodes, $setSelection, EditorState } from "lexical";
 import type { Baasix } from '@baasix/sdk';
 
 import Editor from "./Editor";
@@ -60,6 +60,9 @@ function HtmlPlugin({
 
     editor.update(
       () => {
+        // Null out the selection before clearing the tree to prevent
+        // stale selection offsets causing IndexSizeError during reconciliation.
+        $setSelection(null);
         const root = $getRoot();
 
         // If value is empty / blank, just clear the editor.
