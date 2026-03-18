@@ -10,7 +10,7 @@ import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
-import { $getRoot, $insertNodes, $setSelection, EditorState } from "lexical";
+import { $createParagraphNode, $getRoot, $insertNodes, $setSelection, COMMAND_PRIORITY_LOW, EditorState, FOCUS_COMMAND } from "lexical";
 import type { LexicalEditor as LexicalEditorType } from "lexical";
 import type { Baasix } from '@baasix/sdk';
 
@@ -50,6 +50,34 @@ function HtmlPlugin({
   const hasUserEdited = useRef(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // When the editor is initialised with $setSelection(null) (to avoid stealing
+  // focus on mount), Lexical has no internal selection. Without an internal
+  // selection, a click into the contentEditable focuses it but Lexical never
+  // reconciles a native DOM selection — so the caret never appears and typing
+  // doesn't work.  We listen to FOCUS_COMMAND and, if there is no selection,
+  // create one pointing to the first child.  This only fires when the user
+  // actually clicks/tabs into the editor, not on mount.
+  useEffect(() => {
+    return editor.registerCommand(
+      FOCUS_COMMAND,
+      () => {
+        // If Lexical has no internal selection (e.g. after $setSelection(null)
+        // on mount), create one now so the caret appears and typing works.
+        if (editor.getEditorState()._selection === null) {
+          editor.update(() => {
+            const root = $getRoot();
+            const firstChild = root.getFirstChild();
+            if (firstChild) {
+              firstChild.selectStart();
+            }
+          }, { discrete: true });
+        }
+        return false; // Don't prevent default handling
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+  }, [editor]);
+
   // Sync value changes from the outside world → Lexical editor state.
   useEffect(() => {
     // Skip if this value is what we last sent via onChange (echo).
@@ -63,16 +91,26 @@ function HtmlPlugin({
 
     editor.update(
       () => {
+        const root = $getRoot();
+
+        // If value is empty / blank, reset to a single empty paragraph.
+        // Using root.clear() alone leaves the contentEditable with zero
+        // DOM children, which prevents the browser from placing a valid
+        // selection and therefore blocks native beforeinput events —
+        // making the editor unresponsive to keyboard input.
+        if (!value || value === "<p></p>" || value === "<p><br></p>") {
+          root.clear();
+          root.append($createParagraphNode());
+          // Leave selection null — Lexical will set it when the user
+          // clicks into the editor. Setting it here would steal DOM
+          // focus from other form fields on mount.
+          $setSelection(null);
+          return;
+        }
+
         // Null out the selection before clearing the tree to prevent
         // stale selection offsets causing IndexSizeError during reconciliation.
         $setSelection(null);
-        const root = $getRoot();
-
-        // If value is empty / blank, just clear the editor.
-        if (!value || value === "<p></p>" || value === "<p><br></p>") {
-          root.clear();
-          return;
-        }
 
         const parser = new DOMParser();
         const dom = parser.parseFromString(value, "text/html");

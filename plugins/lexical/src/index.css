@@ -52,7 +52,7 @@
   max-width: 100%;
   position: relative;
   resize: vertical;
-  z-index: -1;
+  z-index: 0;
 }
 
 .test-recorder-output {

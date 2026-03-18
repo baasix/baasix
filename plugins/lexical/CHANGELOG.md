@@ -1,5 +1,17 @@
 # @baasix/lexical
 
+## 0.0.7
+
+### Patch Changes
+
+- Fixed z-index issues
+
+## 0.0.6
+
+### Patch Changes
+
+- Fixed z index issue in shadCN sheets.
+
 ## 0.0.5
 
 ### Patch Changes
