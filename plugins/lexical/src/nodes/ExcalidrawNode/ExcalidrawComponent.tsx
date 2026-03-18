@@ -23,11 +23,88 @@ import {
 } from 'lexical';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import * as React from 'react';
+import {createPortal} from 'react-dom';
 
 import ExcalidrawModal from '../../ui/ExcalidrawModal';
 import ImageResizer from '../../ui/ImageResizer';
 import {$isExcalidrawNode} from '.';
 import ExcalidrawImage from './ExcalidrawImage';
+
+type Dimension = 'inherit' | number;
+
+function parseDimension(val: string): Dimension {
+  const trimmed = val.trim();
+  if (!trimmed || trimmed === 'inherit' || trimmed === '100%' || trimmed === 'auto') {
+    return 'inherit';
+  }
+  // Strip "px" suffix if present
+  const num = parseInt(trimmed.replace(/px$/i, ''), 10);
+  return isNaN(num) || num <= 0 ? 'inherit' : num;
+}
+
+function dimensionToString(d: Dimension): string {
+  return d === 'inherit' ? '' : String(d);
+}
+
+function ExcalidrawResizeDialog({
+  width,
+  height,
+  onSave,
+  onClose,
+}: {
+  width: Dimension;
+  height: Dimension;
+  onSave: (w: Dimension, h: Dimension) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const [widthVal, setWidthVal] = useState(dimensionToString(width));
+  const [heightVal, setHeightVal] = useState(dimensionToString(height));
+
+  const handleSave = () => {
+    onSave(parseDimension(widthVal), parseDimension(heightVal));
+  };
+
+  return (
+    <div className="excalidraw-resize-overlay">
+      <div className="excalidraw-resize-dialog">
+        <div className="excalidraw-resize-dialog__title">Resize Diagram</div>
+        <div className="excalidraw-resize-dialog__fields">
+          <label className="excalidraw-resize-dialog__label">
+            Width
+            <input
+              className="excalidraw-resize-dialog__input"
+              type="text"
+              value={widthVal}
+              onChange={(e) => setWidthVal(e.target.value)}
+              placeholder="auto (full width)"
+            />
+          </label>
+          <label className="excalidraw-resize-dialog__label">
+            Height
+            <input
+              className="excalidraw-resize-dialog__input"
+              type="text"
+              value={heightVal}
+              onChange={(e) => setHeightVal(e.target.value)}
+              placeholder="auto"
+            />
+          </label>
+        </div>
+        <div className="excalidraw-resize-dialog__hint">
+          Enter a number in pixels (e.g. 400) or leave empty for auto.
+        </div>
+        <div className="excalidraw-resize-dialog__actions">
+          <button type="button" className="excalidraw-resize-dialog__btn excalidraw-resize-dialog__btn--cancel" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="excalidraw-resize-dialog__btn excalidraw-resize-dialog__btn--save" onClick={handleSave}>
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ExcalidrawComponent({
   nodeKey,
@@ -45,6 +122,7 @@ export default function ExcalidrawComponent({
   const [isModalOpen, setModalOpen] = useState<boolean>(
     data === '[]' && editor.isEditable(),
   );
+  const [isResizeDialogOpen, setResizeDialogOpen] = useState(false);
   const imageContainerRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const captionButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -152,6 +230,20 @@ export default function ExcalidrawComponent({
     setModalOpen(true);
   }, []);
 
+  const handleResizeSave = useCallback(
+    (newWidth: Dimension, newHeight: Dimension) => {
+      editor.update(() => {
+        const node = $getNodeByKey(nodeKey);
+        if ($isExcalidrawNode(node)) {
+          node.setWidth(newWidth);
+          node.setHeight(newHeight);
+        }
+      });
+      setResizeDialogOpen(false);
+    },
+    [editor, nodeKey],
+  );
+
   const {
     elements = [],
     files = {},
@@ -190,7 +282,8 @@ export default function ExcalidrawComponent({
       {elements.length > 0 && (
         <button type="button"
           ref={buttonRef}
-          className={`excalidraw-button ${isSelected ? 'selected' : ''}`}>
+          className={`excalidraw-button ${isSelected ? 'selected' : ''}`}
+          style={{width: width === 'inherit' ? '100%' : `${width}px`}}>
           <ExcalidrawImage
             imageContainerRef={imageContainerRef}
             className="image"
@@ -201,13 +294,22 @@ export default function ExcalidrawComponent({
             height={height}
           />
           {isSelected && isEditable && (
-            <div
-              className="image-edit-button"
-              role="button"
-              tabIndex={0}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={openModal}
-            />
+            <>
+              <div
+                className="image-edit-button"
+                role="button"
+                tabIndex={0}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openModal}
+              />
+              <div
+                className="image-resize-button"
+                role="button"
+                tabIndex={0}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setResizeDialogOpen(true)}
+              />
+            </>
           )}
           {(isSelected || isResizing) && isEditable && (
             <ImageResizer
@@ -223,6 +325,16 @@ export default function ExcalidrawComponent({
           )}
         </button>
       )}
+      {isResizeDialogOpen && isEditable &&
+        createPortal(
+          <ExcalidrawResizeDialog
+            width={width}
+            height={height}
+            onSave={handleResizeSave}
+            onClose={() => setResizeDialogOpen(false)}
+          />,
+          document.body,
+        )}
     </>
   );
 }

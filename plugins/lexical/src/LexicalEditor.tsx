@@ -11,6 +11,7 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
 import { $getRoot, $insertNodes, $setSelection, EditorState } from "lexical";
+import type { LexicalEditor as LexicalEditorType } from "lexical";
 import type { Baasix } from '@baasix/sdk';
 
 import Editor from "./Editor";
@@ -39,24 +40,26 @@ function HtmlPlugin({
 }) {
   const [editor] = useLexicalComposerContext();
 
-  // Track whether an update originated from inside the editor so we can skip
-  // the external-value sync that would otherwise create an infinite loop.
-  const isInternalChange = useRef(false);
-  // Keep a ref to the latest external value so the onChange timer closure
-  // always sees the current prop.
-  const lastExternalValue = useRef(value);
+  // The last value we pushed into the editor OR received from onChange.
+  // Used to detect whether an incoming `value` prop is genuinely new content
+  // or just the echo of our own onChange call.
+  // Initialised to a sentinel so the first useEffect run always loads content.
+  const lastSyncedValue = useRef<string | null>(null);
+  // Track whether the user has actually interacted with the editor.
+  // Prevents the mount/parse cycle from firing onChange with regenerated HTML.
+  const hasUserEdited = useRef(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync value changes from the outside world → Lexical state.
-  // Runs on mount and whenever `value` changes externally.
+  // Sync value changes from the outside world → Lexical editor state.
   useEffect(() => {
-    // Skip if the change came from inside the editor (our own onChange fired).
-    if (isInternalChange.current) {
-      isInternalChange.current = false;
+    // Skip if this value is what we last sent via onChange (echo).
+    if (value === lastSyncedValue.current) {
       return;
     }
 
-    lastExternalValue.current = value;
+    lastSyncedValue.current = value;
+    // New external content (e.g. switching items) — reset the dirty flag.
+    hasUserEdited.current = false;
 
     editor.update(
       () => {
@@ -86,7 +89,11 @@ function HtmlPlugin({
 
   // Lexical state changed → generate HTML and call onChange (debounced).
   const handleChange = useCallback(
-    (_editorState: EditorState) => {
+    (_editorState: EditorState, _editor: LexicalEditorType, tags: Set<string>) => {
+      // Our external sync uses the "historic" tag. Don't treat it as a user edit.
+      if (!tags.has('historic')) {
+        hasUserEdited.current = true;
+      }
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
       }
@@ -95,14 +102,19 @@ function HtmlPlugin({
         editor.update(() => {
           const html = $generateHtmlFromNodes(editor);
 
-          // Avoid triggering onChange when the HTML hasn't actually changed
-          // (e.g. after our own external-value sync).
-          if (html === lastExternalValue.current) {
+          // Avoid triggering onChange when the HTML hasn't actually changed.
+          if (html === lastSyncedValue.current) {
             return;
           }
 
-          isInternalChange.current = true;
-          lastExternalValue.current = html;
+          // Don't fire onChange until the user has actually interacted with
+          // the editor. This prevents the mount/parse cycle from overwriting
+          // the form value with regenerated HTML that may differ from the original.
+          if (!hasUserEdited.current) {
+            return;
+          }
+
+          lastSyncedValue.current = html;
           onChange(html);
         });
       }, debounceMs);

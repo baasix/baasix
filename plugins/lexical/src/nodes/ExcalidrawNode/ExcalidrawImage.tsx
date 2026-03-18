@@ -115,6 +115,8 @@ export default function ExcalidrawImage({
   const containerStyle: React.CSSProperties = {};
   if (width !== 'inherit') {
     containerStyle.width = `${width}px`;
+  } else {
+    containerStyle.width = '100%';
   }
   if (height !== 'inherit') {
     containerStyle.height = `${height}px`;

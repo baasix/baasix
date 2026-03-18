@@ -97,12 +97,12 @@ export default function ExcalidrawModal({
   // which blocks scrolling inside its own modal dialogs (Help, etc.).
   // Watch for the modal container and stop wheel propagation so scroll works.
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
+    const onWheel = (e: Event) => {
       e.stopPropagation();
     };
 
     const observer = new MutationObserver(() => {
-      const container = document.querySelector('.excalidraw-modal-container');
+      const container = document.querySelector('.excalidraw-modal-container') as HTMLElement | null;
       if (container && !container.hasAttribute('data-wheel-fixed')) {
         container.setAttribute('data-wheel-fixed', 'true');
         container.addEventListener('wheel', onWheel, {passive: false});
@@ -113,7 +113,7 @@ export default function ExcalidrawModal({
 
     return () => {
       observer.disconnect();
-      const container = document.querySelector('.excalidraw-modal-container');
+      const container = document.querySelector('.excalidraw-modal-container') as HTMLElement | null;
       if (container) {
         container.removeEventListener('wheel', onWheel);
       }

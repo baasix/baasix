@@ -1,5 +1,11 @@
 # @baasix/lexical
 
+## 0.0.5
+
+### Patch Changes
+
+- Excalidraw fixed
+
 ## 0.0.4
 
 ### Patch Changes

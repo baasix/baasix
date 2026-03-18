@@ -1071,6 +1071,123 @@ i.page-break,
   background-color: rgba(60, 132, 244, 0.1);
 }
 
+.editor-shell .editor-image .image-resize-button {
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 5px;
+  background-image: url(./images/icons/arrows-expand.svg);
+  background-size: 16px;
+  background-position: center;
+  background-repeat: no-repeat;
+  width: 35px;
+  height: 35px;
+  vertical-align: -0.25em;
+  position: absolute;
+  right: 44px;
+  top: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.editor-shell .editor-image .image-resize-button:hover {
+  background-color: rgba(60, 132, 244, 0.1);
+}
+
+/* Excalidraw resize dialog */
+.excalidraw-resize-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Radix modal sets body pointer-events:none; override so this portaled overlay is clickable */
+  pointer-events: auto;
+}
+
+.excalidraw-resize-dialog {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px 24px;
+  min-width: 300px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+
+.excalidraw-resize-dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1a1a1a;
+}
+
+.excalidraw-resize-dialog__fields {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.excalidraw-resize-dialog__label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+  flex: 1;
+}
+
+.excalidraw-resize-dialog__input {
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.excalidraw-resize-dialog__input:focus {
+  border-color: rgb(60, 132, 244);
+  box-shadow: 0 0 0 2px rgba(60, 132, 244, 0.15);
+}
+
+.excalidraw-resize-dialog__hint {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 16px;
+}
+
+.excalidraw-resize-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.excalidraw-resize-dialog__btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #333;
+  transition: background-color 0.15s;
+}
+
+.excalidraw-resize-dialog__btn:hover {
+  background: #f5f5f5;
+}
+
+.excalidraw-resize-dialog__btn--save {
+  background: rgb(60, 132, 244);
+  color: #fff;
+  border-color: rgb(60, 132, 244);
+}
+
+.excalidraw-resize-dialog__btn--save:hover {
+  background: rgb(45, 115, 225);
+}
+
 .editor-shell .editor-image .image-resizer {
   display: block;
   width: 7px;
@@ -1670,11 +1787,20 @@ button.toolbar-item.active i {
   background-size: contain;
 }
 
+/* Make the Excalidraw wrapper span expand to full width (unlike images which are inline-block) */
+.editor-shell span.editor-excalidraw {
+  display: block;
+  width: 100%;
+}
+
 .excalidraw-button {
   border: 0;
   padding: 0;
   margin: 0;
   background-color: transparent;
+  display: block;
+  cursor: default;
+  position: relative;
 }
 
 .excalidraw-button.selected {

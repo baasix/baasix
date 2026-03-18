@@ -39,16 +39,25 @@ function $convertExcalidrawElement(
   domNode: HTMLElement,
 ): DOMConversionOutput | null {
   const excalidrawData = domNode.getAttribute('data-lexical-excalidraw-json');
-  const styleAttributes = window.getComputedStyle(domNode);
-  const heightStr = styleAttributes.getPropertyValue('height');
-  const widthStr = styleAttributes.getPropertyValue('width');
-  const height =
-    !heightStr || heightStr === 'inherit' ? 'inherit' : parseInt(heightStr, 10);
+  // Read from inline style (not getComputedStyle) because during
+  // $generateNodesFromDOM the element is detached and computed styles are empty.
+  const widthStr = domNode.style.width;
+  const heightStr = domNode.style.height;
   const width =
-    !widthStr || widthStr === 'inherit' ? 'inherit' : parseInt(widthStr, 10);
+    !widthStr || widthStr === '100%' || widthStr === 'auto' || widthStr === 'inherit'
+      ? 'inherit'
+      : parseInt(widthStr, 10);
+  const height =
+    !heightStr || heightStr === 'auto' || heightStr === 'inherit'
+      ? 'inherit'
+      : parseInt(heightStr, 10);
 
   if (excalidrawData) {
-    const node = $createExcalidrawNode(excalidrawData, width, height);
+    const node = $createExcalidrawNode(
+      excalidrawData,
+      isNaN(width as number) ? 'inherit' : width,
+      isNaN(height as number) ? 'inherit' : height,
+    );
     return {
       node,
     };
@@ -108,9 +117,7 @@ export class ExcalidrawNode extends DecoratorNode<JSX.Element> {
     const span = document.createElement('span');
     const theme = config.theme;
     const className = theme.image;
-    if (className !== undefined) {
-      span.className = className;
-    }
+    span.className = `${className ?? ''} editor-excalidraw`.trim();
     return span;
   }
 
@@ -135,7 +142,7 @@ export class ExcalidrawNode extends DecoratorNode<JSX.Element> {
   exportDOM(editor: LexicalEditor): DOMExportOutput {
     const element = document.createElement('span');
 
-    element.style.display = 'inline-block';
+    element.style.display = 'block';
 
     const content = editor.getElementByKey(this.getKey());
     if (content !== null) {
@@ -146,9 +153,9 @@ export class ExcalidrawNode extends DecoratorNode<JSX.Element> {
     }
 
     element.style.width =
-      this.__width === 'inherit' ? 'inherit' : `${this.__width}px`;
+      this.__width === 'inherit' ? '100%' : `${this.__width}px`;
     element.style.height =
-      this.__height === 'inherit' ? 'inherit' : `${this.__height}px`;
+      this.__height === 'inherit' ? 'auto' : `${this.__height}px`;
 
     element.setAttribute('data-lexical-excalidraw-json', this.__data);
     return {element};
