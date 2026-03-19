@@ -1,5 +1,11 @@
 # @baasix/lexical
 
+## 0.0.10
+
+### Patch Changes
+
+- Lexical: Added text cards and question inputs.
+
 ## 0.0.9
 
 ### Patch Changes

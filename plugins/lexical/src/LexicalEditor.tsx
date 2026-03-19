@@ -26,6 +26,116 @@ import { EditorConfigProvider } from "./context/EditorConfigContext";
 import { FullscreenContext } from './context/FullscreenContext';
 
 // ---------------------------------------------------------------------------
+// HTML pre-processing – preserve styled/complex elements as HtmlBlockNodes
+// ---------------------------------------------------------------------------
+
+/**
+ * Tags that Lexical natively handles. Top-level elements NOT in this set
+ * that carry meaningful inline styles are wrapped as HTML blocks so they
+ * aren't stripped during import.
+ */
+const LEXICAL_NATIVE_TAGS = new Set([
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'CODE',
+  'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
+  'A', 'SPAN', 'STRONG', 'EM', 'B', 'I', 'U', 'S',
+  'SUB', 'SUP', 'BR', 'HR', 'IMG',
+]);
+
+/** Style properties that signal the element carries visual structure Lexical
+ *  can't represent. A div with `display:grid` or explicit `background` is
+ *  almost certainly a styled card/layout. */
+const COMPLEX_STYLE_PATTERNS = [
+  /display\s*:\s*(grid|flex)/i,
+  /grid-template/i,
+  /background\s*:/i,
+  /border\s*:/i,
+  /border-(left|right|top|bottom)\s*:/i,
+  /border-radius\s*:/i,
+];
+
+function hasComplexStyles(el: HTMLElement): boolean {
+  const style = el.getAttribute('style') || '';
+  if (!style) return false;
+  return COMPLEX_STYLE_PATTERNS.some((re) => re.test(style));
+}
+
+const DATA_ATTR = 'data-lexical-html-block';
+
+/**
+ * Recursively walk children of the given parent. For each element:
+ *  - If it's a DIV with complex inline styles (or a non-native tag with
+ *    styles), wrap it as an HTML block to preserve the visual structure.
+ *  - If it's an unstyled DIV that merely wraps other content (like a
+ *    `<div class="prose">` wrapper), recurse into its children instead
+ *    so only the individually-styled children become HTML blocks.
+ *  - Native tags (p, h1-h6, ul, table, etc.) pass through for Lexical
+ *    to handle normally.
+ */
+function preprocessHtmlForImport(doc: Document): void {
+  processChildren(doc.body);
+}
+
+function processChildren(parent: Element): void {
+  const children = Array.from(parent.children) as HTMLElement[];
+
+  for (const child of children) {
+    // Already marked — skip
+    if (child.hasAttribute(DATA_ATTR)) continue;
+
+    const tag = child.tagName;
+
+    if (tag === 'DIV') {
+      if (hasComplexStyles(child)) {
+        // This div itself has visual styling — preserve it entirely
+        wrapAsHtmlBlock(child);
+      } else if (hasStyledDescendants(child)) {
+        // Unstyled wrapper div (e.g. `<div class="prose">`) — unwrap it
+        // by promoting its children to the parent level, then process them
+        unwrapAndProcess(child);
+      }
+      // Plain divs without any styled content pass through to Lexical
+    }
+    // Non-native tags with styles (e.g. <section>, <article>)
+    else if (!LEXICAL_NATIVE_TAGS.has(tag) && hasComplexStyles(child)) {
+      wrapAsHtmlBlock(child);
+    }
+  }
+}
+
+/** Check if an element has any descendant with complex inline styles */
+function hasStyledDescendants(el: HTMLElement): boolean {
+  const descendants = el.querySelectorAll('*');
+  for (let i = 0; i < descendants.length; i++) {
+    if (hasComplexStyles(descendants[i] as HTMLElement)) return true;
+  }
+  return false;
+}
+
+/** Replace an unstyled wrapper div with its children, then process them */
+function unwrapAndProcess(wrapper: HTMLElement): void {
+  const parent = wrapper.parentElement;
+  if (!parent) return;
+  const children = Array.from(wrapper.childNodes);
+  for (const child of children) {
+    parent.insertBefore(child, wrapper);
+  }
+  parent.removeChild(wrapper);
+  // Now process the newly-promoted children
+  processChildren(parent);
+}
+
+/** Wrap an element with the data-lexical-html-block attribute so the
+ *  HtmlBlockNode importDOM handler picks it up. */
+function wrapAsHtmlBlock(el: HTMLElement): void {
+  const wrapper = el.ownerDocument.createElement('div');
+  wrapper.setAttribute(DATA_ATTR, 'true');
+  // Move the original element's outerHTML inside the wrapper
+  wrapper.innerHTML = el.outerHTML;
+  el.replaceWith(wrapper);
+}
+
+// ---------------------------------------------------------------------------
 // HtmlPlugin – bridges external HTML value ↔ Lexical editor state
 // ---------------------------------------------------------------------------
 
@@ -119,6 +229,9 @@ function HtmlPlugin({
 
         const parser = new DOMParser();
         const dom = parser.parseFromString(value, "text/html");
+        // Tag styled/complex elements as HTML blocks before Lexical parses
+        // them, so they're preserved verbatim instead of being flattened.
+        preprocessHtmlForImport(dom);
         const nodes = $generateNodesFromDOM(editor, dom);
 
         root.clear();

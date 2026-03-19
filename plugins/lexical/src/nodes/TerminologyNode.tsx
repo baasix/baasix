@@ -133,11 +133,13 @@ function TerminologyComponent({
                 <input
                   type="text" placeholder="Term" value={item.term}
                   onChange={(e) => updateItem(index, 'term', e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
                   style={{width: '30%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
                 />
                 <input
                   type="text" placeholder="Definition" value={item.definition}
                   onChange={(e) => updateItem(index, 'definition', e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
                   style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
                 />
                 <button type="button" onClick={() => removeItem(index)}

@@ -29,8 +29,10 @@ import {ExcalidrawNode} from './ExcalidrawNode';
 import {FigmaNode} from './FigmaNode';
 import {HtmlBlockNode} from './HtmlBlockNode';
 import {NotesNode} from './NotesNode';
+import {QuestionsCardsNode} from './QuestionsCardsNode';
 import {RevisionNode} from './RevisionNode';
 import {TerminologyNode} from './TerminologyNode';
+import {TextCardsNode} from './TextCardsNode';
 import {ImageNode} from './ImageNode';
 import {KeywordNode} from './KeywordNode';
 import {LayoutContainerNode} from './LayoutContainerNode';
@@ -83,6 +85,8 @@ const PlaygroundNodes: Array<Klass<LexicalNode>> = [
   TerminologyNode,
   NotesNode,
   RevisionNode,
+  TextCardsNode,
+  QuestionsCardsNode,
 ];
 
 export default PlaygroundNodes;

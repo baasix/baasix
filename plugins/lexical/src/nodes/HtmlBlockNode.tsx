@@ -136,6 +136,7 @@ function HtmlBlockComponent({
               ref={textareaRef}
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
                 width: '100%',
                 minHeight: 150,

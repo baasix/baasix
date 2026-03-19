@@ -115,6 +115,7 @@ function NotesComponent({
             <textarea
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
                 width: '100%', minHeight: 150, fontFamily: 'monospace', fontSize: 12,
                 padding: 8, border: '1px solid #ddd', borderRadius: 4, resize: 'vertical',

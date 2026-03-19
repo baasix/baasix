@@ -74,6 +74,8 @@ import StickyPlugin from './plugins/StickyPlugin';
 import TerminologyPlugin from './plugins/TerminologyPlugin';
 import NotesPlugin from './plugins/NotesPlugin';
 import RevisionPlugin from './plugins/RevisionPlugin';
+import TextCardsPlugin from './plugins/TextCardsPlugin';
+import QuestionsCardsPlugin from './plugins/QuestionsCardsPlugin';
 import YouTubePlugin from './plugins/YouTubePlugin';
 import ContentEditable from './ui/ContentEditable';
 
@@ -228,6 +230,8 @@ export default function Editor({ placeholder: placeholderProp, maxLength }: Edit
             <TerminologyPlugin />
             <NotesPlugin />
             <RevisionPlugin />
+            <TextCardsPlugin />
+            <QuestionsCardsPlugin />
             {floatingAnchorElem && (
               <>
                 <FloatingLinkEditorPlugin

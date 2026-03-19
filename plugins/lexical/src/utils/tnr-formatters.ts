@@ -16,6 +16,80 @@ export const CARD_STYLES = {
         headingBorder: "rgba(254, 158, 159, 0.6)",
         headingColor: "#6b5b95",
     },
+    // Text Cards (CRK - Contextual Reasoning Kit)
+    textCards: {
+        conceptTitle: {
+            emoji: '🧬', title: 'Concept',
+            light: 'rgba(76, 175, 80, 0.08)', border: 'rgba(76, 175, 80, 0.5)',
+        },
+        criticalThinking: {
+            emoji: '🧠', number: '1', title: 'Critical Thinking Element',
+            light: 'rgba(33, 150, 243, 0.08)', border: 'rgba(33, 150, 243, 0.5)',
+        },
+        clinicalApplication: {
+            emoji: '⚕️', number: '2', title: 'Clinical Application',
+            light: 'rgba(255, 152, 0, 0.08)', border: 'rgba(255, 152, 0, 0.5)',
+        },
+        example: {
+            emoji: '📋', number: '3', title: 'Example',
+            light: 'rgba(156, 39, 176, 0.08)', border: 'rgba(156, 39, 176, 0.5)',
+        },
+        rationalization: {
+            emoji: '💡', number: '4', title: 'Rationalization',
+            light: 'rgba(0, 150, 136, 0.08)', border: 'rgba(0, 150, 136, 0.5)',
+        },
+        criticalInsight: {
+            emoji: '🎯', number: '5', title: 'Critical Insight',
+            light: 'rgba(233, 30, 99, 0.08)', border: 'rgba(233, 30, 99, 0.5)',
+        },
+    },
+    // Questions Cards (Past Paper)
+    questionsCards: {
+        question: {
+            emoji: '📌', title: 'Question',
+            light: 'rgba(25, 118, 210, 0.08)', border: 'rgba(25, 118, 210, 0.5)',
+        },
+        answer: {
+            emoji: '✍️', title: 'Answer',
+            light: 'rgba(150, 150, 150, 0.05)', border: 'rgba(150, 150, 150, 0.3)',
+        },
+        rubric: {
+            emoji: '📝', number: '1', title: 'MARKING RUBRIC & POINT BREAKDOWN',
+            light: 'rgba(33, 150, 243, 0.08)', border: 'rgba(33, 150, 243, 0.5)',
+        },
+        mnemonics: {
+            emoji: '🧠', number: '2', title: 'MNEMONICS & MEMORY AIDS',
+            light: 'rgba(156, 39, 176, 0.08)', border: 'rgba(156, 39, 176, 0.5)',
+        },
+        examiner: {
+            emoji: '👁️', number: '3', title: "EXAMINER'S PERSPECTIVE",
+            light: 'rgba(255, 152, 0, 0.08)', border: 'rgba(255, 152, 0, 0.5)',
+        },
+        diagram: {
+            emoji: '📊', number: '4', title: 'DIAGRAM / FLOWCHART',
+            light: 'rgba(139, 195, 74, 0.08)', border: 'rgba(139, 195, 74, 0.5)',
+        },
+        revision: {
+            emoji: '⚡', number: '5', title: 'QUICK REVISION BOX',
+            light: 'rgba(205, 220, 57, 0.08)', border: 'rgba(205, 220, 57, 0.5)',
+        },
+        clinical: {
+            emoji: '🏥', number: '6', title: 'CLINICAL CORRELATION',
+            light: 'rgba(0, 150, 136, 0.08)', border: 'rgba(0, 150, 136, 0.5)',
+        },
+        structure: {
+            emoji: '✍️', number: '7', title: 'ANSWER WRITING STRUCTURE',
+            light: 'rgba(255, 235, 59, 0.08)', border: 'rgba(255, 235, 59, 0.5)',
+        },
+        variations: {
+            emoji: '🔄', number: '8', title: 'EXAM VARIATIONS',
+            light: 'rgba(233, 30, 99, 0.08)', border: 'rgba(233, 30, 99, 0.5)',
+        },
+        tips: {
+            emoji: '🎯', number: '9', title: 'HIGH-YIELD EXAM TIP',
+            light: 'rgba(255, 193, 7, 0.08)', border: 'rgba(255, 193, 7, 0.5)',
+        },
+    },
 };
 
 // ===================================================================
@@ -80,8 +154,7 @@ export function convertTerminology(input: string): string {
 
             if (term) {
                 html += `  <div style="background: ${style.light}; padding: 12px; margin-bottom: 10px; border-left: 4px solid ${style.border}; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-family: sans-serif;">
-    <strong style="color: ${style.keyColor}; display: inline-block; margin-right: 5px;">${term}:</strong> ${definition}
-  </div>\n`;
+    <strong style="color: ${style.keyColor}; display: inline-block; margin-right: 5px;">${term}:</strong> ${definition}</div>\n`;
             } else if (definition) {
                 html += `  <div style="background: rgba(0,0,0,0.03); padding: 12px; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif;">${definition}</div>\n`;
             }
@@ -96,8 +169,7 @@ export function convertTerminology(input: string): string {
                     const t = text.substring(0, colonIndex).trim();
                     const def = text.substring(colonIndex + 1).trim();
                     html += `  <div style="background: ${style.light}; padding: 12px; margin-bottom: 10px; border-left: 4px solid ${style.border}; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-family: sans-serif;">
-    <strong style="color: ${style.keyColor}; display: inline-block; margin-right: 5px;">${t}:</strong> ${def}
-  </div>\n`;
+    <strong style="color: ${style.keyColor}; display: inline-block; margin-right: 5px;">${t}:</strong> ${def}</div>\n`;
                 }
             });
         }
@@ -110,8 +182,7 @@ export function convertTerminology(input: string): string {
                 const term = line.substring(0, colonIndex).trim();
                 const def = line.substring(colonIndex + 1).trim();
                 html += `  <div style="background: ${style.light}; padding: 12px; margin-bottom: 10px; border-left: 4px solid ${style.border}; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-family: sans-serif;">
-    <strong style="color: ${style.keyColor}; display: inline-block; margin-right: 5px;">${term}:</strong> ${def}
-  </div>\n`;
+    <strong style="color: ${style.keyColor}; display: inline-block; margin-right: 5px;">${term}:</strong> ${def}</div>\n`;
             } else {
                 html += `  <div style="background: rgba(0,0,0,0.03); padding: 12px; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif;">${line}</div>\n`;
             }
@@ -369,4 +440,320 @@ export function parseRevisionHtml(html: string): string[] {
     });
 
     return items;
+}
+
+// ===================================================================
+// Text Cards (CRK – Contextual Reasoning Kit)
+// ===================================================================
+
+const TEXT_CARD_SECTIONS = [
+    'criticalThinking',
+    'clinicalApplication',
+    'example',
+    'rationalization',
+    'criticalInsight',
+] as const;
+
+const TEXT_CARD_SECTION_PATTERNS: Record<string, RegExp> = {
+    criticalThinking: /Critical Thinking Element/i,
+    clinicalApplication: /Clinical Application/i,
+    example: /Example/i,
+    rationalization: /Rationalization/i,
+    criticalInsight: /Critical Insight/i,
+};
+
+export type TextCardsData = {
+    conceptTitle: string;
+    sections: Record<string, string>;
+};
+
+export function convertTextCards(input: string): string {
+    if (!input.trim()) return '';
+
+    const concepts = parseTextCardsInput(input);
+    const styles = CARD_STYLES.textCards;
+    let html = '';
+
+    concepts.forEach((concept, index) => {
+        if (index > 0) {
+            html += '<div style="margin: 40px 0; border-top: 3px solid #e0e0e0;">&nbsp;</div>\n';
+        }
+
+        // Concept title card
+        if (concept.conceptTitle) {
+            const c = styles.conceptTitle;
+            html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+  <h3 style="margin: 0; color: inherit;">${c.emoji} Concept ${index + 1}: ${concept.conceptTitle}</h3>
+</div>\n`;
+        }
+
+        // Grid of section cards
+        const hasCards = TEXT_CARD_SECTIONS.some((k) => concept.sections[k]);
+        if (hasCards) {
+            html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 20px;">\n`;
+            TEXT_CARD_SECTIONS.forEach((key) => {
+                const content = concept.sections[key];
+                if (!content) return;
+                const c = styles[key];
+                html += `  <div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px; border-radius: 12px; min-height: 120px;">
+    <h3 style="margin-top: 0; color: inherit; font-size: 14px;">${c.emoji} ${c.number}. ${c.title}</h3>
+    <p style="margin: 0; font-size: 13px;">${content}</p>
+  </div>\n`;
+            });
+            html += '</div>\n';
+        }
+    });
+
+    return compactHtml(html);
+}
+
+function parseTextCardsInput(input: string): TextCardsData[] {
+    const lines = input.split('\n').filter((l) => l.trim());
+    const concepts: TextCardsData[] = [];
+    let current: TextCardsData | null = null;
+    let currentSection: string | null = null;
+    let contentBuffer: string[] = [];
+
+    const flushSection = () => {
+        if (current && currentSection && contentBuffer.length > 0) {
+            current.sections[currentSection] = contentBuffer.join(' ').trim();
+        }
+        contentBuffer = [];
+    };
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        // Check for CONCEPT header
+        const conceptMatch = trimmed.match(/^CONCEPT\s+\d+:\s*(.+)/i);
+        if (conceptMatch) {
+            flushSection();
+            current = { conceptTitle: conceptMatch[1].trim(), sections: {} };
+            concepts.push(current);
+            currentSection = null;
+            continue;
+        }
+
+        // Check for section headers
+        let foundSection = false;
+        for (const [key, pattern] of Object.entries(TEXT_CARD_SECTION_PATTERNS)) {
+            if (pattern.test(trimmed)) {
+                flushSection();
+                if (!current) {
+                    current = { conceptTitle: '', sections: {} };
+                    concepts.push(current);
+                }
+                currentSection = key;
+                foundSection = true;
+                break;
+            }
+        }
+        if (foundSection) continue;
+
+        // Content line
+        if (currentSection) {
+            contentBuffer.push(trimmed);
+        } else if (!current && trimmed) {
+            // Treat first non-header text as concept title
+            current = { conceptTitle: trimmed, sections: {} };
+            concepts.push(current);
+        }
+    }
+    flushSection();
+
+    if (concepts.length === 0) {
+        concepts.push({ conceptTitle: '', sections: {} });
+    }
+    return concepts;
+}
+
+export function parseTextCardsHtml(html: string): { conceptTitle: string; sections: Array<{ key: string; content: string }> }[] {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const concepts: { conceptTitle: string; sections: Array<{ key: string; content: string }> }[] = [];
+    let current: { conceptTitle: string; sections: Array<{ key: string; content: string }> } | null = null;
+
+    const styles = CARD_STYLES.textCards;
+    const sectionEntries = TEXT_CARD_SECTIONS.map((k) => ({ key: k, title: styles[k].title }));
+
+    const children = Array.from(doc.body.children);
+    for (const el of children) {
+        const text = (el.textContent || '').trim();
+
+        // Concept title card
+        if (text.match(/Concept\s*\d*:/i) && el.querySelector('h3')) {
+            const h3 = el.querySelector('h3')!;
+            const title = (h3.textContent || '').replace(/^.*Concept\s*\d*:\s*/i, '').trim();
+            current = { conceptTitle: title, sections: [] };
+            concepts.push(current);
+            continue;
+        }
+
+        // Grid container
+        if (el.tagName === 'DIV' && el.children.length > 1) {
+            if (!current) {
+                current = { conceptTitle: '', sections: [] };
+                concepts.push(current);
+            }
+            for (const card of Array.from(el.children)) {
+                const cardH3 = card.querySelector('h3');
+                if (!cardH3) continue;
+                const cardTitle = (cardH3.textContent || '').trim();
+                const match = sectionEntries.find((e) => cardTitle.includes(e.title));
+                const key = match ? match.key : 'criticalThinking';
+                const clone = card.cloneNode(true) as Element;
+                clone.querySelector('h3')?.remove();
+                current.sections.push({ key, content: (clone.textContent || '').trim() });
+            }
+        }
+    }
+
+    return concepts;
+}
+
+// ===================================================================
+// Questions Cards (Past Paper)
+// ===================================================================
+
+const QUESTIONS_CARD_GRID_SECTIONS = [
+    'rubric', 'mnemonics', 'examiner', 'diagram', 'revision',
+    'clinical', 'structure', 'variations', 'tips',
+] as const;
+
+const QUESTIONS_SECTION_PATTERNS: Record<string, RegExp> = {
+    question: /^Q\d+\./i,
+    answer: /^Answer:\s*$/i,
+    rubric: /^(\d+\.\s*)?MARKING\s+RUBRIC/i,
+    mnemonics: /^(\d+\.\s*)?MNEMONIC/i,
+    examiner: /^(\d+\.\s*)?EXAMINER/i,
+    diagram: /^(\d+\.\s*)?(DIAGRAM|FLOWCHART)/i,
+    revision: /^(\d+\.\s*)?QUICK\s+REVISION/i,
+    clinical: /^(\d+\.\s*)?CLINICAL/i,
+    structure: /^(\d+\.\s*)?ANSWER\s+WRITING/i,
+    variations: /^(\d+\.\s*)?EXAM\s+VARIATION/i,
+    tips: /^(\d+\.\s*)?(HIGH-YIELD|EXAM\s+TIP)/i,
+};
+
+export function convertQuestionsCards(input: string): string {
+    if (!input.trim()) return '';
+
+    const sections = parseQuestionsInput(input);
+    const styles = CARD_STYLES.questionsCards;
+    let html = '';
+
+    // Question card (full-width)
+    if (sections.question) {
+        const c = styles.question;
+        html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+  <h3 style="margin: 0; color: inherit;">${c.emoji} Question</h3>
+  <p style="margin-top: 8px; color: inherit;">${sections.question}</p>
+</div>\n`;
+    }
+
+    // Answer card (full-width)
+    if (sections.answer) {
+        const c = styles.answer;
+        html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+  <h3 style="margin-top: 0; color: inherit;">${c.emoji} ${c.title}</h3>
+  <p>${sections.answer}</p>
+</div>\n`;
+    }
+
+    // Grid layout for remaining cards
+    const hasGridCards = QUESTIONS_CARD_GRID_SECTIONS.some((k) => sections[k]);
+    if (hasGridCards) {
+        html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 20px;">\n`;
+        QUESTIONS_CARD_GRID_SECTIONS.forEach((key) => {
+            const content = sections[key];
+            if (!content) return;
+            const c = styles[key];
+            html += `  <div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px; border-radius: 12px; min-height: 120px;">
+    <h3 style="margin-top: 0; color: inherit; font-size: 14px;">${c.emoji} ${c.number}. ${c.title}</h3>
+    <p style="margin: 0; font-size: 13px;">${content}</p>
+  </div>\n`;
+        });
+        html += '</div>\n';
+    }
+
+    return compactHtml(html);
+}
+
+function parseQuestionsInput(input: string): Record<string, string> {
+    const lines = input.split('\n').filter((l) => l.trim());
+    const sections: Record<string, string> = {};
+    let currentSection: string | null = null;
+    let contentBuffer: string[] = [];
+
+    const flush = () => {
+        if (currentSection && contentBuffer.length > 0) {
+            sections[currentSection] = contentBuffer.join(' ').trim();
+        }
+        contentBuffer = [];
+    };
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        let foundSection = false;
+        for (const [key, pattern] of Object.entries(QUESTIONS_SECTION_PATTERNS)) {
+            if (pattern.test(trimmed)) {
+                flush();
+                currentSection = key;
+                foundSection = true;
+                if (key === 'question') {
+                    const qText = trimmed.replace(/^Q\d+\.\s*/, '').trim();
+                    if (qText) contentBuffer.push(qText);
+                }
+                break;
+            }
+        }
+        if (foundSection) continue;
+
+        if (currentSection) {
+            contentBuffer.push(trimmed);
+        }
+    }
+    flush();
+    return sections;
+}
+
+export function parseQuestionsCardsHtml(html: string): { question: string; answer: string; sections: Array<{ key: string; content: string }> } {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const result: { question: string; answer: string; sections: Array<{ key: string; content: string }> } = {
+        question: '', answer: '', sections: [],
+    };
+
+    const styles = CARD_STYLES.questionsCards;
+    const gridEntries = QUESTIONS_CARD_GRID_SECTIONS.map((k) => ({ key: k, title: styles[k].title }));
+
+    const children = Array.from(doc.body.children);
+    for (const el of children) {
+        const h3 = el.querySelector('h3');
+        if (!h3) continue;
+        const h3Text = (h3.textContent || '').trim();
+
+        if (h3Text.includes('Question')) {
+            const clone = el.cloneNode(true) as Element;
+            clone.querySelector('h3')?.remove();
+            result.question = (clone.textContent || '').trim();
+        } else if (h3Text.includes('Answer')) {
+            const clone = el.cloneNode(true) as Element;
+            clone.querySelector('h3')?.remove();
+            result.answer = (clone.textContent || '').trim();
+        } else if (el.children.length > 1) {
+            for (const card of Array.from(el.children)) {
+                const cardH3 = card.querySelector('h3');
+                if (!cardH3) continue;
+                const cardTitle = (cardH3.textContent || '').trim();
+                const match = gridEntries.find((e) => cardTitle.includes(e.title));
+                const key = match ? match.key : 'rubric';
+                const clone = card.cloneNode(true) as Element;
+                clone.querySelector('h3')?.remove();
+                result.sections.push({ key, content: (clone.textContent || '').trim() });
+            }
+        }
+    }
+
+    return result;
 }

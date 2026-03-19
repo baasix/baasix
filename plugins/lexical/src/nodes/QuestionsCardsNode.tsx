@@ -24,48 +24,80 @@ import {useCallback, useMemo, useState} from 'react';
 
 import {
   CARD_STYLES,
-  convertRevision,
-  parseRevisionHtml,
+  convertQuestionsCards,
+  parseQuestionsCardsHtml,
 } from '../utils/tnr-formatters';
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-type RevisionComponentProps = Readonly<{
+type QuestionsCardsComponentProps = Readonly<{
   className: Readonly<{base: string; focus: string}>;
   format: ElementFormatType | null;
   nodeKey: NodeKey;
   html: string;
 }>;
 
-function RevisionComponent({
+const GRID_SECTION_KEYS = [
+  'rubric', 'mnemonics', 'examiner', 'diagram', 'revision',
+  'clinical', 'structure', 'variations', 'tips',
+] as const;
+
+function QuestionsCardsComponent({
   className,
   format,
   nodeKey,
   html,
-}: RevisionComponentProps) {
+}: QuestionsCardsComponentProps) {
   const [editor] = useLexicalComposerContext();
   const isEditable = useLexicalEditable();
   const [isEditing, setIsEditing] = useState(false);
-  const [items, setItems] = useState<string[]>([]);
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [sections, setSections] = useState<Array<{key: string; content: string}>>([]);
 
   const openEditor = useCallback(() => {
-    setItems(parseRevisionHtml(html));
+    const parsed = parseQuestionsCardsHtml(html);
+    setQuestion(parsed.question);
+    setAnswer(parsed.answer);
+    // Ensure all section keys exist
+    const existing = parsed.sections;
+    const all = GRID_SECTION_KEYS.map((k) => {
+      const found = existing.find((s) => s.key === k);
+      return found || {key: k, content: ''};
+    });
+    setSections(all);
     setIsEditing(true);
   }, [html]);
 
   const preview = useMemo(() => {
     if (!isEditing) return '';
-    const filtered = items.filter((i) => i.trim());
-    return filtered.length > 0 ? convertRevision(filtered.join('\n')) : '';
-  }, [isEditing, items]);
+    const styles = CARD_STYLES.questionsCards;
+    const lines: string[] = [];
+    if (question) {
+      lines.push(`Q1. ${question}`);
+    }
+    if (answer) {
+      lines.push('Answer:');
+      lines.push(answer);
+    }
+    sections.forEach((s) => {
+      const sStyle = styles[s.key as keyof typeof styles];
+      if (sStyle && 'title' in sStyle && s.content) {
+        lines.push(sStyle.title);
+        lines.push(s.content);
+      }
+    });
+    const text = lines.join('\n');
+    return text.trim() ? convertQuestionsCards(text) : '';
+  }, [isEditing, question, answer, sections]);
 
   const saveChanges = useCallback(() => {
     if (!preview) return;
     editor.update(() => {
       const node = $getNodeByKey(nodeKey);
-      if ($isRevisionNode(node)) {
+      if ($isQuestionsCardsNode(node)) {
         node.setHtml(preview);
       }
     });
@@ -76,17 +108,13 @@ function RevisionComponent({
     setIsEditing(false);
   }, []);
 
-  const updateItem = useCallback((index: number, value: string) => {
-    setItems((prev) => prev.map((item, i) => (i === index ? value : item)));
+  const updateSection = useCallback((idx: number, value: string) => {
+    setSections((prev) =>
+      prev.map((s, i) => (i === idx ? {...s, content: value} : s)),
+    );
   }, []);
 
-  const addItem = useCallback(() => {
-    setItems((prev) => [...prev, '']);
-  }, []);
-
-  const removeItem = useCallback((index: number) => {
-    setItems((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const styles = CARD_STYLES.questionsCards;
 
   return (
     <BlockWithAlignableContents className={className} format={format} nodeKey={nodeKey}>
@@ -98,21 +126,21 @@ function RevisionComponent({
             onMouseDown={(e) => e.preventDefault()}
             style={{
               position: 'absolute', top: 4, right: 4, zIndex: 10,
-              background: '#c2703a',
+              background: 'rgba(25, 118, 210, 0.8)',
               color: '#fff', border: 'none', borderRadius: 4,
               padding: '2px 8px', fontSize: 12, cursor: 'pointer',
               opacity: 0, transition: 'opacity 0.15s',
             }}
             className="html-block-edit-btn"
           >
-            Edit Revision
+            Edit Questions Card
           </button>
         )}
         {isEditing ? (
           <div style={{border: '1px solid #ccc', borderRadius: 4, padding: 8, background: '#f9f9f9'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
-              <span style={{fontSize: 13, fontWeight: 600, color: '#c2703a'}}>
-                Edit Revision Points
+              <span style={{fontSize: 13, fontWeight: 600, color: 'rgba(25, 118, 210, 0.8)'}}>
+                Edit Questions Card
               </span>
               <div style={{display: 'flex', gap: 4}}>
                 <button type="button" onClick={cancelEdit}
@@ -125,24 +153,45 @@ function RevisionComponent({
                 </button>
               </div>
             </div>
-            {items.map((item, index) => (
-              <div key={index} style={{display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center'}}>
-                <input
-                  type="text" placeholder="Revision point" value={item}
-                  onChange={(e) => updateItem(index, e.target.value)}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
-                />
-                <button type="button" onClick={() => removeItem(index)}
-                  style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
-                  ×
-                </button>
-              </div>
-            ))}
-            <button type="button" onClick={addItem}
-              style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginTop: 4}}>
-              + Add Point
-            </button>
+            {/* Question */}
+            <div style={{marginBottom: 6}}>
+              <label style={{fontSize: 11, color: '#1976d2', fontWeight: 600, display: 'block', marginBottom: 2}}>Question</label>
+              <textarea
+                placeholder="Enter question text..." value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 40, resize: 'vertical'}}
+              />
+            </div>
+            {/* Answer */}
+            <div style={{marginBottom: 6}}>
+              <label style={{fontSize: 11, color: '#666', fontWeight: 600, display: 'block', marginBottom: 2}}>Answer</label>
+              <textarea
+                placeholder="Enter answer text..." value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 60, resize: 'vertical'}}
+              />
+            </div>
+            {/* Grid sections */}
+            <div style={{border: '1px solid #e5e7eb', borderRadius: 6, padding: 8, background: '#fff'}}>
+              <span style={{fontSize: 11, color: '#666', fontWeight: 600, display: 'block', marginBottom: 4}}>Card Sections</span>
+              {sections.map((section, idx) => {
+                const sStyle = styles[section.key as keyof typeof styles];
+                const label = sStyle && 'title' in sStyle ? sStyle.title : section.key;
+                return (
+                  <div key={idx} style={{marginBottom: 4}}>
+                    <label style={{fontSize: 11, color: '#666', display: 'block', marginBottom: 2}}>{label}</label>
+                    <textarea
+                      placeholder={`${label} content...`} value={section.content}
+                      onChange={(e) => updateSection(idx, e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 40, resize: 'vertical'}}
+                    />
+                  </div>
+                );
+              })}
+            </div>
             {preview && (
               <div style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff'}}>
                 <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
@@ -162,26 +211,26 @@ function RevisionComponent({
 // Node
 // ---------------------------------------------------------------------------
 
-export type SerializedRevisionNode = Spread<{html: string}, SerializedDecoratorBlockNode>;
+export type SerializedQuestionsCardsNode = Spread<{html: string}, SerializedDecoratorBlockNode>;
 
-const DATA_ATTR = 'data-lexical-revision';
+const DATA_ATTR = 'data-lexical-questions-cards';
 
-export class RevisionNode extends DecoratorBlockNode {
+export class QuestionsCardsNode extends DecoratorBlockNode {
   __html: string;
 
   static getType(): string {
-    return 'revision-block';
+    return 'questions-cards-block';
   }
 
-  static clone(node: RevisionNode): RevisionNode {
-    return new RevisionNode(node.__html, node.__format, node.__key);
+  static clone(node: QuestionsCardsNode): QuestionsCardsNode {
+    return new QuestionsCardsNode(node.__html, node.__format, node.__key);
   }
 
-  static importJSON(serializedNode: SerializedRevisionNode): RevisionNode {
-    return $createRevisionNode(serializedNode.html).updateFromJSON(serializedNode);
+  static importJSON(serializedNode: SerializedQuestionsCardsNode): QuestionsCardsNode {
+    return $createQuestionsCardsNode(serializedNode.html).updateFromJSON(serializedNode);
   }
 
-  exportJSON(): SerializedRevisionNode {
+  exportJSON(): SerializedQuestionsCardsNode {
     return {...super.exportJSON(), html: this.__html};
   }
 
@@ -189,7 +238,7 @@ export class RevisionNode extends DecoratorBlockNode {
     return {
       div: (domNode: HTMLElement) => {
         if (!domNode.hasAttribute(DATA_ATTR)) return null;
-        return {conversion: convertRevisionElement, priority: 2};
+        return {conversion: convertQuestionsCardsElement, priority: 2};
       },
     };
   }
@@ -229,7 +278,7 @@ export class RevisionNode extends DecoratorBlockNode {
     const embedBlockTheme = config.theme.embedBlock || {};
     const cls = {base: embedBlockTheme.base || '', focus: embedBlockTheme.focus || ''};
     return (
-      <RevisionComponent
+      <QuestionsCardsComponent
         className={cls}
         format={this.__format}
         nodeKey={this.getKey()}
@@ -239,16 +288,16 @@ export class RevisionNode extends DecoratorBlockNode {
   }
 }
 
-function convertRevisionElement(domNode: HTMLElement): DOMConversionOutput | null {
+function convertQuestionsCardsElement(domNode: HTMLElement): DOMConversionOutput | null {
   const html = domNode.innerHTML;
-  if (html) return {node: $createRevisionNode(html)};
+  if (html) return {node: $createQuestionsCardsNode(html)};
   return null;
 }
 
-export function $createRevisionNode(html: string): RevisionNode {
-  return new RevisionNode(html);
+export function $createQuestionsCardsNode(html: string): QuestionsCardsNode {
+  return new QuestionsCardsNode(html);
 }
 
-export function $isRevisionNode(node: LexicalNode | null | undefined): node is RevisionNode {
-  return node instanceof RevisionNode;
+export function $isQuestionsCardsNode(node: LexicalNode | null | undefined): node is QuestionsCardsNode {
+  return node instanceof QuestionsCardsNode;
 }

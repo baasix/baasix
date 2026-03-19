@@ -49,7 +49,10 @@ import {InsertNotesDialog} from '../NotesPlugin';
 import {InsertPollDialog} from '../PollPlugin';
 import {InsertRevisionDialog} from '../RevisionPlugin';
 import {InsertTerminologyDialog} from '../TerminologyPlugin';
+import {InsertTextCardsDialog} from '../TextCardsPlugin';
+import {InsertQuestionsCardsDialog} from '../QuestionsCardsPlugin';
 import {InsertTableDialog} from '../TablePlugin';
+import {$createHtmlBlockNode} from '../../nodes/HtmlBlockNode';
 
 export class ComponentPickerOption extends MenuOption {
   // What shows up in the editor
@@ -342,6 +345,18 @@ export function getBaseOptions(editor: LexicalEditor, showModal: ShowModal) {
           <InsertLayoutDialog activeEditor={editor} onClose={onClose} />
         )),
     }),
+    new ComponentPickerOption('HTML Block', {
+      icon: <i className="icon code" />,
+      keywords: ['html', 'raw', 'embed', 'custom', 'block', 'code'],
+      onSelect: () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const htmlBlockNode = $createHtmlBlockNode('<p>Edit this HTML...</p>');
+            selection.insertNodes([htmlBlockNode]);
+          }
+        }),
+    }),
     new ComponentPickerOption('Terminology', {
       icon: <i className="icon quote" />,
       keywords: ['terminology', 'terms', 'definitions', 'glossary', 'tnr'],
@@ -364,6 +379,22 @@ export function getBaseOptions(editor: LexicalEditor, showModal: ShowModal) {
       onSelect: () =>
         showModal('Insert Revision Points', (onClose) => (
           <InsertRevisionDialog activeEditor={editor} onClose={onClose} />
+        )),
+    }),
+    new ComponentPickerOption('Text Cards', {
+      icon: <i className="icon paragraph" />,
+      keywords: ['text', 'cards', 'concept', 'crk', 'critical', 'thinking', 'tnr'],
+      onSelect: () =>
+        showModal('Insert Text Cards', (onClose) => (
+          <InsertTextCardsDialog activeEditor={editor} onClose={onClose} />
+        )),
+    }),
+    new ComponentPickerOption('Questions Card', {
+      icon: <i className="icon paragraph" />,
+      keywords: ['questions', 'card', 'past', 'paper', 'exam', 'rubric', 'answer', 'tnr'],
+      onSelect: () =>
+        showModal('Insert Questions Card', (onClose) => (
+          <InsertQuestionsCardsDialog activeEditor={editor} onClose={onClose} />
         )),
     }),
     ...(['left', 'center', 'right', 'justify'] as const).map(

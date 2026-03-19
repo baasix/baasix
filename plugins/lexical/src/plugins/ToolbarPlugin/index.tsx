@@ -94,6 +94,9 @@ import {InsertNotesDialog} from '../NotesPlugin';
 import {InsertPollDialog} from '../PollPlugin';
 import {InsertRevisionDialog} from '../RevisionPlugin';
 import {InsertTerminologyDialog} from '../TerminologyPlugin';
+import {InsertTextCardsDialog} from '../TextCardsPlugin';
+import {InsertQuestionsCardsDialog} from '../QuestionsCardsPlugin';
+import {$createHtmlBlockNode} from '../../nodes/HtmlBlockNode';
 import {SHORTCUTS} from '../ShortcutsPlugin/shortcuts';
 import {InsertTableDialog} from '../TablePlugin';
 import FontSize, {parseFontSizeForToolbar} from './fontSize';
@@ -1427,6 +1430,40 @@ export default function ToolbarPlugin({
                   className="item">
                   <i className="icon check-list" />
                   <span className="text">Revision Points</span>
+                </DropDownItem>
+                <DropDownItem
+                  onClick={() => {
+                    showModal('Insert Text Cards', (onClose) => (
+                      <InsertTextCardsDialog activeEditor={activeEditor} onClose={onClose} />
+                    ));
+                  }}
+                  className="item">
+                  <i className="icon paragraph" />
+                  <span className="text">Text Cards</span>
+                </DropDownItem>
+                <DropDownItem
+                  onClick={() => {
+                    showModal('Insert Questions Card', (onClose) => (
+                      <InsertQuestionsCardsDialog activeEditor={activeEditor} onClose={onClose} />
+                    ));
+                  }}
+                  className="item">
+                  <i className="icon paragraph" />
+                  <span className="text">Questions Card</span>
+                </DropDownItem>
+                <DropDownItem
+                  onClick={() => {
+                    activeEditor.update(() => {
+                      const selection = $getSelection();
+                      if ($isRangeSelection(selection)) {
+                        const htmlBlockNode = $createHtmlBlockNode('<p>Edit this HTML...</p>');
+                        selection.insertNodes([htmlBlockNode]);
+                      }
+                    });
+                  }}
+                  className="item">
+                  <i className="icon code" />
+                  <span className="text">HTML Block</span>
                 </DropDownItem>
                 {EmbedConfigs.map((embedConfig) => (
                   <DropDownItem
