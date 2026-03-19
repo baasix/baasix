@@ -1,5 +1,17 @@
 # @baasix/lexical
 
+## 0.0.9
+
+### Patch Changes
+
+- Lexical: Fixed paragraph select
+
+## 0.0.8
+
+### Patch Changes
+
+- Lexical: Fixed table selection issues.
+
 ## 0.0.7
 
 ### Patch Changes

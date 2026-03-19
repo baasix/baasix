@@ -54,25 +54,30 @@ function HtmlPlugin({
   // focus on mount), Lexical has no internal selection. Without an internal
   // selection, a click into the contentEditable focuses it but Lexical never
   // reconciles a native DOM selection — so the caret never appears and typing
-  // doesn't work.  We listen to FOCUS_COMMAND and, if there is no selection,
-  // create one pointing to the first child.  This only fires when the user
-  // actually clicks/tabs into the editor, not on mount.
+  // doesn't work.  We listen to FOCUS_COMMAND and defer the check to a
+  // microtask so the browser's native click-based selection resolves first.
+  // This avoids hijacking clicks on table cells or other nested elements.
   useEffect(() => {
     return editor.registerCommand(
       FOCUS_COMMAND,
       () => {
-        // If Lexical has no internal selection (e.g. after $setSelection(null)
-        // on mount), create one now so the caret appears and typing works.
         if (editor.getEditorState()._selection === null) {
-          editor.update(() => {
-            const root = $getRoot();
-            const firstChild = root.getFirstChild();
-            if (firstChild) {
-              firstChild.selectStart();
+          // Defer to let the browser resolve the native selection from the
+          // click before we intervene. If Lexical still has no selection
+          // after the click chain, fall back to the first child.
+          Promise.resolve().then(() => {
+            if (editor.getEditorState()._selection === null) {
+              editor.update(() => {
+                const root = $getRoot();
+                const firstChild = root.getFirstChild();
+                if (firstChild) {
+                  firstChild.selectStart();
+                }
+              });
             }
-          }, { discrete: true });
+          });
         }
-        return false; // Don't prevent default handling
+        return false;
       },
       COMMAND_PRIORITY_LOW,
     );
