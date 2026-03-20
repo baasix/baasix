@@ -1225,6 +1225,13 @@ export class ItemsService {
     // Build select columns for full query
     const fields = query.fields || ['*'];
     const { directFields } = expandFieldsWithIncludes(fields, this.collection);
+
+    // Ensure primary key is always included in directFields
+    // This is needed for the record ordering map below (r[this.primaryKey])
+    if (!directFields.includes(this.primaryKey) && !directFields.includes('*')) {
+      directFields.unshift(this.primaryKey);
+    }
+
     const { selectColumns } = buildSelectWithJoins(
       this.table,
       directFields,

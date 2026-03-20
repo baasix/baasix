@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.49
+
+### Patch Changes
+
+- Fixed HasMany with reports endpoint
+
 ## 0.1.48
 
 ### Patch Changes
