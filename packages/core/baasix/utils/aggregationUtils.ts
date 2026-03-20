@@ -250,8 +250,8 @@ export function buildAggregateAttributes(
           const alias = field.replace(/\./g, '_');
           attributes.push([fieldRef, alias]);
         } else {
-          // Simple field
-          const fieldRef = sql.raw(`"${field}"`);
+          // Simple field - qualify with table name to avoid ambiguity with joined tables
+          const fieldRef = ctx.tableName ? sql.raw(`"${ctx.tableName}"."${field}"`) : sql.raw(`"${field}"`);
           attributes.push([fieldRef, field]);
         }
       }
@@ -272,7 +272,8 @@ export function buildAggregateAttributes(
 export function buildGroupByExpressions(
   groupBy: string[],
   columns?: Record<string, PgColumn | SQL>,
-  pathToAliasMap?: Map<string, string>
+  pathToAliasMap?: Map<string, string>,
+  tableName?: string
 ): SQL[] {
   return groupBy.map(field => {
     // Check for date extractions
@@ -314,7 +315,10 @@ export function buildGroupByExpressions(
       return sql.raw(quotedPath);
     }
 
-    // Simple field - use sql template
+    // Simple field - qualify with table name to avoid ambiguity with joined tables
+    if (tableName) {
+      return sql.raw(`"${tableName}"."${field}"`);
+    }
     return sql.raw(`"${field}"`);
   });
 }

@@ -738,16 +738,20 @@ const report = await baasix.reports.generate('orders', {
   },
   groupBy: ['category'],
   filter: { status: { eq: 'completed' } },
+  sort: ['-revenue'],       // Sort by aggregate alias descending
+  limit: 10,                // Paginate grouped results
+  page: 1,
   dateRange: {
     start: '2025-01-01',
     end: '2025-12-31',
   },
 });
+// Returns: { data: [...], totalCount: 15 }
 ```
 
 ### Query Report (GET)
 
-Use `query()` to fetch a report with a GET request, sending parameters as query strings:
+Use `query()` to fetch a report with query parameters:
 
 ```typescript
 const report = await baasix.reports.query('orders', {
@@ -756,7 +760,11 @@ const report = await baasix.reports.query('orders', {
   },
   groupBy: ['status'],
   filter: { createdAt: { gte: '$NOW-DAYS_30' } },
+  sort: ['-total'],         // Sort by aggregate result
+  limit: 50,
+  page: 1,
 });
+// Returns: { data: [...], totalCount: 5 }
 ```
 
 ### Multi-Collection Stats
@@ -813,6 +821,9 @@ const results = await baasix.reports.aggregate('orders', {
   },
   groupBy: ['status', 'paymentMethod'],
   filter: { createdAt: { gte: '$NOW-DAYS_30' } },
+  sort: ['-total'],       // Sort by aggregate alias
+  limit: 20,              // Paginate results
+  page: 1,
 });
 ```
 

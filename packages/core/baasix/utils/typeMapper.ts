@@ -30,7 +30,7 @@ export type { FieldSchema };
 /**
  * Map JSON schema type to Drizzle column
  */
-export function mapJsonTypeToDrizzle(fieldName: string, fieldSchema: FieldSchema): any {
+export function mapJsonTypeToDrizzle(fieldName: string, fieldSchema: FieldSchema, collectionName?: string): any {
   let column: any;
 
   switch (fieldSchema.type) {
@@ -268,7 +268,7 @@ export function mapJsonTypeToDrizzle(fieldName: string, fieldSchema: FieldSchema
 
     default:
       // Default to varchar
-      console.warn(`Unknown field type: ${fieldSchema.type}, defaulting to varchar`);
+      console.warn(`Unknown field type: ${fieldSchema.type} for field '${fieldName}'${collectionName ? ` in collection '${collectionName}'` : ''}, defaulting to varchar`);
       column = varchar(fieldName, { length: 255 });
   }
 

@@ -1558,7 +1558,7 @@ export class SchemaManager {
         }
 
         try {
-          const column = mapJsonTypeToDrizzle(fieldName, fieldSchema);
+          const column = mapJsonTypeToDrizzle(fieldName, fieldSchema, collectionName);
           if (column) {
             columns[fieldName] = column;
           }

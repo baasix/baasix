@@ -1,5 +1,11 @@
 # baasix
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated types
+
 ## 0.1.8
 
 ### Patch Changes

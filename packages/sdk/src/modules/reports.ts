@@ -6,6 +6,11 @@ export interface ReportsModuleConfig {
 }
 
 /**
+ * Sort direction type
+ */
+export type SortDirection = 'asc' | 'desc';
+
+/**
  * Stats query for the stats endpoint
  */
 export interface StatsQuery {
@@ -110,6 +115,9 @@ export class ReportsModule {
       groupBy?: string[];
       filter?: Filter;
       fields?: string[];
+      sort?: string[] | Record<string, SortDirection>;
+      limit?: number;
+      page?: number;
     }
   ): Promise<ReportResult> {
     const response = await this.client.get<ReportResult>(
@@ -176,6 +184,9 @@ export class ReportsModule {
       aggregate: Aggregate;
       groupBy?: string[];
       filter?: Filter;
+      sort?: string[] | Record<string, SortDirection>;
+      limit?: number;
+      page?: number;
     }
   ): Promise<Record<string, unknown>[]> {
     const response = await this.client.get<{ data: Record<string, unknown>[] }>(
@@ -185,7 +196,9 @@ export class ReportsModule {
           aggregate: options.aggregate,
           groupBy: options.groupBy,
           filter: options.filter,
-          limit: -1,
+          sort: options.sort,
+          limit: options.limit ?? -1,
+          page: options.page,
         },
       }
     );

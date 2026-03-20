@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.48
+
+### Patch Changes
+
+- Updated types
+
 ## 0.1.47
 
 ### Patch Changes

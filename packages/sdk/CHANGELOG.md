@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.15
+
+### Patch Changes
+
+- Updated types package
+
 ## 0.1.14
 
 ### Patch Changes

@@ -1634,11 +1634,37 @@ export class ItemsService {
     isAdmin: boolean,
     bypassPermissions: boolean
   ): Promise<ReadResult> {
-    const { aggregate, groupBy = [], filter = {}, sort } = query;
+    const { aggregate, groupBy = [], filter = {}, sort, limit: queryLimit, page: queryPage } = query;
 
     if (!aggregate) {
       throw new APIError('Aggregate query requires aggregate parameter', 400);
     }
+
+    // Normalize sort input: convert string[] format (e.g., ["-totalSize", "fileCount"])
+    // to Record<string, direction> format, matching how buildQuery handles it
+    let normalizedSort: Record<string, 'asc' | 'desc'> | null = null;
+    if (sort) {
+      if (Array.isArray(sort)) {
+        normalizedSort = sort.reduce((acc, field) => {
+          if (field.startsWith('-')) {
+            acc[field.substring(1)] = 'desc';
+          } else {
+            acc[field] = 'asc';
+          }
+          return acc;
+        }, {} as Record<string, 'asc' | 'desc'>);
+      } else if (typeof sort === 'string') {
+        normalizedSort = JSON.parse(sort);
+      } else {
+        normalizedSort = sort as Record<string, 'asc' | 'desc'>;
+      }
+    }
+
+    // Calculate pagination
+    const { limit, offset } = applyPagination({
+      limit: queryLimit,
+      page: queryPage,
+    });
 
     // Extract all relation paths from the query
     const relationPaths = new Set<string>();
@@ -1750,7 +1776,7 @@ export class ItemsService {
 
     // Add group by fields with alias mapping for relations
     for (const groupField of groupBy) {
-      const groupExpr = buildGroupByExpressions([groupField], undefined, pathToAliasMap)[0];
+      const groupExpr = buildGroupByExpressions([groupField], undefined, pathToAliasMap, this.collection)[0];
       selectObj[groupField] = groupExpr;
     }
 
@@ -1785,16 +1811,15 @@ export class ItemsService {
 
       // Apply GROUP BY with alias mapping for relations
       if (groupBy.length > 0) {
-        const groupByExprs = buildGroupByExpressions(groupBy, undefined, pathToAliasMap);
+        const groupByExprs = buildGroupByExpressions(groupBy, undefined, pathToAliasMap, this.collection);
         aggregateQuery = aggregateQuery.groupBy(...groupByExprs);
       }
 
       // Apply ORDER BY - for aggregate queries, check if sorting by aggregate alias
-      if (sort) {
-        const sortObj = typeof sort === 'string' ? JSON.parse(sort) : sort;
+      if (normalizedSort) {
         const orderByClause: any[] = [];
 
-        for (const [field, direction] of Object.entries(sortObj)) {
+        for (const [field, direction] of Object.entries(normalizedSort)) {
           // Check if this field is an aggregate alias in selectObj
           if (selectObj[field]) {
             // Use the aggregate expression from selectObj directly
@@ -1814,6 +1839,14 @@ export class ItemsService {
         if (orderByClause.length > 0) {
           aggregateQuery = aggregateQuery.orderBy(...orderByClause);
         }
+      }
+
+      // Apply pagination
+      if (limit !== undefined && limit !== -1) {
+        aggregateQuery = aggregateQuery.limit(limit);
+      }
+      if (offset !== undefined) {
+        aggregateQuery = aggregateQuery.offset(offset);
       }
 
       // Execute query
@@ -1827,16 +1860,15 @@ export class ItemsService {
       }
 
       if (groupBy.length > 0) {
-        const groupByExprs = buildGroupByExpressions(groupBy, undefined, pathToAliasMap);
+        const groupByExprs = buildGroupByExpressions(groupBy, undefined, pathToAliasMap, this.collection);
         aggregateQuery = aggregateQuery.groupBy(...groupByExprs);
       }
 
       // Apply sorting if provided - for aggregate queries, check if sorting by aggregate alias
-      if (sort) {
-        const sortObj = typeof sort === 'string' ? JSON.parse(sort) : sort;
+      if (normalizedSort) {
         const orderByClause: any[] = [];
 
-        for (const [field, direction] of Object.entries(sortObj)) {
+        for (const [field, direction] of Object.entries(normalizedSort)) {
           // Check if this field is an aggregate alias in selectObj
           if (selectObj[field]) {
             // Use the aggregate expression from selectObj directly
@@ -1858,12 +1890,54 @@ export class ItemsService {
         }
       }
 
+      // Apply pagination
+      if (limit !== undefined && limit !== -1) {
+        aggregateQuery = aggregateQuery.limit(limit);
+      }
+      if (offset !== undefined) {
+        aggregateQuery = aggregateQuery.offset(offset);
+      }
+
       // Execute query
       results = await aggregateQuery;
     }
 
-    // For grouped results, count is the number of groups
-    const totalCount = results.length;
+    // For grouped results, totalCount should reflect total groups before pagination
+    let totalCount = results.length;
+
+    // If pagination was applied, run a separate count query to get the true total
+    if (groupBy.length > 0 && limit !== undefined && limit !== -1) {
+      try {
+        const countSelect: Record<string, any> = {};
+        for (const groupField of groupBy) {
+          const groupExpr = buildGroupByExpressions([groupField], undefined, pathToAliasMap, this.collection)[0];
+          countSelect[groupField] = groupExpr;
+        }
+
+        let countQuery = db.select(countSelect).from(this.table).$dynamic();
+
+        // Apply same joins
+        for (const join of allJoins) {
+          const aliasedTable = alias(join.table, join.alias);
+          const joinMethod = join.type === 'inner' ? 'innerJoin' :
+                           join.type === 'right' ? 'rightJoin' : 'leftJoin';
+          countQuery = countQuery[joinMethod](aliasedTable as any, join.condition);
+        }
+
+        if (whereClause) {
+          countQuery = countQuery.where(whereClause);
+        }
+
+        const groupByExprs = buildGroupByExpressions(groupBy, undefined, pathToAliasMap, this.collection);
+        countQuery = countQuery.groupBy(...groupByExprs);
+
+        const countResult = await countQuery;
+        totalCount = countResult.length;
+      } catch (e) {
+        // Fallback to results.length if count query fails
+        console.warn('[ItemsService] Aggregate count query failed, using results.length:', e.message);
+      }
+    }
 
     return {
       data: results,

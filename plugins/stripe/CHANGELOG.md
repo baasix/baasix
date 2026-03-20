@@ -1,5 +1,13 @@
 # @baasix/plugin-stripe
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated types
+- Updated dependencies
+  - @baasix/baasix@0.1.48
+
 ## 0.1.2
 
 ### Patch Changes

@@ -389,9 +389,13 @@ export interface QueryContext {
  */
 export interface ReportConfig {
   collection: string;
+  fields?: string[];
   filter?: Record<string, unknown>;
-  groupBy?: string;
+  groupBy?: string[];
+  sort?: string[] | Record<string, 'asc' | 'desc'>;
   aggregate?: Record<string, unknown>;
+  limit?: number;
+  page?: number;
   dateRange?: {
     start: string;
     end: string;
@@ -404,6 +408,7 @@ export interface ReportConfig {
  */
 export interface ReportResult {
   data: Record<string, unknown>[];
+  totalCount?: number;
   summary?: Record<string, unknown>;
 }
 
