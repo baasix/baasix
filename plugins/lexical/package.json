@@ -1,6 +1,6 @@
 {
   "name": "@baasix/lexical",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Baasix-specific Lexical rich text editor",
   "type": "module",
   "main": "dist/index.js",

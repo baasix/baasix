@@ -1,5 +1,11 @@
 # @baasix/lexical
 
+## 0.0.12
+
+### Patch Changes
+
+- Moved all TNR nodes to modal edits
+
 ## 0.0.11
 
 ### Patch Changes

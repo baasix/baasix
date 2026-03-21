@@ -22,6 +22,7 @@ import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import * as React from 'react';
 import {useCallback, useMemo, useState} from 'react';
 
+import Modal from '../ui/Modal';
 import {
   CARD_STYLES,
   convertTextCards,
@@ -155,7 +156,7 @@ function TextCardsComponent({
   return (
     <BlockWithAlignableContents className={className} format={format} nodeKey={nodeKey}>
       <div style={{position: 'relative'}}>
-        {isEditable && !isEditing && (
+        {isEditable && (
           <button
             type="button"
             onClick={openEditor}
@@ -172,70 +173,58 @@ function TextCardsComponent({
             Edit Text Cards
           </button>
         )}
-        {isEditing ? (
-          <div style={{border: '1px solid #ccc', borderRadius: 4, padding: 8, background: '#f9f9f9'}}>
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
-              <span style={{fontSize: 13, fontWeight: 600, color: 'rgba(76, 175, 80, 0.8)'}}>
-                Edit Text Cards
-              </span>
-              <div style={{display: 'flex', gap: 4}}>
-                <button type="button" onClick={cancelEdit}
-                  style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>
-                  Cancel
-                </button>
-                <button type="button" onClick={saveChanges} disabled={!preview}
-                  style={{padding: '2px 10px', fontSize: 12, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>
-                  Save
-                </button>
+        <div dangerouslySetInnerHTML={{__html: html}} />
+        {isEditing && (
+          <Modal onClose={cancelEdit} title="Edit Text Cards">
+            <div style={{minWidth: 500}}>
+              {concepts.map((concept, cIdx) => (
+                <div key={cIdx} style={{border: '1px solid #e5e7eb', borderRadius: 6, padding: 8, marginBottom: 8, background: '#fff'}}>
+                  <div style={{display: 'flex', gap: 4, marginBottom: 6, alignItems: 'center'}}>
+                    <span style={{fontSize: 12, fontWeight: 600, color: '#4caf50', minWidth: 80}}>Concept {cIdx + 1}:</span>
+                    <input
+                      type="text" placeholder="Concept title" value={concept.conceptTitle}
+                      onChange={(e) => updateConceptTitle(cIdx, e.target.value)}
+                      style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
+                    />
+                    {concepts.length > 1 && (
+                      <button type="button" onClick={() => removeConcept(cIdx)}
+                        style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {concept.sections.map((section, sIdx) => {
+                    const sStyle = styles[section.key as keyof typeof styles];
+                    const label = sStyle && 'title' in sStyle ? sStyle.title : section.key;
+                    return (
+                      <div key={sIdx} style={{marginBottom: 4}}>
+                        <label style={{fontSize: 11, color: '#666', display: 'block', marginBottom: 2}}>{label}</label>
+                        <textarea
+                          placeholder={`${label} content...`} value={section.content}
+                          onChange={(e) => updateSection(cIdx, sIdx, e.target.value)}
+                          style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 40, resize: 'vertical'}}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              <button type="button" onClick={addConcept}
+                style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginTop: 4}}>
+                + Add Concept
+              </button>
+              {preview && (
+                <div style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 200, overflow: 'auto'}}>
+                  <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
+                  <div dangerouslySetInnerHTML={{__html: preview}} />
+                </div>
+              )}
+              <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12}}>
+                <button type="button" onClick={cancelEdit} style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>Cancel</button>
+                <button type="button" onClick={saveChanges} disabled={!preview} style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>Save</button>
               </div>
             </div>
-            {concepts.map((concept, cIdx) => (
-              <div key={cIdx} style={{border: '1px solid #e5e7eb', borderRadius: 6, padding: 8, marginBottom: 8, background: '#fff'}}>
-                <div style={{display: 'flex', gap: 4, marginBottom: 6, alignItems: 'center'}}>
-                  <span style={{fontSize: 12, fontWeight: 600, color: '#4caf50', minWidth: 80}}>Concept {cIdx + 1}:</span>
-                  <input
-                    type="text" placeholder="Concept title" value={concept.conceptTitle}
-                    onChange={(e) => updateConceptTitle(cIdx, e.target.value)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
-                  />
-                  {concepts.length > 1 && (
-                    <button type="button" onClick={() => removeConcept(cIdx)}
-                      style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
-                      ×
-                    </button>
-                  )}
-                </div>
-                {concept.sections.map((section, sIdx) => {
-                  const sStyle = styles[section.key as keyof typeof styles];
-                  const label = sStyle && 'title' in sStyle ? sStyle.title : section.key;
-                  return (
-                    <div key={sIdx} style={{marginBottom: 4}}>
-                      <label style={{fontSize: 11, color: '#666', display: 'block', marginBottom: 2}}>{label}</label>
-                      <textarea
-                        placeholder={`${label} content...`} value={section.content}
-                        onChange={(e) => updateSection(cIdx, sIdx, e.target.value)}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 40, resize: 'vertical'}}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-            <button type="button" onClick={addConcept}
-              style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginTop: 4}}>
-              + Add Concept
-            </button>
-            {preview && (
-              <div style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff'}}>
-                <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
-                <div dangerouslySetInnerHTML={{__html: preview}} />
-              </div>
-            )}
-          </div>
-        ) : (
-          <div dangerouslySetInnerHTML={{__html: html}} />
+          </Modal>
         )}
       </div>
     </BlockWithAlignableContents>

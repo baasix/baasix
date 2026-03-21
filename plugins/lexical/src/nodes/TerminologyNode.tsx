@@ -27,6 +27,7 @@ import {
   convertTerminology,
   parseTerminologyHtml,
 } from '../utils/tnr-formatters';
+import Modal from '../ui/Modal';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -94,7 +95,7 @@ function TerminologyComponent({
   return (
     <BlockWithAlignableContents className={className} format={format} nodeKey={nodeKey}>
       <div style={{position: 'relative'}}>
-        {isEditable && !isEditing && (
+        {isEditable && (
           <button
             type="button"
             onClick={openEditor}
@@ -111,35 +112,21 @@ function TerminologyComponent({
             Edit Terminology
           </button>
         )}
-        {isEditing ? (
-          <div style={{border: '1px solid #ccc', borderRadius: 4, padding: 8, background: '#f9f9f9'}}>
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
-              <span style={{fontSize: 13, fontWeight: 600, color: CARD_STYLES.terminology.keyColor}}>
-                Edit Terminology
-              </span>
-              <div style={{display: 'flex', gap: 4}}>
-                <button type="button" onClick={cancelEdit}
-                  style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>
-                  Cancel
-                </button>
-                <button type="button" onClick={saveChanges} disabled={!preview}
-                  style={{padding: '2px 10px', fontSize: 12, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>
-                  Save
-                </button>
-              </div>
-            </div>
+        <div dangerouslySetInnerHTML={{__html: html}} />
+      </div>
+      {isEditing && (
+        <Modal onClose={cancelEdit} title="Edit Terminology">
+          <div style={{minWidth: 500}}>
             {items.map((item, index) => (
               <div key={index} style={{display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center'}}>
                 <input
                   type="text" placeholder="Term" value={item.term}
                   onChange={(e) => updateItem(index, 'term', e.target.value)}
-                  onMouseDown={(e) => e.stopPropagation()}
                   style={{width: '30%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
                 />
                 <input
                   type="text" placeholder="Definition" value={item.definition}
                   onChange={(e) => updateItem(index, 'definition', e.target.value)}
-                  onMouseDown={(e) => e.stopPropagation()}
                   style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
                 />
                 <button type="button" onClick={() => removeItem(index)}
@@ -149,20 +136,28 @@ function TerminologyComponent({
               </div>
             ))}
             <button type="button" onClick={addItem}
-              style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginTop: 4}}>
+              style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginTop: 4, marginBottom: 8}}>
               + Add Term
             </button>
             {preview && (
-              <div style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff'}}>
+              <div style={{marginBottom: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 200, overflow: 'auto'}}>
                 <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
                 <div dangerouslySetInnerHTML={{__html: preview}} />
               </div>
             )}
+            <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8}}>
+              <button type="button" onClick={cancelEdit}
+                style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>
+                Cancel
+              </button>
+              <button type="button" onClick={saveChanges} disabled={!preview}
+                style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>
+                Save
+              </button>
+            </div>
           </div>
-        ) : (
-          <div dangerouslySetInnerHTML={{__html: html}} />
-        )}
-      </div>
+        </Modal>
+      )}
     </BlockWithAlignableContents>
   );
 }

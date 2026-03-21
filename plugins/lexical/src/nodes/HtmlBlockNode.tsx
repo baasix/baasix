@@ -21,6 +21,7 @@ import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import * as React from 'react';
 import {useCallback, useRef, useState} from 'react';
+import Modal from '../ui/Modal';
 
 type HtmlBlockComponentProps = Readonly<{
   className: Readonly<{
@@ -71,7 +72,7 @@ function HtmlBlockComponent({
       format={format}
       nodeKey={nodeKey}>
       <div style={{position: 'relative'}}>
-        {isEditable && !isEditing && (
+        {isEditable && (
           <button
             type="button"
             onClick={openEditor}
@@ -96,67 +97,42 @@ function HtmlBlockComponent({
             Edit HTML
           </button>
         )}
-        {isEditing ? (
-          <div style={{border: '1px solid #ccc', borderRadius: 4, padding: 8, background: '#f9f9f9'}}>
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6}}>
-              <span style={{fontSize: 12, fontWeight: 600, color: '#333'}}>Edit HTML Source</span>
-              <div style={{display: 'flex', gap: 4}}>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  style={{
-                    padding: '2px 10px',
-                    fontSize: 12,
-                    border: '1px solid #ccc',
-                    borderRadius: 4,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
+        <div dangerouslySetInnerHTML={{__html: html}} />
+        {isEditing && (
+          <Modal onClose={cancelEdit} title="Edit HTML Source">
+            <div style={{minWidth: 500}}>
+              <textarea
+                ref={textareaRef}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: 150,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  padding: 8,
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  resize: 'vertical',
+                  marginBottom: 8,
+                }}
+              />
+              <div style={{padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 200, overflow: 'auto', marginBottom: 8}}>
+                <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
+                <div dangerouslySetInnerHTML={{__html: editValue}} />
+              </div>
+              <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8}}>
+                <button type="button" onClick={cancelEdit}
+                  style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  onClick={saveHtml}
-                  style={{
-                    padding: '2px 10px',
-                    fontSize: 12,
-                    border: 'none',
-                    borderRadius: 4,
-                    background: '#2563eb',
-                    color: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
+                <button type="button" onClick={saveHtml}
+                  style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer'}}>
                   Save
                 </button>
               </div>
             </div>
-            <textarea
-              ref={textareaRef}
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onMouseDown={(e) => e.stopPropagation()}
-              style={{
-                width: '100%',
-                minHeight: 150,
-                fontFamily: 'monospace',
-                fontSize: 12,
-                padding: 8,
-                border: '1px solid #ddd',
-                borderRadius: 4,
-                resize: 'vertical',
-              }}
-            />
-            <div
-              style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff'}}
-            >
-              <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
-              <div dangerouslySetInnerHTML={{__html: editValue}} />
-            </div>
-          </div>
-        ) : (
-          <div dangerouslySetInnerHTML={{__html: html}} />
+          </Modal>
         )}
       </div>
     </BlockWithAlignableContents>
