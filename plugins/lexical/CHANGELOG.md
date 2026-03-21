@@ -1,5 +1,11 @@
 # @baasix/lexical
 
+## 0.0.11
+
+### Patch Changes
+
+- Fixed notes and question nodes
+
 ## 0.0.10
 
 ### Patch Changes

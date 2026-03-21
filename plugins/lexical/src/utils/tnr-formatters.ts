@@ -269,35 +269,79 @@ export function convertNotes(input: string): string {
         const doc = parser.parseFromString(input, "text/html");
         html += Array.from(doc.body.childNodes).map(processNode).join("");
     } else {
-        const paragraphs = input.split(/\n\s*\n/);
         const style = CARD_STYLES.notes;
+        const lines = input.split('\n');
+        let inList: 'ul' | 'ol' | null = null;
 
-        paragraphs.forEach((p) => {
-            p = p.trim();
-            if (!p) return;
-
-            if (p.match(/^[-•*]/) || p.match(/^\d+\./)) {
-                const items = p
-                    .split(/\n/)
-                    .map((l) => l.trim())
-                    .filter((l) => l);
-                const isOrdered = p.match(/^\d+\./);
-                const tag = isOrdered ? "ol" : "ul";
-
-                html += `  <${tag} style="margin-left: 20px; padding-left: 20px; margin-bottom: 15px;">\n`;
-                items.forEach((item) => {
-                    const cleanItem = item.replace(/^([-•*]|\d+\.)\s*/, "");
-                    if (cleanItem) {
-                        html += `    <li style="margin-bottom: 5px;">${cleanItem}</li>\n`;
-                    }
-                });
-                html += `  </${tag}>\n`;
-            } else if (p.length < 100 && !p.endsWith(".")) {
-                html += `  <h3 style="color: ${style.headingColor}; border-bottom: 2px solid ${style.headingBorder}; padding-bottom: 5px; margin-top: 25px; margin-bottom: 15px;">${p}</h3>\n`;
-            } else {
-                html += `  <p style="margin-bottom: 15px;">${p}</p>\n`;
+        const closeList = () => {
+            if (inList) {
+                html += `  </${inList}>\n`;
+                inList = null;
             }
-        });
+        };
+
+        const isBullet = (line: string) => /^[\s]*[-•*]\s/.test(line);
+        const isOrdered = (line: string) => /^[\s]*\d+[.)]\s/.test(line);
+        const isHeading = (line: string) => {
+            const t = line.trim();
+            // Short text, no trailing period, not a bullet
+            if (t.length > 120 || t.length < 2) return false;
+            if (t.endsWith('.') || t.endsWith(',')) return false;
+            if (isBullet(t) || isOrdered(t)) return false;
+            // Ends with colon = sub-heading
+            if (t.endsWith(':')) return true;
+            // Short without punctuation at end
+            if (t.length < 80 && !/[.!?,;]$/.test(t)) return true;
+            return false;
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            // Skip empty lines
+            if (!trimmed) {
+                closeList();
+                continue;
+            }
+
+            // Bullet list item
+            if (isBullet(trimmed)) {
+                if (inList !== 'ul') {
+                    closeList();
+                    inList = 'ul';
+                    html += `  <ul style="margin-left: 20px; padding-left: 20px; margin-bottom: 15px;">\n`;
+                }
+                const cleanItem = trimmed.replace(/^[-•*]\s*/, '');
+                html += `    <li style="margin-bottom: 5px;">${cleanItem}</li>\n`;
+                continue;
+            }
+
+            // Ordered list item
+            if (isOrdered(trimmed)) {
+                if (inList !== 'ol') {
+                    closeList();
+                    inList = 'ol';
+                    html += `  <ol style="margin-left: 20px; padding-left: 20px; margin-bottom: 15px;">\n`;
+                }
+                const cleanItem = trimmed.replace(/^\d+[.)]\s*/, '');
+                html += `    <li style="margin-bottom: 5px;">${cleanItem}</li>\n`;
+                continue;
+            }
+
+            closeList();
+
+            // Heading
+            if (isHeading(trimmed)) {
+                html += `  <h3 style="color: ${style.headingColor}; border-bottom: 2px solid ${style.headingBorder}; padding-bottom: 5px; margin-top: 25px; margin-bottom: 15px;">${trimmed}</h3>\n`;
+                continue;
+            }
+
+            // Regular paragraph
+            html += `  <p style="margin-bottom: 15px;">${trimmed}</p>\n`;
+        }
+
+        closeList();
     }
 
     html += "</div>";
@@ -497,7 +541,7 @@ export function convertTextCards(input: string): string {
                 const c = styles[key];
                 html += `  <div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px; border-radius: 12px; min-height: 120px;">
     <h3 style="margin-top: 0; color: inherit; font-size: 14px;">${c.emoji} ${c.number}. ${c.title}</h3>
-    <p style="margin: 0; font-size: 13px;">${content}</p>
+    <p style="margin: 0; font-size: 13px;">${nl2br(content)}</p>
   </div>\n`;
             });
             html += '</div>\n';
@@ -621,8 +665,8 @@ const QUESTIONS_CARD_GRID_SECTIONS = [
 ] as const;
 
 const QUESTIONS_SECTION_PATTERNS: Record<string, RegExp> = {
-    question: /^Q\d+\./i,
-    answer: /^Answer:\s*$/i,
+    question: /^(\d+\.\s*)?Q(uestion|\d+)\s*[\s.:]/i,
+    answer: /^(Model\s+)?Answer:\s*/i,
     rubric: /^(\d+\.\s*)?MARKING\s+RUBRIC/i,
     mnemonics: /^(\d+\.\s*)?MNEMONIC/i,
     examiner: /^(\d+\.\s*)?EXAMINER/i,
@@ -634,98 +678,250 @@ const QUESTIONS_SECTION_PATTERNS: Record<string, RegExp> = {
     tips: /^(\d+\.\s*)?(HIGH-YIELD|EXAM\s+TIP)/i,
 };
 
+// Format MCQ options: splits "question text a) opt1 b) opt2..." into question + styled option list
+function formatMcqQuestion(text: string): string {
+    // Match options like a) b) c) d) or A) B) etc.
+    const optionMatch = text.match(/\s+[a-eA-E][)]\s/);
+    if (!optionMatch || optionMatch.index === undefined) return text;
+
+    const questionPart = text.substring(0, optionMatch.index).trim();
+    const optionsPart = text.substring(optionMatch.index).trim();
+
+    // Split into individual options
+    const options = optionsPart.split(/(?=\s*[a-eA-E][)]\s)/).map((o) => o.trim()).filter(Boolean);
+    if (options.length < 2) return text;
+
+    let optionsHtml = '<div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">';
+    options.forEach((opt) => {
+        const letter = opt.charAt(0).toUpperCase();
+        const optText = opt.replace(/^[a-eA-E][)]\s*/, '').trim();
+        optionsHtml += `<div style="display: flex; align-items: baseline; gap: 8px;">
+      <span style="background: rgba(0,0,0,0.08); border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 13px; min-width: 24px; text-align: center;">${letter}</span>
+      <span style="font-size: 14px;">${optText}</span>
+    </div>`;
+    });
+    optionsHtml += '</div>';
+
+    return `${questionPart}${optionsHtml}`;
+}
+
+// Format MCQ answer: highlights the correct option letter
+function formatMcqAnswer(text: string): string {
+    // Match pattern like "d) explanation text"
+    const match = text.match(/^([a-eA-E])[)]\s*/);
+    if (!match) return text;
+    const letter = match[1].toUpperCase();
+    const explanation = text.substring(match[0].length).trim();
+    return `<span style="background: rgba(76, 175, 80, 0.15); border: 1px solid rgba(76, 175, 80, 0.4); border-radius: 4px; padding: 2px 8px; font-weight: 700; font-size: 14px; margin-right: 8px;">${letter}</span> ${explanation}`;
+}
+
+// Convert newlines in content to <br> for HTML rendering
+function nl2br(text: string): string {
+    return text.replace(/\n/g, '<br>');
+}
+
 export function convertQuestionsCards(input: string): string {
     if (!input.trim()) return '';
 
-    const sections = parseQuestionsInput(input);
+    const parsed = parseQuestionsInput(input);
     const styles = CARD_STYLES.questionsCards;
     let html = '';
 
-    // Question card (full-width)
-    if (sections.question) {
-        const c = styles.question;
-        html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
-  <h3 style="margin: 0; color: inherit;">${c.emoji} Question</h3>
-  <p style="margin-top: 8px; color: inherit;">${sections.question}</p>
+    // Render each Q&A pair with its own sections
+    parsed.qaPairs.forEach((qa, idx) => {
+        // Question card (full-width)
+        if (qa.question) {
+            const c = styles.question;
+            const qLabel = parsed.qaPairs.length > 1 ? `Question ${idx + 1}` : 'Question';
+            const formattedQ = formatMcqQuestion(nl2br(qa.question));
+            html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+  <h3 style="margin: 0; color: inherit;">${c.emoji} ${qLabel}</h3>
+  <div style="margin-top: 8px; color: inherit;">${formattedQ}</div>
 </div>\n`;
-    }
+        }
 
-    // Answer card (full-width)
-    if (sections.answer) {
-        const c = styles.answer;
-        html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+        // Answer card (full-width)
+        if (qa.answer) {
+            const c = styles.answer;
+            const formattedA = formatMcqAnswer(nl2br(qa.answer));
+            html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
   <h3 style="margin-top: 0; color: inherit;">${c.emoji} ${c.title}</h3>
-  <p>${sections.answer}</p>
+  <p>${formattedA}</p>
 </div>\n`;
-    }
+        }
 
-    // Grid layout for remaining cards
-    const hasGridCards = QUESTIONS_CARD_GRID_SECTIONS.some((k) => sections[k]);
-    if (hasGridCards) {
-        html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 20px;">\n`;
-        QUESTIONS_CARD_GRID_SECTIONS.forEach((key) => {
-            const content = sections[key];
-            if (!content) return;
-            const c = styles[key];
-            html += `  <div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px; border-radius: 12px; min-height: 120px;">
+        // Grid layout for this Q&A's sections
+        const qaSections = qa.sections || {};
+        const hasGridCards = QUESTIONS_CARD_GRID_SECTIONS.some((k) => qaSections[k]);
+        if (hasGridCards) {
+            html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 8px; margin-bottom: 24px;">\n`;
+            QUESTIONS_CARD_GRID_SECTIONS.forEach((key) => {
+                const content = qaSections[key];
+                if (!content) return;
+                const c = styles[key];
+                html += `  <div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px; border-radius: 12px; min-height: 120px;">
     <h3 style="margin-top: 0; color: inherit; font-size: 14px;">${c.emoji} ${c.number}. ${c.title}</h3>
-    <p style="margin: 0; font-size: 13px;">${content}</p>
+    <p style="margin: 0; font-size: 13px;">${nl2br(content)}</p>
   </div>\n`;
-        });
-        html += '</div>\n';
-    }
+            });
+            html += '</div>\n';
+        }
+    });
 
     return compactHtml(html);
 }
 
-function parseQuestionsInput(input: string): Record<string, string> {
+interface ParsedQAPair {
+    question: string;
+    answer: string;
+    sections: Record<string, string>;
+}
+
+interface ParsedQuestions {
+    qaPairs: ParsedQAPair[];
+}
+
+// Inline answer markers that split a single line into question + answer
+const INLINE_ANSWER_PATTERNS = [
+    /\s+Correct\s+Answer:\s*/i,
+    /\s+Model\s+Answer:\s*/i,
+];
+
+// MCQ numbered line: starts with "1." or "1)" but NOT "1. Question:"
+const MCQ_LINE_PATTERN = /^\d+[.)]\s+/;
+
+function parseQuestionsInput(input: string): ParsedQuestions {
     const lines = input.split('\n').filter((l) => l.trim());
-    const sections: Record<string, string> = {};
+    const result: ParsedQuestions = { qaPairs: [] };
     let currentSection: string | null = null;
     let contentBuffer: string[] = [];
+    let currentQA: ParsedQAPair = { question: '', answer: '', sections: {} };
+    let inQASection: 'question' | 'answer' | null = null;
 
-    const flush = () => {
-        if (currentSection && contentBuffer.length > 0) {
-            sections[currentSection] = contentBuffer.join(' ').trim();
+    const flushQA = () => {
+        if (inQASection === 'question') {
+            currentQA.question = contentBuffer.join('\n').trim();
+        } else if (inQASection === 'answer') {
+            currentQA.answer = contentBuffer.join('\n').trim();
         }
         contentBuffer = [];
+    };
+
+    const flushSection = () => {
+        if (currentSection && contentBuffer.length > 0) {
+            // Attach section to the current Q&A pair
+            currentQA.sections[currentSection] = contentBuffer.join('\n').trim();
+        }
+        contentBuffer = [];
+    };
+
+    const pushCurrentQA = () => {
+        if (currentQA.question || currentQA.answer || Object.keys(currentQA.sections).length > 0) {
+            result.qaPairs.push({ ...currentQA, sections: { ...currentQA.sections } });
+            currentQA = { question: '', answer: '', sections: {} };
+        }
+    };
+
+    // Try to split a line at an inline answer marker (Correct Answer: / Model Answer:)
+    const trySplitInline = (line: string): { question: string; answer: string } | null => {
+        for (const pattern of INLINE_ANSWER_PATTERNS) {
+            const match = line.match(pattern);
+            if (match && match.index !== undefined) {
+                return {
+                    question: line.substring(0, match.index).trim(),
+                    answer: line.substring(match.index + match[0].length).trim(),
+                };
+            }
+        }
+        return null;
     };
 
     for (const line of lines) {
         const trimmed = line.trim();
 
+        // Check for question header (e.g., "1. Question:" or "Question:")
+        if (QUESTIONS_SECTION_PATTERNS.question.test(trimmed)) {
+            if (inQASection) flushQA();
+            if (currentSection) { flushSection(); currentSection = null; }
+            pushCurrentQA();
+
+            const qText = trimmed.replace(/^(\d+\.\s*)?Q(uestion|\d+)\s*[\s.:]+/i, '').trim();
+
+            // Check if answer is inline (e.g., "1. Question: text Model Answer: text")
+            const inlineSplit = trySplitInline(qText);
+            if (inlineSplit) {
+                currentQA = { question: inlineSplit.question, answer: inlineSplit.answer, sections: {} };
+                inQASection = null;
+            } else {
+                inQASection = 'question';
+                if (qText) contentBuffer.push(qText);
+            }
+            continue;
+        }
+
+        // Check for standalone answer header (e.g., "Answer: text")
+        if (QUESTIONS_SECTION_PATTERNS.answer.test(trimmed)) {
+            if (inQASection) flushQA();
+            if (currentSection) { flushSection(); currentSection = null; }
+
+            inQASection = 'answer';
+            const aText = trimmed.replace(/^(Model\s+)?Answer:\s*/i, '').trim();
+            if (aText) contentBuffer.push(aText);
+            continue;
+        }
+
+        // Check for MCQ single-line format (e.g., "1. Question text a) opt Correct Answer: d) expl")
+        if (MCQ_LINE_PATTERN.test(trimmed) && !QUESTIONS_SECTION_PATTERNS.question.test(trimmed)) {
+            const inlineSplit = trySplitInline(trimmed);
+            if (inlineSplit) {
+                if (inQASection) flushQA();
+                if (currentSection) { flushSection(); currentSection = null; }
+                pushCurrentQA();
+
+                const qText = inlineSplit.question.replace(/^\d+[.)]\s*/, '').trim();
+                currentQA = { question: qText, answer: inlineSplit.answer, sections: {} };
+                inQASection = null;
+                continue;
+            }
+        }
+
+        // Check for other section headers (numbered like "1. MARKING RUBRIC" or plain)
         let foundSection = false;
         for (const [key, pattern] of Object.entries(QUESTIONS_SECTION_PATTERNS)) {
+            if (key === 'question' || key === 'answer') continue;
             if (pattern.test(trimmed)) {
-                flush();
+                if (inQASection) { flushQA(); inQASection = null; }
+                if (currentSection) flushSection();
                 currentSection = key;
                 foundSection = true;
-                if (key === 'question') {
-                    const qText = trimmed.replace(/^Q\d+\.\s*/, '').trim();
-                    if (qText) contentBuffer.push(qText);
-                }
                 break;
             }
         }
         if (foundSection) continue;
 
-        if (currentSection) {
-            contentBuffer.push(trimmed);
-        }
+        // Content line
+        contentBuffer.push(trimmed);
     }
-    flush();
-    return sections;
+
+    // Final flush
+    if (inQASection) flushQA();
+    if (currentSection) flushSection();
+    pushCurrentQA();
+
+    return result;
 }
 
-export function parseQuestionsCardsHtml(html: string): { question: string; answer: string; sections: Array<{ key: string; content: string }> } {
+export function parseQuestionsCardsHtml(html: string): { qaPairs: Array<{ question: string; answer: string; sections: Array<{ key: string; content: string }> }> } {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
-    const result: { question: string; answer: string; sections: Array<{ key: string; content: string }> } = {
-        question: '', answer: '', sections: [],
+    const result: { qaPairs: Array<{ question: string; answer: string; sections: Array<{ key: string; content: string }> }> } = {
+        qaPairs: [],
     };
 
     const styles = CARD_STYLES.questionsCards;
     const gridEntries = QUESTIONS_CARD_GRID_SECTIONS.map((k) => ({ key: k, title: styles[k].title }));
+
+    let currentQA: { question: string; answer: string; sections: Array<{ key: string; content: string }> } | null = null;
 
     const children = Array.from(doc.body.children);
     for (const el of children) {
@@ -734,14 +930,48 @@ export function parseQuestionsCardsHtml(html: string): { question: string; answe
         const h3Text = (h3.textContent || '').trim();
 
         if (h3Text.includes('Question')) {
+            // New question starts — push previous Q&A if exists
+            if (currentQA) result.qaPairs.push(currentQA);
+            currentQA = { question: '', answer: '', sections: [] };
             const clone = el.cloneNode(true) as Element;
             clone.querySelector('h3')?.remove();
-            result.question = (clone.textContent || '').trim();
+
+            // Check for MCQ options (formatted as div with letter+text spans)
+            const optionsContainer = clone.querySelector('div[style*="flex-direction"]');
+            if (optionsContainer) {
+                const optionDivs = optionsContainer.querySelectorAll('div');
+                const options: string[] = [];
+                optionDivs.forEach((optDiv) => {
+                    const spans = optDiv.querySelectorAll('span');
+                    if (spans.length >= 2) {
+                        const letter = (spans[0].textContent || '').trim().toLowerCase();
+                        const text = (spans[1].textContent || '').trim();
+                        options.push(`${letter}) ${text}`);
+                    }
+                });
+                optionsContainer.remove();
+                const qText = (clone.textContent || '').trim();
+                currentQA.question = qText + (options.length > 0 ? ' ' + options.join(' ') : '');
+            } else {
+                currentQA.question = (clone.textContent || '').trim();
+            }
         } else if (h3Text.includes('Answer')) {
+            if (!currentQA) currentQA = { question: '', answer: '', sections: [] };
             const clone = el.cloneNode(true) as Element;
             clone.querySelector('h3')?.remove();
-            result.answer = (clone.textContent || '').trim();
+
+            const badge = clone.querySelector('span[style*="rgba(76"]');
+            if (badge) {
+                const letter = (badge.textContent || '').trim().toLowerCase();
+                badge.remove();
+                const explanation = (clone.textContent || '').trim();
+                currentQA.answer = `${letter}) ${explanation}`;
+            } else {
+                currentQA.answer = (clone.textContent || '').trim();
+            }
         } else if (el.children.length > 1) {
+            // Grid cards — attach to current Q&A
+            if (!currentQA) currentQA = { question: '', answer: '', sections: [] };
             for (const card of Array.from(el.children)) {
                 const cardH3 = card.querySelector('h3');
                 if (!cardH3) continue;
@@ -750,9 +980,17 @@ export function parseQuestionsCardsHtml(html: string): { question: string; answe
                 const key = match ? match.key : 'rubric';
                 const clone = card.cloneNode(true) as Element;
                 clone.querySelector('h3')?.remove();
-                result.sections.push({ key, content: (clone.textContent || '').trim() });
+                currentQA.sections.push({ key, content: (clone.textContent || '').trim() });
             }
         }
+    }
+
+    // Push last Q&A
+    if (currentQA) result.qaPairs.push(currentQA);
+
+    // Ensure at least one pair
+    if (result.qaPairs.length === 0) {
+        result.qaPairs.push({ question: '', answer: '', sections: [] });
     }
 
     return result;

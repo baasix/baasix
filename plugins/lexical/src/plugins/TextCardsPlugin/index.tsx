@@ -7,6 +7,8 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 
 import {$createTextCardsNode, TextCardsNode} from '../../nodes/TextCardsNode';
 import {convertTextCards} from '../../utils/tnr-formatters';
+import {useEditorConfig} from '../../context/EditorConfigContext';
+import {useRichPaste} from '../../utils/useRichPaste';
 
 export const INSERT_TEXT_CARDS_COMMAND: LexicalCommand<string> = createCommand(
   'INSERT_TEXT_CARDS_COMMAND',
@@ -47,16 +49,30 @@ export function InsertTextCardsDialog({
 }): JSX.Element {
   const [input, setInput] = useState('');
 
-  const preview = useMemo(() => {
+  let editorConfig: {baasixClient: any; folder?: string} | null = null;
+  try {
+    editorConfig = useEditorConfig();
+  } catch {
+    // EditorConfig not available
+  }
+
+  const richPaste = useRichPaste(
+    (text) => setInput((prev) => (prev ? prev + '\n' + text : text)),
+    editorConfig?.baasixClient,
+    editorConfig?.folder,
+  );
+
+  const finalHtml = useMemo(() => {
     if (!input.trim()) return '';
-    return convertTextCards(input);
-  }, [input]);
+    const html = convertTextCards(input);
+    return richPaste.replaceImagePlaceholders(html);
+  }, [input, richPaste]);
 
   const handleInsert = useCallback(() => {
-    if (!preview) return;
-    activeEditor.dispatchCommand(INSERT_TEXT_CARDS_COMMAND, preview);
+    if (!finalHtml) return;
+    activeEditor.dispatchCommand(INSERT_TEXT_CARDS_COMMAND, finalHtml);
     onClose();
-  }, [activeEditor, preview, onClose]);
+  }, [activeEditor, finalHtml, onClose]);
 
   return (
     <div style={{minWidth: 500}}>
@@ -65,15 +81,38 @@ export function InsertTextCardsDialog({
         onChange={(e) => setInput(e.target.value)}
         placeholder={`Paste concept content here...\nExample:\nCONCEPT 1: DIAGNOSTIC REASONING\n\nCritical Thinking Element\nPathologists must synthesize clinical history...\n\nClinical Application\nWhen examining a tissue specimen...\n\nExample\nA 45-year-old presents with hemoptysis...\n\nRationalization\nDifferential diagnosis prevents anchoring bias...\n\nCritical Insight\nPathology bridges clinical suspicion with molecular certainty...`}
         style={{
-          width: '100%', minHeight: 180, fontFamily: 'monospace', fontSize: 13,
+          width: '100%', minHeight: 150, fontFamily: 'monospace', fontSize: 13,
           padding: 8, border: '1px solid #ddd', borderRadius: 4, resize: 'vertical',
           marginBottom: 8,
         }}
       />
-      {preview && (
+      {/* Rich paste area for Word content with images */}
+      <div
+        ref={richPaste.pasteAreaRef}
+        contentEditable
+        onPaste={richPaste.handlePaste}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', minHeight: 40, padding: 8,
+          border: '2px dashed #93c5fd', borderRadius: 4,
+          fontSize: 12, color: '#6b7280', marginBottom: 8,
+          outline: 'none', background: '#f0f7ff',
+        }}
+        suppressContentEditableWarning
+      >
+        <span style={{color: '#9ca3af', pointerEvents: 'none', userSelect: 'none'}}>
+          {richPaste.isUploading ? 'Uploading images...' : 'Paste from Word/Docs here for image support'}
+        </span>
+      </div>
+      {richPaste.images.length > 0 && (
+        <div style={{marginBottom: 8, fontSize: 11, color: '#16a34a'}}>
+          {richPaste.images.length} image{richPaste.images.length > 1 ? 's' : ''} captured
+        </div>
+      )}
+      {finalHtml && (
         <div style={{marginBottom: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fafafa', maxHeight: 250, overflow: 'auto'}}>
           <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
-          <div dangerouslySetInnerHTML={{__html: preview}} />
+          <div dangerouslySetInnerHTML={{__html: finalHtml}} />
         </div>
       )}
       <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8}}>
@@ -81,9 +120,9 @@ export function InsertTextCardsDialog({
           style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>
           Cancel
         </button>
-        <button type="button" onClick={handleInsert} disabled={!preview}
-          style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>
-          Insert
+        <button type="button" onClick={handleInsert} disabled={!finalHtml || richPaste.isUploading}
+          style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: finalHtml && !richPaste.isUploading ? 1 : 0.5}}>
+          {richPaste.isUploading ? 'Uploading...' : 'Insert'}
         </button>
       </div>
     </div>
