@@ -20,12 +20,12 @@ import {
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import * as React from 'react';
-import {useCallback, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 
 import Modal from '../ui/Modal';
 import {
   CARD_STYLES,
-  convertQuestionsCards,
+  buildQuestionsCardsHtml,
   parseQuestionsCardsHtml,
 } from '../utils/tnr-formatters';
 
@@ -40,6 +40,60 @@ type QuestionsCardsComponentProps = Readonly<{
   html: string;
 }>;
 
+const PLACEHOLDER = 'Paste from Word/Docs here for image support...';
+
+/**
+ * Contenteditable field that initialises from HTML via ref (not dangerouslySetInnerHTML)
+ * so React re-renders never clobber user edits. Shows a real CSS placeholder when empty.
+ */
+function HtmlEditableField({
+  initialHtml,
+  onCommit,
+  minHeight = 40,
+}: {
+  initialHtml: string;
+  onCommit: (html: string) => void;
+  minHeight?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Set innerHTML once on mount — never again, to avoid fighting the user's cursor
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.innerHTML = initialHtml;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isEmpty = (el: HTMLDivElement) => {
+    const h = el.innerHTML;
+    return h === '' || h === '<br>';
+  };
+
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      data-placeholder={PLACEHOLDER}
+      onBlur={(e) => {
+        const el = e.currentTarget;
+        if (isEmpty(el)) {
+          el.innerHTML = '';
+          onCommit('');
+        } else {
+          onCommit(el.innerHTML);
+        }
+      }}
+      style={{
+        width: '100%', padding: '4px 6px', fontSize: 12,
+        border: '1px solid #ddd', borderRadius: 4,
+        minHeight, outline: 'none', boxSizing: 'border-box' as const,
+      }}
+    />
+  );
+}
+
 const GRID_SECTION_KEYS = [
   'rubric', 'mnemonics', 'examiner', 'diagram', 'revision',
   'clinical', 'structure', 'variations', 'tips',
@@ -53,18 +107,20 @@ function QuestionsCardsComponent({
 }: QuestionsCardsComponentProps) {
   const [editor] = useLexicalComposerContext();
   const isEditable = useLexicalEditable();
+  // Store HTML directly — contenteditable divs read/write innerHTML so images are always preserved
   type QAEditorPair = {
-    question: string;
-    answer: string;
-    sections: Array<{key: string; content: string}>;
+    questionHtml: string;
+    answerHtml: string;
+    sections: Array<{key: string; contentHtml: string}>;
   };
 
   const [isEditing, setIsEditing] = useState(false);
   const [qaPairs, setQaPairs] = useState<QAEditorPair[]>([]);
 
   const makeEmptyQA = (): QAEditorPair => ({
-    question: '', answer: '',
-    sections: GRID_SECTION_KEYS.map((k) => ({key: k, content: ''})),
+    questionHtml: '',
+    answerHtml: '',
+    sections: GRID_SECTION_KEYS.map((k) => ({key: k, contentHtml: ''})),
   });
 
   const openEditor = useCallback(() => {
@@ -73,9 +129,9 @@ function QuestionsCardsComponent({
       const existing = qa.sections || [];
       const all = GRID_SECTION_KEYS.map((k) => {
         const found = existing.find((s) => s.key === k);
-        return found || {key: k, content: ''};
+        return {key: k, contentHtml: found ? found.content : ''};
       });
-      return {question: qa.question, answer: qa.answer, sections: all};
+      return {questionHtml: qa.question, answerHtml: qa.answer, sections: all};
     });
     setQaPairs(pairs.length > 0 ? pairs : [makeEmptyQA()]);
     setIsEditing(true);
@@ -83,21 +139,13 @@ function QuestionsCardsComponent({
 
   const preview = useMemo(() => {
     if (!isEditing) return '';
-    const cStyles = CARD_STYLES.questionsCards;
-    const lines: string[] = [];
-    qaPairs.forEach((qa, idx) => {
-      if (qa.question) lines.push(`${idx + 1}. Question: ${qa.question}`);
-      if (qa.answer) lines.push(`Answer: ${qa.answer}`);
-      qa.sections.forEach((s) => {
-        const sStyle = cStyles[s.key as keyof typeof cStyles];
-        if (sStyle && 'title' in sStyle && s.content) {
-          lines.push(sStyle.title);
-          lines.push(s.content);
-        }
-      });
-    });
-    const text = lines.join('\n');
-    return text.trim() ? convertQuestionsCards(text) : '';
+    const hasContent = qaPairs.some((qa) => qa.questionHtml || qa.answerHtml || qa.sections.some((s) => s.contentHtml));
+    if (!hasContent) return '';
+    return buildQuestionsCardsHtml(qaPairs.map((qa) => ({
+      question: qa.questionHtml,
+      answer: qa.answerHtml,
+      sections: qa.sections.map((s) => ({key: s.key, content: s.contentHtml})),
+    })));
   }, [isEditing, qaPairs]);
 
   const saveChanges = useCallback(() => {
@@ -115,7 +163,7 @@ function QuestionsCardsComponent({
     setIsEditing(false);
   }, []);
 
-  const updateQA = useCallback((idx: number, field: 'question' | 'answer', value: string) => {
+  const updateQAHtml = useCallback((idx: number, field: 'questionHtml' | 'answerHtml', value: string) => {
     setQaPairs((prev) => prev.map((qa, i) => (i === idx ? {...qa, [field]: value} : qa)));
   }, []);
 
@@ -127,10 +175,10 @@ function QuestionsCardsComponent({
     setQaPairs((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const updateSection = useCallback((qIdx: number, sIdx: number, value: string) => {
+  const updateSectionHtml = useCallback((qIdx: number, sIdx: number, value: string) => {
     setQaPairs((prev) => prev.map((qa, i) => {
       if (i !== qIdx) return qa;
-      return {...qa, sections: qa.sections.map((s, j) => (j === sIdx ? {...s, content: value} : s))};
+      return {...qa, sections: qa.sections.map((s, j) => (j === sIdx ? {...s, contentHtml: value} : s))};
     }));
   }, []);
 
@@ -159,70 +207,77 @@ function QuestionsCardsComponent({
         <div dangerouslySetInnerHTML={{__html: html}} />
         {isEditing && (
           <Modal onClose={cancelEdit} title="Edit Questions Card">
-            <div style={{minWidth: 500}}>
-              {/* Q&A Pairs */}
-              {qaPairs.map((qa, qIdx) => (
-                <div key={qIdx} style={{border: '1px solid #e5e7eb', borderRadius: 6, padding: 8, marginBottom: 8, background: '#fff'}}>
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
-                    <span style={{fontSize: 12, fontWeight: 600, color: '#1976d2'}}>Q{qIdx + 1}</span>
-                    {qaPairs.length > 1 && (
-                      <button type="button" onClick={() => removeQAPair(qIdx)}
-                        style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
-                        ×
-                      </button>
-                    )}
-                  </div>
-                  <div style={{marginBottom: 4}}>
-                    <label style={{fontSize: 11, color: '#1976d2', fontWeight: 600, display: 'block', marginBottom: 2}}>Question</label>
-                    <textarea
-                      placeholder="Enter question text..." value={qa.question}
-                      onChange={(e) => updateQA(qIdx, 'question', e.target.value)}
-                      style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 40, resize: 'vertical'}}
-                    />
-                  </div>
-                  <div style={{marginBottom: 4}}>
-                    <label style={{fontSize: 11, color: '#666', fontWeight: 600, display: 'block', marginBottom: 2}}>Answer</label>
-                    <textarea
-                      placeholder="Enter answer text..." value={qa.answer}
-                      onChange={(e) => updateQA(qIdx, 'answer', e.target.value)}
-                      style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 60, resize: 'vertical'}}
-                    />
-                  </div>
-                  {/* Sections for this Q&A */}
-                  <details style={{marginTop: 4}}>
-                    <summary style={{fontSize: 11, color: '#666', fontWeight: 600, cursor: 'pointer'}}>Card Sections</summary>
-                    <div style={{marginTop: 4}}>
-                      {qa.sections.map((section, sIdx) => {
-                        const sStyle = styles[section.key as keyof typeof styles];
-                        const label = sStyle && 'title' in sStyle ? sStyle.title : section.key;
-                        return (
-                          <div key={sIdx} style={{marginBottom: 4}}>
-                            <label style={{fontSize: 11, color: '#666', display: 'block', marginBottom: 2}}>{label}</label>
-                            <textarea
-                              placeholder={`${label} content...`} value={section.content}
-                              onChange={(e) => updateSection(qIdx, sIdx, e.target.value)}
-                              style={{width: '100%', padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, minHeight: 40, resize: 'vertical'}}
-                            />
-                          </div>
-                        );
-                      })}
+            <div style={{minWidth: 500, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0}}>
+              {/* Scrollable Q&A pairs */}
+              <div style={{flex: 1, overflowY: 'auto', paddingRight: 4, minHeight: 0}}>
+                {qaPairs.map((qa, qIdx) => (
+                  <div key={qIdx} style={{border: '1px solid #e5e7eb', borderRadius: 6, padding: 8, marginBottom: 8, background: '#fff'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
+                      <span style={{fontSize: 12, fontWeight: 600, color: '#1976d2'}}>Q{qIdx + 1}</span>
+                      {qaPairs.length > 1 && (
+                        <button type="button" onClick={() => removeQAPair(qIdx)}
+                          style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
+                          ×
+                        </button>
+                      )}
                     </div>
-                  </details>
+                    <div style={{marginBottom: 4}}>
+                      <label style={{fontSize: 11, color: '#1976d2', fontWeight: 600, display: 'block', marginBottom: 2}}>Question</label>
+                      <HtmlEditableField
+                        key={`q-${qIdx}-question`}
+                        initialHtml={qa.questionHtml}
+                        onCommit={(v) => updateQAHtml(qIdx, 'questionHtml', v)}
+                        minHeight={40}
+                      />
+                    </div>
+                    <div style={{marginBottom: 4}}>
+                      <label style={{fontSize: 11, color: '#666', fontWeight: 600, display: 'block', marginBottom: 2}}>Answer</label>
+                      <HtmlEditableField
+                        key={`q-${qIdx}-answer`}
+                        initialHtml={qa.answerHtml}
+                        onCommit={(v) => updateQAHtml(qIdx, 'answerHtml', v)}
+                        minHeight={60}
+                      />
+                    </div>
+                    <details style={{marginTop: 4}}>
+                      <summary style={{fontSize: 11, color: '#666', fontWeight: 600, cursor: 'pointer'}}>Card Sections</summary>
+                      <div style={{marginTop: 4}}>
+                        {qa.sections.map((section, sIdx) => {
+                          const sStyle = styles[section.key as keyof typeof styles];
+                          const label = sStyle && 'title' in sStyle ? sStyle.title : section.key;
+                          return (
+                            <div key={sIdx} style={{marginBottom: 4}}>
+                              <label style={{fontSize: 11, color: '#666', display: 'block', marginBottom: 2}}>{label}</label>
+                              <HtmlEditableField
+                                key={`q-${qIdx}-s-${sIdx}`}
+                                initialHtml={section.contentHtml}
+                                onCommit={(v) => updateSectionHtml(qIdx, sIdx, v)}
+                                minHeight={40}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  </div>
+                ))}
+              </div>
+              {/* Fixed footer */}
+              <div style={{flexShrink: 0, paddingTop: 8}}>
+                <button type="button" onClick={addQAPair}
+                  style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginBottom: 8}}>
+                  + Add Question
+                </button>
+                {preview && (
+                  <div style={{marginBottom: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 150, overflow: 'auto'}}>
+                    <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
+                    <div dangerouslySetInnerHTML={{__html: preview}} />
+                  </div>
+                )}
+                <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8}}>
+                  <button type="button" onClick={cancelEdit} style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>Cancel</button>
+                  <button type="button" onClick={saveChanges} disabled={!preview} style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>Save</button>
                 </div>
-              ))}
-              <button type="button" onClick={addQAPair}
-                style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginBottom: 8}}>
-                + Add Question
-              </button>
-              {preview && (
-                <div style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 200, overflow: 'auto'}}>
-                  <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
-                  <div dangerouslySetInnerHTML={{__html: preview}} />
-                </div>
-              )}
-              <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12}}>
-                <button type="button" onClick={cancelEdit} style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>Cancel</button>
-                <button type="button" onClick={saveChanges} disabled={!preview} style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>Save</button>
               </div>
             </div>
           </Modal>

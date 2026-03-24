@@ -1904,3 +1904,11 @@ button.item.dropdown-item-active i {
 [data-lexical-decorator]:hover .html-block-edit-btn {
   opacity: 1 !important;
 }
+
+/* Contenteditable placeholder — shown when field is empty */
+[contenteditable][data-placeholder]:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+  user-select: none;
+}

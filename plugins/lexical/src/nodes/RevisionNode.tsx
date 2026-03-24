@@ -112,33 +112,40 @@ function RevisionComponent({
         <div dangerouslySetInnerHTML={{__html: html}} />
         {isEditing && (
           <Modal onClose={cancelEdit} title="Edit Revision Points">
-            <div style={{minWidth: 500}}>
-              {items.map((item, index) => (
-                <div key={index} style={{display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center'}}>
-                  <input
-                    type="text" placeholder="Revision point" value={item}
-                    onChange={(e) => updateItem(index, e.target.value)}
-                    style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
-                  />
-                  <button type="button" onClick={() => removeItem(index)}
-                    style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
-                    ×
-                  </button>
+            <div style={{minWidth: 500, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0}}>
+              {/* Scrollable items */}
+              <div style={{flex: 1, overflowY: 'auto', paddingRight: 4, minHeight: 0}}>
+                {items.map((item, index) => (
+                  <div key={index} style={{display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center'}}>
+                    <span style={{fontSize: 14, flexShrink: 0}}>✅</span>
+                    <input
+                      type="text" placeholder="Revision point" value={item}
+                      onChange={(e) => updateItem(index, e.target.value)}
+                      style={{flex: 1, padding: '4px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4}}
+                    />
+                    <button type="button" onClick={() => removeItem(index)}
+                      style={{padding: '2px 6px', fontSize: 14, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#e11d48'}}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {/* Fixed footer */}
+              <div style={{flexShrink: 0, paddingTop: 8}}>
+                <button type="button" onClick={addItem}
+                  style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginBottom: 8}}>
+                  + Add Point
+                </button>
+                {preview && (
+                  <div style={{marginBottom: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 150, overflow: 'auto'}}>
+                    <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
+                    <div dangerouslySetInnerHTML={{__html: preview}} />
+                  </div>
+                )}
+                <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8}}>
+                  <button type="button" onClick={cancelEdit} style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>Cancel</button>
+                  <button type="button" onClick={saveChanges} disabled={!preview} style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>Save</button>
                 </div>
-              ))}
-              <button type="button" onClick={addItem}
-                style={{padding: '2px 10px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', marginTop: 4}}>
-                + Add Point
-              </button>
-              {preview && (
-                <div style={{marginTop: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', maxHeight: 200, overflow: 'auto'}}>
-                  <span style={{fontSize: 11, color: '#888', display: 'block', marginBottom: 4}}>Preview:</span>
-                  <div dangerouslySetInnerHTML={{__html: preview}} />
-                </div>
-              )}
-              <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12}}>
-                <button type="button" onClick={cancelEdit} style={{padding: '6px 16px', fontSize: 13, border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer'}}>Cancel</button>
-                <button type="button" onClick={saveChanges} disabled={!preview} style={{padding: '6px 16px', fontSize: 13, border: 'none', borderRadius: 4, background: '#2563eb', color: '#fff', cursor: 'pointer', opacity: preview ? 1 : 0.5}}>Save</button>
               </div>
             </div>
           </Modal>

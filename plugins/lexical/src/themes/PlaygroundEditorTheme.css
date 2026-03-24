@@ -623,7 +623,7 @@
 .PlaygroundEditorTheme__hr {
   padding: 2px 2px;
   border: none;
-  margin: 1em 0;
+  margin: 4px 0;
   cursor: pointer;
 }
 .PlaygroundEditorTheme__hr:after {

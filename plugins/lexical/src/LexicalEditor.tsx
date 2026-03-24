@@ -10,7 +10,7 @@ import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
-import { $createParagraphNode, $getRoot, $insertNodes, $setSelection, COMMAND_PRIORITY_LOW, EditorState, FOCUS_COMMAND } from "lexical";
+import { $createParagraphNode, $getRoot, $insertNodes, $isTextNode, $setSelection, COMMAND_PRIORITY_LOW, EditorState, FOCUS_COMMAND, TextNode } from "lexical";
 import type { LexicalEditor as LexicalEditorType } from "lexical";
 import type { Baasix } from '@baasix/sdk';
 
@@ -62,6 +62,17 @@ function hasComplexStyles(el: HTMLElement): boolean {
 
 const DATA_ATTR = 'data-lexical-html-block';
 
+// Attributes used by custom DecoratorBlockNodes — divs carrying these should
+// pass through to Lexical's importDOM handlers untouched, not be pre-processed.
+const LEXICAL_NODE_ATTRS = [
+  'data-lexical-notes',
+  'data-lexical-terminology',
+  'data-lexical-revision',
+  'data-lexical-text-cards',
+  'data-lexical-questions-cards',
+  'data-lexical-html-block',
+];
+
 /**
  * Recursively walk children of the given parent. For each element:
  *  - If it's a DIV with complex inline styles (or a non-native tag with
@@ -82,6 +93,8 @@ function processChildren(parent: Element): void {
   for (const child of children) {
     // Already marked — skip
     if (child.hasAttribute(DATA_ATTR)) continue;
+    // Lexical custom node wrappers — pass through untouched so importDOM handles them
+    if (LEXICAL_NODE_ATTRS.some((attr) => child.hasAttribute(attr))) continue;
 
     const tag = child.tagName;
 
@@ -337,6 +350,58 @@ export default function LexicalEditor({
     theme: PlaygroundEditorTheme,
     onError: (error: Error) => {
       console.error("[LexicalEditor]", error);
+    },
+    html: {
+      // Custom TextNode export: preserve inline style (e.g. color) in the HTML output.
+      // Lexical's default TextNode.exportDOM() does not write __style to the element,
+      // so colored text is lost when saving. This override wraps styled text in a
+      // <span style="..."> so the color survives save/reload cycles.
+      export: new Map<any, (editor: LexicalEditorType, node: any) => { element: HTMLElement | null }> ([
+        [TextNode, (editor: LexicalEditorType, node: TextNode) => {
+          const { element } = node.exportDOM(editor);
+          const style = node.getStyle();
+          if (element && style) {
+            // exportDOM may wrap in <b>/<i> etc — apply node style to outermost element.
+            // Only add properties from __style that aren't already set by exportDOM.
+            const el = element as HTMLElement;
+            style.split(';').forEach((decl) => {
+              const [prop, val] = decl.split(':').map((s) => s.trim());
+              if (prop && val) el.style.setProperty(prop, val);
+            });
+          }
+          return { element: element as HTMLElement };
+        }],
+      ]),
+      // Custom import: read inline color style from span/b/strong/i/u back into TextNode.setStyle().
+      // Lexical's default converters only read bold/italic/underline formats, not color.
+      import: (['span', 'b', 'strong', 'i', 'u', 's'] as const).reduce((acc, tag) => {
+        acc[tag] = (domNode: HTMLElement) => {
+          const style = domNode.style?.cssText;
+          if (!style) return null;
+          return {
+            conversion: (node: HTMLElement) => ({
+              forChild: (lexicalNode: any) => {
+                if ($isTextNode(lexicalNode)) {
+                  // Filter out layout/rendering props that Lexical manages itself
+                  const filtered = node.style.cssText
+                    .split(';')
+                    .map((d) => d.trim())
+                    .filter((d) => d && !/^white-space\s*:/i.test(d))
+                    .join('; ');
+                  if (filtered) {
+                    const existing = lexicalNode.getStyle() || '';
+                    lexicalNode.setStyle(existing ? existing + '; ' + filtered : filtered);
+                  }
+                }
+                return lexicalNode;
+              },
+              node: null,
+            }),
+            priority: 2 as const,
+          };
+        };
+        return acc;
+      }, {} as Record<string, (domNode: HTMLElement) => any>),
     },
   };
 

@@ -48,6 +48,7 @@ export function InsertQuestionsCardsDialog({
   onClose: () => void;
 }): JSX.Element {
   const [input, setInput] = useState('');
+  const [hasPasted, setHasPasted] = useState(false);
 
   let editorConfig: {baasixClient: any; folder?: string} | null = null;
   try {
@@ -57,10 +58,15 @@ export function InsertQuestionsCardsDialog({
   }
 
   const richPaste = useRichPaste(
-    (text) => setInput((prev) => (prev ? prev + '\n' + text : text)),
+    (text) => { setInput((prev) => (prev ? prev + '\n' + text : text)); setHasPasted(true); },
     editorConfig?.baasixClient,
     editorConfig?.folder,
   );
+
+  const handleClear = useCallback(() => {
+    setInput('');
+    setHasPasted(false);
+  }, []);
 
   const finalHtml = useMemo(() => {
     if (!input.trim()) return '';
@@ -76,38 +82,43 @@ export function InsertQuestionsCardsDialog({
 
   return (
     <div style={{minWidth: 500}}>
-      <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder={`Paste question content here...\nExample:\nQ1 : Describe the pathogenesis of tuberculosis.\n\nAnswer: Tuberculosis is caused by Mycobacterium tuberculosis...\n\n1. MARKING RUBRIC\nDefinition: 2 marks, Pathogenesis: 5 marks...\n\n2. MNEMONICS\nRemember TB pathogenesis with "IGRA"...`}
-        style={{
-          width: '100%', minHeight: 150, fontFamily: 'monospace', fontSize: 13,
-          padding: 8, border: '1px solid #ddd', borderRadius: 4, resize: 'vertical',
-          marginBottom: 8,
-        }}
-      />
-      {/* Rich paste area for Word content with images */}
-      <div
-        ref={richPaste.pasteAreaRef}
-        contentEditable
-        onPaste={richPaste.handlePaste}
-        onMouseDown={(e) => e.stopPropagation()}
-        style={{
-          width: '100%', minHeight: 40, padding: 8,
-          border: '2px dashed #93c5fd', borderRadius: 4,
-          fontSize: 12, color: '#6b7280', marginBottom: 8,
-          outline: 'none', background: '#f0f7ff',
-        }}
-        suppressContentEditableWarning
-      >
-        <span style={{color: '#9ca3af', pointerEvents: 'none', userSelect: 'none'}}>
-          {richPaste.isUploading ? 'Uploading images...' : 'Paste from Word/Docs here for image support'}
-        </span>
-      </div>
-      {richPaste.images.length > 0 && (
-        <div style={{marginBottom: 8, fontSize: 11, color: '#16a34a'}}>
-          {richPaste.images.length} image{richPaste.images.length > 1 ? 's' : ''} captured
-        </div>
+      {/* Paste area — shown before paste */}
+      {!hasPasted && (
+        <div
+          ref={richPaste.pasteAreaRef}
+          contentEditable
+          onPaste={richPaste.handlePaste}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            width: '100%', minHeight: 160, padding: 12,
+            border: '2px dashed #93c5fd', borderRadius: 4,
+            fontSize: 13, color: '#6b7280', marginBottom: 8,
+            outline: 'none', background: '#f0f7ff',
+          }}
+          data-placeholder={richPaste.isUploading ? 'Uploading images...' : 'Paste from Word/Docs here for image support'}
+          suppressContentEditableWarning
+        />
+      )}
+      {/* Textarea — shown after paste */}
+      {hasPasted && (
+        <>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
+            <span style={{fontSize: 11, color: '#6b7280'}}>Edit content</span>
+            <button type="button" onClick={handleClear}
+              style={{padding: '2px 10px', fontSize: 12, border: '1px solid #fca5a5', borderRadius: 4, background: '#fff', color: '#ef4444', cursor: 'pointer'}}>
+              Clear
+            </button>
+          </div>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            style={{
+              width: '100%', minHeight: 150, fontFamily: 'monospace', fontSize: 13,
+              padding: 8, border: '1px solid #ddd', borderRadius: 4, resize: 'vertical',
+              marginBottom: 8,
+            }}
+          />
+        </>
       )}
       {finalHtml && (
         <div style={{marginBottom: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, background: '#fafafa', maxHeight: 250, overflow: 'auto'}}>

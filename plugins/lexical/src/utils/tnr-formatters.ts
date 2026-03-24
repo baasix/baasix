@@ -935,40 +935,16 @@ export function parseQuestionsCardsHtml(html: string): { qaPairs: Array<{ questi
             currentQA = { question: '', answer: '', sections: [] };
             const clone = el.cloneNode(true) as Element;
             clone.querySelector('h3')?.remove();
-
-            // Check for MCQ options (formatted as div with letter+text spans)
-            const optionsContainer = clone.querySelector('div[style*="flex-direction"]');
-            if (optionsContainer) {
-                const optionDivs = optionsContainer.querySelectorAll('div');
-                const options: string[] = [];
-                optionDivs.forEach((optDiv) => {
-                    const spans = optDiv.querySelectorAll('span');
-                    if (spans.length >= 2) {
-                        const letter = (spans[0].textContent || '').trim().toLowerCase();
-                        const text = (spans[1].textContent || '').trim();
-                        options.push(`${letter}) ${text}`);
-                    }
-                });
-                optionsContainer.remove();
-                const qText = (clone.textContent || '').trim();
-                currentQA.question = qText + (options.length > 0 ? ' ' + options.join(' ') : '');
-            } else {
-                currentQA.question = (clone.textContent || '').trim();
-            }
+            // Also remove the wrapper div inserted by convertQuestionsCards for the question text
+            const contentDiv = clone.querySelector('div[style*="margin-top"]');
+            // Use innerHTML to preserve images and HTML markup
+            currentQA.question = (contentDiv ? contentDiv.innerHTML : clone.innerHTML).trim();
         } else if (h3Text.includes('Answer')) {
             if (!currentQA) currentQA = { question: '', answer: '', sections: [] };
             const clone = el.cloneNode(true) as Element;
             clone.querySelector('h3')?.remove();
-
-            const badge = clone.querySelector('span[style*="rgba(76"]');
-            if (badge) {
-                const letter = (badge.textContent || '').trim().toLowerCase();
-                badge.remove();
-                const explanation = (clone.textContent || '').trim();
-                currentQA.answer = `${letter}) ${explanation}`;
-            } else {
-                currentQA.answer = (clone.textContent || '').trim();
-            }
+            const p = clone.querySelector('p');
+            currentQA.answer = (p ? p.innerHTML : clone.innerHTML).trim();
         } else if (el.children.length > 1) {
             // Grid cards — attach to current Q&A
             if (!currentQA) currentQA = { question: '', answer: '', sections: [] };
@@ -980,7 +956,8 @@ export function parseQuestionsCardsHtml(html: string): { qaPairs: Array<{ questi
                 const key = match ? match.key : 'rubric';
                 const clone = card.cloneNode(true) as Element;
                 clone.querySelector('h3')?.remove();
-                currentQA.sections.push({ key, content: (clone.textContent || '').trim() });
+                const p = clone.querySelector('p');
+                currentQA.sections.push({ key, content: (p ? p.innerHTML : clone.innerHTML).trim() });
             }
         }
     }
@@ -994,4 +971,52 @@ export function parseQuestionsCardsHtml(html: string): { qaPairs: Array<{ questi
     }
 
     return result;
+}
+
+/**
+ * Build questions-cards HTML directly from already-parsed HTML content.
+ * Unlike convertQuestionsCards (which takes plain text), this preserves
+ * HTML markup including images in question/answer/section content.
+ */
+export function buildQuestionsCardsHtml(
+    pairs: Array<{ question: string; answer: string; sections: Array<{ key: string; content: string }> }>
+): string {
+    const styles = CARD_STYLES.questionsCards;
+    let html = '';
+
+    pairs.forEach((qa, idx) => {
+        if (qa.question) {
+            const c = styles.question;
+            const qLabel = pairs.length > 1 ? `Question ${idx + 1}` : 'Question';
+            html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+  <h3 style="margin: 0; color: inherit;">${c.emoji} ${qLabel}</h3>
+  <div style="margin-top: 8px; color: inherit;">${qa.question}</div>
+</div>\n`;
+        }
+
+        if (qa.answer) {
+            const c = styles.answer;
+            html += `<div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px;">
+  <h3 style="margin-top: 0; color: inherit;">${c.emoji} ${c.title}</h3>
+  <p>${qa.answer}</p>
+</div>\n`;
+        }
+
+        const hasGridCards = qa.sections.some((s) => s.content);
+        if (hasGridCards) {
+            html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 8px; margin-bottom: 24px;">\n`;
+            qa.sections.forEach((s) => {
+                if (!s.content) return;
+                const c = styles[s.key as keyof typeof styles] as any;
+                if (!c) return;
+                html += `  <div style="background: ${c.light}; border: 2px solid ${c.border}; border-left: 4px solid ${c.border}; padding: 16px; border-radius: 12px; min-height: 120px;">
+    <h3 style="margin-top: 0; color: inherit; font-size: 14px;">${c.emoji} ${c.number}. ${c.title}</h3>
+    <p style="margin: 0; font-size: 13px;">${s.content}</p>
+  </div>\n`;
+            });
+            html += '</div>\n';
+        }
+    });
+
+    return compactHtml(html);
 }

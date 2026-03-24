@@ -27,6 +27,7 @@
   padding: 20px;
   min-height: 100px;
   min-width: 300px;
+  max-height: 90vh;
   display: flex;
   flex-grow: 0px;
   background-color: #fff;
@@ -60,4 +61,8 @@
 }
 .Modal__content {
   padding-top: 20px;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
