@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.50
+
+### Patch Changes
+
+- Updated admin app to support more filters
+
 ## 0.1.49
 
 ### Patch Changes
