@@ -414,7 +414,8 @@ Enable the built-in MCP server:
 ```bash
 # In your Baasix .env file
 MCP_ENABLED=true
-# MCP_PATH=/mcp  # Optional: customize the endpoint path
+# MCP_PATH=/mcp                    # Optional: customize the endpoint path
+# MCP_ENABLED_ACTIONS=all          # Optional: comma-separated list of: all, read, create, update, delete
 ```
 
 **For Claude Code / Anthropic CLI** — Create `.mcp.json` in your project:

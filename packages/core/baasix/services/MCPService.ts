@@ -414,10 +414,108 @@ function errorResult(error: Error | string): ToolResult {
 
 // ==================== MCP Server Creation ====================
 
+// Map every tool to its action category: "read" | "create" | "update" | "delete"
+const TOOL_ACTION_MAP: Record<string, string> = {
+  // Schema Management
+  baasix_list_schemas: "read",
+  baasix_get_schema: "read",
+  baasix_export_schemas: "read",
+  baasix_create_schema: "create",
+  baasix_import_schemas: "create",
+  baasix_add_index: "create",
+  baasix_create_relationship: "create",
+  baasix_update_schema: "update",
+  baasix_update_relationship: "update",
+  baasix_delete_schema: "delete",
+  baasix_remove_index: "delete",
+  baasix_delete_relationship: "delete",
+
+  // Item Management
+  baasix_list_items: "read",
+  baasix_get_item: "read",
+  baasix_create_item: "create",
+  baasix_update_item: "update",
+  baasix_delete_item: "delete",
+
+  // File Management
+  baasix_list_files: "read",
+  baasix_get_file_info: "read",
+  baasix_delete_file: "delete",
+
+  // Authentication / Session
+  baasix_auth_status: "read",
+  baasix_refresh_auth: "read",
+  baasix_login: "create",
+  baasix_logout: "delete",
+  baasix_get_current_user: "read",
+  baasix_register_user: "create",
+  baasix_send_invite: "create",
+  baasix_verify_invite: "read",
+  baasix_send_magic_link: "create",
+  baasix_get_user_tenants: "read",
+  baasix_switch_tenant: "update",
+
+  // Reports and Analytics
+  baasix_generate_report: "read",
+  baasix_collection_stats: "read",
+
+  // Notifications
+  baasix_list_notifications: "read",
+  baasix_send_notification: "create",
+  baasix_mark_notification_seen: "update",
+
+  // Settings
+  baasix_get_settings: "read",
+  baasix_update_settings: "update",
+
+  // Email Templates
+  baasix_list_templates: "read",
+  baasix_get_template: "read",
+  baasix_update_template: "update",
+
+  // Permissions
+  baasix_list_roles: "read",
+  baasix_list_permissions: "read",
+  baasix_get_permission: "read",
+  baasix_get_permissions: "read",
+  baasix_create_permission: "create",
+  baasix_update_permission: "update",
+  baasix_delete_permission: "delete",
+  baasix_reload_permissions: "read",
+  baasix_update_permissions: "update",
+
+  // Utilities
+  baasix_server_info: "read",
+  baasix_sort_items: "update",
+};
+
+/**
+ * Parse MCP_ENABLED_ACTIONS env var.
+ * Accepts a comma-separated list of: "all", "read", "create", "update", "delete"
+ * Returns null when all actions are enabled (default), or a Set of enabled action strings.
+ */
+function parseEnabledActions(): Set<string> | null {
+  const raw = (env.get("MCP_ENABLED_ACTIONS") || "all").toLowerCase().trim();
+  const actions = raw.split(",").map((a) => a.trim()).filter(Boolean);
+  if (actions.includes("all")) return null; // null = everything enabled
+  return new Set(actions);
+}
+
+/**
+ * Check if a tool should be registered based on MCP_ENABLED_ACTIONS.
+ */
+function isToolEnabled(toolName: string, enabledActions: Set<string> | null): boolean {
+  if (!enabledActions) return true; // "all"
+  const action = TOOL_ACTION_MAP[toolName];
+  if (!action) return true; // unknown tools stay enabled
+  return enabledActions.has(action);
+}
+
 /**
  * Create and configure the MCP server with all Baasix tools
  */
 export function createMCPServer(): McpServer {
+  const enabledActions = parseEnabledActions();
   const server = new McpServer({
     name: "Baasix Backend-as-a-Service",
     version: "0.1.0",
@@ -523,7 +621,16 @@ Call baasix_create_schema with:
   // This ensures route-level validation, processSchemaFlags, permission checks and cache
   // invalidation are applied exactly once (in the route) — zero duplicated logic.
 
-  server.tool(
+  /**
+   * Conditionally register a tool based on MCP_ENABLED_ACTIONS.
+   * Wraps server.tool() — if the tool's action category is not enabled, skips registration entirely.
+   */
+  function registerTool(name: string, ...rest: any[]) {
+    if (!isToolEnabled(name, enabledActions)) return;
+    (server.tool as any)(name, ...rest);
+  }
+
+  registerTool(
     "baasix_list_schemas",
     "List all database tables (collections) and their schema definitions. Use this to discover what tables exist. System tables are prefixed with 'baasix_'.",
     {
@@ -547,7 +654,7 @@ Call baasix_create_schema with:
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_get_schema",
     `Get the full schema definition (columns, types, constraints, relationships, indexes) for a specific database table/collection.
 
@@ -564,7 +671,7 @@ The update_schema tool performs a full replacement, so you need the complete cur
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_create_schema",
     `CREATE A NEW DATABASE TABLE. This is the tool to use when asked to "create a table", "create a collection", "add a new model", or "define a new entity".
 
@@ -612,7 +719,7 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_update_schema",
     `Modify an existing database table — add new columns, change column types, or remove columns.
 Use this when asked to 'add a field', 'add a column', or 'alter a table'.
@@ -669,7 +776,7 @@ EXAMPLE — Adding a "description" field to an existing "products" table that ha
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_delete_schema",
     `DROP/DELETE an entire database table and all its data permanently.
 Use this when asked to 'drop a table', 'delete a collection', or 'remove a table'.
@@ -687,7 +794,7 @@ Do NOT use this to remove a column — use baasix_update_schema instead to modif
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_add_index",
     `Add a database index to a table for better query performance.
 This is an ADDITIVE operation — it only adds the new index without affecting existing indexes or schema fields.
@@ -726,7 +833,7 @@ EXAMPLE — Add a GIN index for JSONB or array fields:
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_remove_index",
     "Remove an existing index from a database table. This only removes the index — it does NOT delete any data or columns. Use baasix_get_schema first to see the list of existing indexes if you don't know the index name.",
     {
@@ -741,7 +848,7 @@ EXAMPLE — Add a GIN index for JSONB or array fields:
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_create_relationship",
     `Create a foreign key / relationship between two database tables. Use this when asked to 'link tables', 'add a foreign key', 'create a relation', or 'connect collections'.
 
@@ -789,7 +896,7 @@ relationshipData: { "name": "category", "type": "M2O", "target": "categories", "
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_delete_relationship",
     `Remove a foreign key / relationship from a database table.
 This drops the foreign key constraint and the FK column (e.g., category_Id) from the source table.
@@ -809,7 +916,7 @@ Do NOT confuse with baasix_delete_schema (which deletes an entire table).`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_export_schemas",
     "Export all table definitions as JSON for backup or migration.",
     {},
@@ -820,7 +927,7 @@ Do NOT confuse with baasix_delete_schema (which deletes an entire table).`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_import_schemas",
     "Import table definitions from JSON data to recreate tables.",
     {
@@ -864,7 +971,7 @@ Do NOT confuse with baasix_delete_schema (which deletes an entire table).`,
 
   // ==================== Item Management Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_list_items",
     `Query/list/fetch rows from a database table. Use this when asked to 'get data', 'list records', 'query items', 'search', or 'fetch rows' from any table.
 
@@ -988,7 +1095,7 @@ Supports same operators and dynamic variables as filter.
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_get_item",
     `Get a single row/record by its ID from a database table. Optionally include related data from linked tables.
 
@@ -1018,7 +1125,7 @@ The primary key is always returned.`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_create_item",
     `Insert a new row/record into a database table. Use this when asked to 'add data', 'insert a record', or 'create an entry'.
 
@@ -1043,7 +1150,7 @@ EXAMPLE: collection: "products", data: {"name": "Widget", "price": 9.99, "catego
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_update_item",
     `Update/modify an existing row/record in a database table by its ID. Only pass the fields you want to change — unspecified fields remain unchanged.
 
@@ -1066,7 +1173,7 @@ For foreign key fields, use the "_Id" suffixed column name (e.g., category_Id).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_delete_item",
     "Delete a row/record from a database table by its ID. For tables with paranoid: true (soft delete), the record is marked as deleted (deletedAt is set) rather than permanently removed.",
     {
@@ -1087,7 +1194,7 @@ For foreign key fields, use the "_Id" suffixed column name (e.g., category_Id).`
 
   // ==================== File Management Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_list_files",
     `List uploaded files with metadata (filename, size, type, dimensions, storage location).
 
@@ -1117,7 +1224,7 @@ Public files only: {"isPublic": {"eq": true}}`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_get_file_info",
     "Get detailed metadata about a specific uploaded file — filename, size, MIME type, dimensions, storage location, and who uploaded it.",
     {
@@ -1135,7 +1242,7 @@ Public files only: {"isPublic": {"eq": true}}`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_delete_file",
     "Delete an uploaded file by its UUID. Removes both the file record and the actual file from storage.",
     {
@@ -1155,7 +1262,7 @@ Public files only: {"isPublic": {"eq": true}}`,
 
   // ==================== Permission Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_list_roles",
     "List all user roles with their IDs, names, and descriptions. Use this to get role UUIDs needed for permission tools. Default roles: 'administrator' (full access), 'public' (unauthenticated access). Custom roles can be created for granular access control.",
     {},
@@ -1170,7 +1277,7 @@ Public files only: {"isPublic": {"eq": true}}`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_list_permissions",
     `List all access control permission rules with optional filtering.
 
@@ -1207,7 +1314,7 @@ Permissions for a table: {"collection": {"eq": "products"}}`,
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_create_permission",
     `Grant a role permission to perform an action on a table. Use this to set up access control (RBAC + row-level security).
 
@@ -1290,7 +1397,7 @@ role_Id: "<uuid>", collection: "posts", action: "update", fields: ["title", "con
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_update_permission",
     `Update an existing permission rule. Only pass the fields you want to change — unspecified fields remain unchanged.
 
@@ -1318,7 +1425,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_delete_permission",
     "Delete a permission rule by its UUID. This revokes the access it granted. The permission cache is automatically reloaded.",
     {
@@ -1336,7 +1443,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_reload_permissions",
     "Force-reload the permission cache from the database. Normally not needed as create/update/delete permission tools auto-reload. Use this if permissions seem stale.",
     {},
@@ -1353,7 +1460,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
 
   // ==================== Settings Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_get_settings",
     "Get application settings. Pass a key to get a specific setting, or omit to get all settings. Settings include project info, auth config, email config, etc.",
     {
@@ -1372,7 +1479,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_update_settings",
     "Update application settings. Pass an object with the settings keys and their new values. Only specified keys are updated.",
     {
@@ -1395,7 +1502,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
 
   // ==================== Email Template Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_list_templates",
     "List all email templates (invitation, password reset, welcome, etc.).",
     {
@@ -1420,7 +1527,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_get_template",
     "Get a specific email template by ID",
     {
@@ -1438,7 +1545,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_update_template",
     `Update an email template's subject, description, or body content.
 
@@ -1474,7 +1581,7 @@ AVAILABLE VARIABLES:
 
   // ==================== Notification Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_list_notifications",
     "List in-app notifications for the current authenticated user. Filter by seen/unseen status to find unread notifications.",
     {
@@ -1499,7 +1606,7 @@ AVAILABLE VARIABLES:
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_mark_notification_seen",
     "Mark a notification as seen/read by its UUID.",
     {
@@ -1519,7 +1626,7 @@ AVAILABLE VARIABLES:
 
   // ==================== Utility Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_server_info",
     "Get server health, version, uptime, and memory usage.",
     {},
@@ -1546,7 +1653,7 @@ AVAILABLE VARIABLES:
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_sort_items",
     `Reorder a row within a sortable table — move it before or after another row. The table must have a "sort" field.
 
@@ -1589,7 +1696,7 @@ EXAMPLE: Move task "abc" before task "xyz":
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_generate_report",
     `Run an aggregate/analytics query on a database table. ALWAYS use this tool (not baasix_list_items) when the user asks for sums, totals, counts, averages, min/max, grouped data, dashboards, reports, or any analytics/summary query.
 
@@ -1675,7 +1782,7 @@ EXAMPLES:
 
   // ==================== Collection Stats Tool ====================
 
-  server.tool(
+  registerTool(
     "baasix_collection_stats",
     `Run multiple aggregate queries across different tables in a single call. Each query uses the full report engine (filter, aggregate, groupBy, etc.).
 
@@ -1726,7 +1833,7 @@ EXAMPLES:
 
   // ==================== Send Notification Tool ====================
 
-  server.tool(
+  registerTool(
     "baasix_send_notification",
     "Send an in-app notification to one or more users by their user UUIDs. Notifications appear in the user's notification list and can be marked as seen.",
     {
@@ -1759,7 +1866,7 @@ EXAMPLES:
 
   // ==================== Get Permission Tool ====================
 
-  server.tool(
+  registerTool(
     "baasix_get_permission",
     "Get a specific permission rule by its UUID. Returns the full permission object including role_Id, collection, action, fields, conditions, defaultValues, and relConditions.",
     {
@@ -1780,7 +1887,7 @@ EXAMPLES:
 
   // ==================== Get Permissions for Role Tool ====================
 
-  server.tool(
+  registerTool(
     "baasix_get_permissions",
     `Get all permission rules assigned to a specific role. Shows which tables the role can access and what actions (create/read/update/delete) are allowed, including any row-level security conditions, field restrictions, default values, and relationship conditions.
 
@@ -1829,7 +1936,7 @@ Accepts either the role name (e.g., "editor", "public") or the role UUID.`,
 
   // ==================== Update Permissions for Role Tool ====================
 
-  server.tool(
+  registerTool(
     "baasix_update_permissions",
     `Bulk set/update access control permissions for a role — define which tables a role can create, read, update, or delete. Creates new permissions or updates existing ones. Automatically reloads the permission cache.
 
@@ -1929,7 +2036,7 @@ permissions: [{"collection": "posts", "action": "read", "conditions": {"author_I
 
   // ==================== Auth Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_get_current_user",
     `Get the currently authenticated user's profile, role, and permissions.
 
@@ -1978,7 +2085,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_register_user",
     "Register a new user",
     {
@@ -2010,7 +2117,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_send_invite",
     "Send an invitation to a user",
     {
@@ -2040,7 +2147,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_verify_invite",
     "Verify an invitation token",
     {
@@ -2066,7 +2173,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_send_magic_link",
     "Send magic link or code for authentication",
     {
@@ -2094,7 +2201,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_get_user_tenants",
     "Get available tenants for the current user",
     {},
@@ -2113,7 +2220,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_switch_tenant",
     "Switch to a different tenant context",
     {
@@ -2139,7 +2246,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
 
   // ==================== Auth Status & Session Tools ====================
 
-  server.tool(
+  registerTool(
     "baasix_auth_status",
     "Check if the current MCP session is authenticated, and show the current user, role, and admin status.",
     {},
@@ -2160,7 +2267,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_login",
     "Authenticate with email and password to get admin or role-based access. Required before performing write operations if not already authenticated via headers.",
     {
@@ -2220,7 +2327,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_logout",
     "Logout and invalidate current session",
     {},
@@ -2239,7 +2346,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
     }
   );
 
-  server.tool(
+  registerTool(
     "baasix_refresh_auth",
     "Refresh authentication token",
     {
@@ -2265,7 +2372,7 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
 
   // ==================== Update Relationship Tool ====================
 
-  server.tool(
+  registerTool(
     "baasix_update_relationship",
     "Modify an existing foreign key / relationship between two database tables (change delete behavior, alias, etc.).",
     {

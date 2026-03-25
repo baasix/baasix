@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.51
+
+### Patch Changes
+
+- Added MCP_ENABLED_ACTIONS to restrict Remote MCP allowed actions.
+
 ## 0.1.50
 
 ### Patch Changes
