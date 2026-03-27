@@ -48,11 +48,16 @@ SECRET_KEY=your-32-character-secret-key-here
 PORT=8056                          # HTTP port
 BODY_SIZE_LIMIT=20mb               # Max JSON request body size
 
-# Cache
-CACHE_ENABLED=true
-CACHE_ADAPTER=memory               # memory, redis, or upstash
-CACHE_REDIS_URL=redis://localhost:6379
-CACHE_TTL=300                      # Default cache TTL in seconds
+# System Cache (permissions, roles, settings)
+# SYSTEM_CACHE_ADAPTER=memory       # memory, redis, or upstash
+# SYSTEM_CACHE_REDIS_URL=redis://localhost:6379
+# SYSTEM_CACHE_SYNC_INTERVAL=5     # L1↔L2 sync interval in seconds
+
+# Data Cache (Drizzle ORM query results)
+DATA_CACHE_ENABLED=true
+DATA_CACHE_ADAPTER=memory           # memory, redis, or upstash
+DATA_CACHE_REDIS_URL=redis://localhost:6379
+DATA_CACHE_TTL=300                  # Default cache TTL in seconds
 
 # Multi-tenancy
 MULTI_TENANT=false                 # Enable multi-tenant mode

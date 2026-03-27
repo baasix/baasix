@@ -1,5 +1,17 @@
 # @baasix/baasix
 
+## 0.1.53
+
+### Patch Changes
+
+- Added batch caching for permissions to reduce latency in server start time.
+
+## 0.1.52
+
+### Patch Changes
+
+- Added seperate system cache
+
 ## 0.1.51
 
 ### Patch Changes

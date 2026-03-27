@@ -203,13 +203,13 @@ let server: any = null;
  */
 async function initializeApp() {
   try {
-    console.info("Initializing cache...");
-    // Only use Redis URL if CACHE_ADAPTER is 'redis' or 'upstash'
-    const cacheAdapter = env.get("CACHE_ADAPTER") || "memory";
-    const cacheUri = (cacheAdapter === "redis" || cacheAdapter === "upstash") 
-      ? env.get("CACHE_REDIS_URL") 
+    console.info("Initializing system cache...");
+    // System cache (permissions, roles, settings) uses SYSTEM_CACHE_* env vars
+    const systemCacheAdapter = env.get("SYSTEM_CACHE_ADAPTER") || "memory";
+    const systemCacheUri = (systemCacheAdapter === "redis" || systemCacheAdapter === "upstash") 
+      ? env.get("SYSTEM_CACHE_REDIS_URL") 
       : null;
-    initializeCache({ ttl: parseInt(env.get("CACHE_TTL") || "30") * 1000, uri: cacheUri });
+    initializeCache({ ttl: parseInt(env.get("SYSTEM_CACHE_TTL") || "30") * 1000, uri: systemCacheUri });
 
     // IMPORTANT: Detect Sequelize upgrade BEFORE schema initialization
     // because schemaManager.initialize() will create the baasix_Migration table

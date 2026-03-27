@@ -24,6 +24,7 @@ import env from "./env.js";
 export interface CacheInterface {
   get(key: string): Promise<any | null>;
   set(key: string, value: any, expiresIn?: number): Promise<void>;
+  setBatch(entries: Array<{key: string, value: any, expiresIn?: number}>): Promise<void>;
   delete(key: string): Promise<void>;
   del(key: string): Promise<void>;
   clear(): Promise<void>;
@@ -66,10 +67,10 @@ const getL1Cache = () => globalThis.__baasix_l1Cache;
 const getLastSyncedVersion = () => globalThis.__baasix_lastSyncedVersion;
 const setLastSyncedVersion = (val: string | null) => { globalThis.__baasix_lastSyncedVersion = val; };
 
-const CACHE_SIZE_GB = parseFloat(env.get("CACHE_SIZE_GB") || "1");
-const CACHE_SIZE_BYTES = CACHE_SIZE_GB * 1024 * 1024 * 1024;
+const SYSTEM_CACHE_SIZE_GB = parseFloat(env.get("SYSTEM_CACHE_SIZE_GB") || "1");
+const CACHE_SIZE_BYTES = SYSTEM_CACHE_SIZE_GB * 1024 * 1024 * 1024;
 // Sync interval for L1 ← L2 synchronization (default: 5 seconds)
-const CACHE_SYNC_INTERVAL_MS = (parseInt(env.get("CACHE_SYNC_INTERVAL") || "5")) * 1000;
+const CACHE_SYNC_INTERVAL_MS = (parseInt(env.get("SYSTEM_CACHE_SYNC_INTERVAL") || "5")) * 1000;
 
 /**
  * Keys that use hybrid L1+L2 caching
@@ -110,19 +111,24 @@ async function syncFromRedis(): Promise<void> {
       return;
     }
     
-    // Fetch all hybrid keys from Redis
+    // Fetch all hybrid keys from Redis using batch reads (mget)
     const hybridPatterns = ["permissions:*", "settings:*", "auth:*"];
     
     for (const pattern of hybridPatterns) {
       const keys = await redisClient.keys(pattern);
       
-      for (const key of keys) {
-        const value = await redisClient.get(key);
-        if (value) {
-          l1Cache.set(key, {
-            value: value, // Already JSON string from Redis
-            expiry: -1,   // Hybrid keys have infinite TTL
-          });
+      if (keys.length > 0) {
+        // Use mget for batch read — single round-trip instead of N sequential gets
+        const values = await redisClient.mget(...keys);
+        
+        for (let i = 0; i < keys.length; i++) {
+          const value = values[i];
+          if (value) {
+            l1Cache.set(keys[i], {
+              value: value, // Already JSON string from Redis
+              expiry: -1,   // Hybrid keys have infinite TTL
+            });
+          }
         }
       }
     }
@@ -269,8 +275,8 @@ export function initializeCache(options: { ttl: number; uri?: string | null }): 
   const defaultTTL = Math.floor(options.ttl / 1000); // Convert ms to seconds
   const uri = options.uri;
   
-  // Check if we should use Redis based on CACHE_ADAPTER
-  const cacheAdapter = env.get("CACHE_ADAPTER") || "memory";
+  // Check if we should use Redis based on SYSTEM_CACHE_ADAPTER
+  const cacheAdapter = env.get("SYSTEM_CACHE_ADAPTER") || "memory";
   const shouldUseRedis = (cacheAdapter === "redis" || cacheAdapter === "upstash") && 
                          uri && uri.toLowerCase() !== "null" && uri !== "undefined" && uri !== "";
   
@@ -372,6 +378,57 @@ export function initializeCache(options: { ttl: number; uri?: string | null }): 
           ? -1 
           : Date.now() + expiresIn * 1000;
         l1Cache.set(key, { value: jsonValue, expiry });
+      }
+    },
+    
+    /**
+     * SET BATCH: Write multiple keys in a single Redis pipeline round-trip.
+     * For hybrid keys, writes to both L1 and L2.
+     * Only increments cache version once for all hybrid key changes.
+     */
+    setBatch: async (entries: Array<{key: string, value: any, expiresIn?: number}>): Promise<void> => {
+      if (entries.length === 0) return;
+      
+      await ensureCacheSize();
+      const l1Cache = getL1Cache();
+      const redisClient = getRedisClient();
+      let hasHybridKey = false;
+      
+      // Pre-serialize all entries
+      const prepared = entries.map(e => ({
+        key: e.key,
+        json: JSON.stringify(e.value),
+        ttl: e.expiresIn ?? defaultTTL,
+        hybrid: isHybridKey(e.key),
+      }));
+      
+      // Write to L1 (hybrid keys always, non-hybrid only when no Redis)
+      for (const { key, json, ttl, hybrid } of prepared) {
+        if (hybrid) {
+          hasHybridKey = true;
+          l1Cache.set(key, { value: json, expiry: -1 });
+        } else if (!redisClient) {
+          const expiry = (ttl === -1 || ttl === 0) ? -1 : Date.now() + ttl * 1000;
+          l1Cache.set(key, { value: json, expiry });
+        }
+      }
+      
+      // Batch write to Redis using pipeline (single network round-trip)
+      if (redisClient) {
+        const pipeline = redisClient.pipeline();
+        for (const { key, json, ttl, hybrid } of prepared) {
+          if (hybrid || ttl === -1 || ttl === 0) {
+            pipeline.set(key, json);
+          } else {
+            pipeline.set(key, json, "EX", ttl);
+          }
+        }
+        await pipeline.exec();
+        
+        // Single version increment for all hybrid key changes
+        if (hasHybridKey) {
+          await incrementCacheVersion();
+        }
       }
     },
     

@@ -1009,10 +1009,17 @@ describe("Products API", () => {
 | SECRET_KEY | Yes | - | JWT/encryption secret (32+ chars) |
 | PORT | No | 8056 | HTTP port |
 | LOG_LEVEL | No | info | Log level (fatal/error/warn/info/debug/trace) |
-| CACHE_ENABLED | No | false | Enable caching |
-| CACHE_ADAPTER | No | memory | Cache adapter (memory/redis/upstash) |
-| CACHE_REDIS_URL | No | - | Redis URL for cache |
-| CACHE_TTL | No | 300 | Cache TTL (seconds) |
+| SYSTEM_CACHE_ADAPTER | No | memory | System cache adapter (memory/redis/upstash) |
+| SYSTEM_CACHE_REDIS_URL | No | - | Redis URL for system cache |
+| SYSTEM_CACHE_SYNC_INTERVAL | No | 5 | L1↔L2 sync interval in seconds (permissions, roles, settings) |
+| SYSTEM_CACHE_SIZE_GB | No | 1 | Max system cache size in GB (memory adapter) |
+| SYSTEM_CACHE_TTL | No | 30 | System cache default TTL in seconds |
+| DATA_CACHE_ENABLED | No | false | Enable data/query caching |
+| DATA_CACHE_ADAPTER | No | memory | Data cache adapter (memory/redis/upstash) |
+| DATA_CACHE_REDIS_URL | No | - | Redis URL for data cache |
+| DATA_CACHE_TTL | No | 3600 | Data cache TTL (seconds) |
+| DATA_CACHE_STRATEGY | No | explicit | Data cache strategy (explicit/all) |
+| DATA_CACHE_SIZE_GB | No | 1 | Max data cache size in GB (memory adapter) |
 | MULTI_TENANT | No | false | Enable multi-tenancy |
 | SOCKET_ENABLED | No | false | Enable Socket.IO |
 | PUBLIC_REGISTRATION | No | true | Allow public registration |
@@ -1052,7 +1059,7 @@ describe("Products API", () => {
 
 6. **Cache issues**
    - Verify Redis connection
-   - Check CACHE_REDIS_URL in .env
+   - Check SYSTEM_CACHE_REDIS_URL / DATA_CACHE_REDIS_URL in .env
    - Manually invalidate: `invalidateCollection("collection")`
 
 ---

@@ -252,8 +252,10 @@ TASK_REDIS_ENABLED=true
 TASK_REDIS_URL=redis://localhost:6379
 
 # Cache - Recommended for consistency
-CACHE_ADAPTER=redis
-CACHE_REDIS_URL=redis://localhost:6379
+SYSTEM_CACHE_ADAPTER=redis
+SYSTEM_CACHE_REDIS_URL=redis://localhost:6379
+DATA_CACHE_ADAPTER=redis
+DATA_CACHE_REDIS_URL=redis://localhost:6379
 ```
 
 ## Documentation

@@ -736,16 +736,16 @@ export async function initializeCacheService(): Promise<BaasixDrizzleCache | nul
   }
 
   const initPromise = (async () => {
-    const cacheEnabled = env.get('CACHE_ENABLED') === 'true';
+    const cacheEnabled = env.get('DATA_CACHE_ENABLED') === 'true';
 
     if (!cacheEnabled) {
-      console.log('[CacheService] Cache is disabled');
+      console.log('[DataCache] Cache is disabled');
       return null;
     }
 
-    const cacheAdapter = env.get('CACHE_ADAPTER') || 'memory'; // 'memory', 'redis', 'upstash'
-    const cacheStrategy = (env.get('CACHE_STRATEGY') || 'explicit') as CacheStrategy;
-    const defaultTTL = parseInt(env.get('CACHE_TTL') || '3600', 10);
+    const cacheAdapter = env.get('DATA_CACHE_ADAPTER') || 'memory'; // 'memory', 'redis', 'upstash'
+    const cacheStrategy = (env.get('DATA_CACHE_STRATEGY') || 'explicit') as CacheStrategy;
+    const defaultTTL = parseInt(env.get('DATA_CACHE_TTL') || '3600', 10);
     const multiTenant = env.get('MULTI_TENANT') === 'true';
 
     let adapter: ICacheAdapter;
@@ -755,15 +755,15 @@ export async function initializeCacheService(): Promise<BaasixDrizzleCache | nul
         case 'redis':
         case 'valkey': {
           const Redis = (await import('ioredis')).default;
-          const redisUrl = env.get('CACHE_REDIS_URL');
+          const redisUrl = env.get('DATA_CACHE_REDIS_URL');
 
           if (!redisUrl) {
-            throw new Error('CACHE_REDIS_URL is required for Redis adapter');
+            throw new Error('DATA_CACHE_REDIS_URL is required for Redis adapter');
           }
 
           const redisClient = new Redis(redisUrl);
           adapter = new RedisCacheAdapter(redisClient);
-          console.log(`[CacheService] Initialized Redis/Valkey adapter`);
+          console.log(`[DataCache] Initialized Redis/Valkey adapter`);
           break;
         }
 
@@ -783,15 +783,15 @@ export async function initializeCacheService(): Promise<BaasixDrizzleCache | nul
           });
 
           adapter = new UpstashCacheAdapter(upstashClient);
-          console.log('[CacheService] Initialized Upstash adapter');
+          console.log('[DataCache] Initialized Upstash adapter');
           break;
         }
 
         case 'memory':
         default: {
-          const maxSizeGB = parseFloat(env.get('CACHE_SIZE_GB') || '1');
+          const maxSizeGB = parseFloat(env.get('DATA_CACHE_SIZE_GB') || '1');
           adapter = new InMemoryCacheAdapter(maxSizeGB);
-          console.log(`[CacheService] Initialized InMemory adapter (${maxSizeGB}GB)`);
+          console.log(`[DataCache] Initialized InMemory adapter (${maxSizeGB}GB)`);
           break;
         }
       }
@@ -802,14 +802,14 @@ export async function initializeCacheService(): Promise<BaasixDrizzleCache | nul
         multiTenant,
       });
 
-      console.log(`[CacheService] Cache initialized - Strategy: ${cacheStrategy}, TTL: ${defaultTTL}s, Multi-tenant: ${multiTenant}`);
+      console.log(`[DataCache] Cache initialized - Strategy: ${cacheStrategy}, TTL: ${defaultTTL}s, Multi-tenant: ${multiTenant}`);
 
       return globalThis.__baasix_cacheInstance;
     } catch (error) {
-      console.error('[CacheService] Failed to initialize cache:', error);
+      console.error('[DataCache] Failed to initialize cache:', error);
 
       // Fallback to in-memory cache
-      const maxSizeGB = parseFloat(env.get('CACHE_SIZE_GB') || '1');
+      const maxSizeGB = parseFloat(env.get('DATA_CACHE_SIZE_GB') || '1');
       adapter = new InMemoryCacheAdapter(maxSizeGB);
 
       globalThis.__baasix_cacheInstance = new BaasixDrizzleCache(adapter, {
@@ -818,7 +818,7 @@ export async function initializeCacheService(): Promise<BaasixDrizzleCache | nul
         multiTenant,
       });
 
-      console.warn('[CacheService] Falling back to InMemory cache');
+      console.warn('[DataCache] Falling back to InMemory cache');
       return globalThis.__baasix_cacheInstance;
     }
   })();
@@ -847,7 +847,7 @@ export async function closeCacheService(): Promise<void> {
   if (globalThis.__baasix_cacheInstance) {
     await globalThis.__baasix_cacheInstance.close();
     globalThis.__baasix_cacheInstance = null;
-    console.log('[CacheService] Cache service closed');
+    console.log('[DataCache] Cache service closed');
   }
 }
 

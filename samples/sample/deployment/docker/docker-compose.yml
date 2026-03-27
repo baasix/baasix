@@ -17,9 +17,11 @@ services:
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/baasix
-      - CACHE_ENABLED=true
-      - CACHE_ADAPTER=redis
-      - CACHE_REDIS_URL=redis://redis:6379
+      - SYSTEM_CACHE_ADAPTER=redis
+      - SYSTEM_CACHE_REDIS_URL=redis://redis:6379
+      - DATA_CACHE_ENABLED=true
+      - DATA_CACHE_ADAPTER=redis
+      - DATA_CACHE_REDIS_URL=redis://redis:6379
     env_file:
       - ../../.env
     depends_on:

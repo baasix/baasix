@@ -267,6 +267,6 @@ sudo systemctl status nginx
 ### Common Issues
 
 1. **Database connection failed**: Check PostgreSQL is running and credentials are correct
-2. **Redis connection failed**: Check Redis is running and CACHE_REDIS_URL is correct
+2. **Redis connection failed**: Check Redis is running and SYSTEM_CACHE_REDIS_URL / DATA_CACHE_REDIS_URL are correct
 3. **Permission denied**: Check file ownership and permissions
 4. **Port already in use**: Check if another process is using port 8056

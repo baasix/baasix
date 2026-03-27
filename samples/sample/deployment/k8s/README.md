@@ -124,7 +124,8 @@ echo -n 'postgresql://user:password@your-postgres-host.example.com:5432/baasix?s
 Update `configmap.yaml`:
 
 ```yaml
-CACHE_REDIS_URL: "redis://your-redis-host.example.com:6379"
+SYSTEM_CACHE_REDIS_URL: "redis://your-redis-host.example.com:6379"
+DATA_CACHE_REDIS_URL: "redis://your-redis-host.example.com:6379"
 ```
 
 ## TLS/SSL

@@ -526,25 +526,30 @@ export class ItemsService {
       // Only filter attributes if we have DIRECT fields specified for this relation
       // If we only have nested relations, we need all parent attributes to load the relation
       if (hasAnyFieldForRelation && allowedDirectFields.length > 0) {
-        // Check if all requested attributes are already in the allowed direct fields
-        const allAttributesAllowed = include.attributes.every(attr => 
-          allowedDirectFields.includes(attr)
-        );
-        
-        if (!allAttributesAllowed) {
-          // Always ensure primary key is included for proper relation loading
-          if (!allowedDirectFields.includes('id')) {
-            allowedDirectFields.unshift('id');
-          }
-          
-          // Filter attributes to only allowed direct fields
-          include.attributes = include.attributes.filter(attr => 
+        // If wildcard '*' is in allowed direct fields, all attributes are permitted — skip filtering
+        if (allowedDirectFields.includes('*')) {
+          // All fields allowed, no filtering needed for this relation
+        } else {
+          // Check if all requested attributes are already in the allowed direct fields
+          const allAttributesAllowed = include.attributes.every(attr => 
             allowedDirectFields.includes(attr)
           );
           
-          // If after filtering we have no attributes, use the allowed direct fields
-          if (include.attributes.length === 0) {
-            include.attributes = allowedDirectFields;
+          if (!allAttributesAllowed) {
+            // Always ensure primary key is included for proper relation loading
+            if (!allowedDirectFields.includes('id')) {
+              allowedDirectFields.unshift('id');
+            }
+            
+            // Filter attributes to only allowed direct fields
+            include.attributes = include.attributes.filter(attr => 
+              allowedDirectFields.includes(attr)
+            );
+            
+            // If after filtering we have no attributes, use the allowed direct fields
+            if (include.attributes.length === 0) {
+              include.attributes = allowedDirectFields;
+            }
           }
         }
       }

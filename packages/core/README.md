@@ -313,9 +313,13 @@ DATABASE_URL="postgresql://postgres:yourpassword@localhost:5432/baasix"
 PORT=8056
 SECRET_KEY=your-secret-key-min-32-chars
 
-# Cache (optional - defaults to memory)
-# CACHE_ADAPTER=redis
-# CACHE_REDIS_URL=redis://localhost:6379
+# System Cache - permissions, roles, settings (optional - defaults to memory)
+# SYSTEM_CACHE_ADAPTER=redis
+# SYSTEM_CACHE_REDIS_URL=redis://localhost:6379
+
+# Data Cache - query results (optional - defaults to memory)
+# DATA_CACHE_ADAPTER=redis
+# DATA_CACHE_REDIS_URL=redis://localhost:6379
 
 # Real-time (optional)
 # SOCKET_ENABLED=true

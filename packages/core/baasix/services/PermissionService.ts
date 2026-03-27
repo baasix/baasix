@@ -224,10 +224,16 @@ export class PermissionService {
         await cache.invalidateModel("permissions");
       }
 
-      // Cache permissions by role
+      // Group permissions by role in memory first
+      // This avoids N sequential Redis round-trips (one per permission record)
+      const rolePermissionsMap = new Map<string | number, Record<string, any>>();
+
       for (const permission of permissions) {
-        const cacheKey = `permissions:role:${permission.role_Id}`;
-        const rolePermissions = (await cache.get(cacheKey)) || {};
+        const roleId = permission.role_Id;
+        if (!rolePermissionsMap.has(roleId)) {
+          rolePermissionsMap.set(roleId, {});
+        }
+        const rolePermissions = rolePermissionsMap.get(roleId)!;
         const collectionName = permission.collection;
 
         rolePermissions[collectionName] = rolePermissions[collectionName] || {};
@@ -237,10 +243,16 @@ export class PermissionService {
           relConditions: permission.relConditions || {},
           defaultValues: permission.defaultValues || {},
         };
-
-        // Use infinite TTL (-1) for permissions cache
-        await cache.set(cacheKey, rolePermissions, -1);
       }
+
+      // Batch write all role permissions in a single Redis pipeline round-trip
+      // (N_roles writes instead of N_permissions, typically 6 vs hundreds)
+      const entries = [...rolePermissionsMap].map(([roleId, perms]) => ({
+        key: `permissions:role:${roleId}`,
+        value: perms,
+        expiresIn: -1,
+      }));
+      await cache.setBatch(entries);
     } catch (error) {
       console.error('Error loading permissions:', error);
       // Initialize empty cache if table doesn't exist yet

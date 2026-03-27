@@ -110,30 +110,37 @@ export class FieldExpansionUtil {
         } else {
           // Check if it's a field or association
           const tableColumns = this.getColumnNames(currentCollection);
-          
-          if (tableColumns.includes(part)) {
-            // It's a field
+          const associations = relationBuilder.getAssociations(currentCollection);
+          const association = associations?.[part];
+
+          // When there are remaining parts to traverse (not the last part),
+          // prioritize association lookup over column lookup.
+          // This fixes cases where a name is both a column (FK) and an association,
+          // e.g., "question" in exam_attempt_question is both a FK column and
+          // a relation — "exam_attempt_question.question.*" should follow the relation.
+          const hasRemainingParts = i < parts.length - 1;
+
+          if (hasRemainingParts && association) {
+            // Treat as association — navigate into it
+            currentPrefix += part + '.';
+            currentCollection = association.model;
+          } else if (tableColumns.includes(part)) {
+            // It's a field (or last part matching a column)
             expandedFields.push(currentPrefix + part);
             break;
-          } else {
-            // Check if it's an association
-            const associations = relationBuilder.getAssociations(currentCollection);
-            const association = associations?.[part];
+          } else if (association) {
+            currentPrefix += part + '.';
+            currentCollection = association.model;
             
-            if (association) {
-              currentPrefix += part + '.';
-              currentCollection = association.model;
-              
-              if (i === parts.length - 1) {
-                // Last part is an association - include all its fields
-                const assocColumns = this.getColumnNames(currentCollection);
-                expandedFields.push(...assocColumns.map((attr) => `${currentPrefix}${attr}`));
-              }
-            } else {
-              // Not a field or association - add as-is (might be computed field)
-              expandedFields.push(currentPrefix + part);
-              break;
+            if (i === parts.length - 1) {
+              // Last part is an association - include all its fields
+              const assocColumns = this.getColumnNames(currentCollection);
+              expandedFields.push(...assocColumns.map((attr) => `${currentPrefix}${attr}`));
             }
+          } else {
+            // Not a field or association - add as-is (might be computed field)
+            expandedFields.push(currentPrefix + part);
+            break;
           }
         }
       }
