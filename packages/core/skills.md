@@ -1152,6 +1152,81 @@ export async function down(baasix) {
 
 ---
 
+## TasksService
+
+Background task management with distributed locking, atomic claiming, stall recovery, and concurrency control.
+
+### Environment Variables
+
+```bash
+TASK_SERVICE_ENABLED=true          # Enable task service
+TASK_CONCURRENCY=1                 # Max concurrent tasks per instance (default: 1)
+TASK_STALL_TIMEOUT=300             # Seconds before Running task is stalled (default: 300)
+TASK_LIST_REFRESH_INTERVAL=600     # Cache refresh interval in seconds (default: 600)
+TASK_SHUTDOWN_WAIT_TIME=30         # Wait for running tasks on shutdown (default: 30)
+TASK_REDIS_ENABLED=false           # Enable Redis for distributed locking
+TASK_REDIS_URL=redis://localhost:6379
+```
+
+### baasix_Tasks Table Columns
+
+- `task_status`: "Not started" | "Running" | "Completed" | "Error"
+- `type`: Task type string
+- `scheduled_time`: When to execute
+- `started_at`: Auto-set when task starts (used for stall detection)
+- `max_retries`: Max retry attempts (default: 0)
+- `retry_count`: Current retry count (system-managed)
+- `task_data`: JSON task payload
+- `result_data`: JSON result
+- `error_data`: JSON error info
+
+### Core Methods
+
+```javascript
+// Atomic task claiming — prevents duplicate processing
+const claimed = await tasksService.claimTask(taskId);
+if (!claimed) continue; // Already taken by another worker
+
+// Get cached "Not started" tasks (within 4hr window)
+const tasks = await tasksService.getNotStartedTasks();
+
+// Distributed job locking — for cron jobs that must run on one instance
+const locked = await tasksService.acquireJobLock('job-name', ttlSeconds);
+try { /* process */ } finally { await tasksService.releaseJobLock('job-name'); }
+
+// Instance-level concurrency lock (respects TASK_CONCURRENCY)
+const acquired = await tasksService.tryAcquireLock(60);
+try { /* process */ } finally { await tasksService.releaseLock(); }
+
+// Force cache refresh
+await tasksService.forceRefresh();
+
+// Cache stats
+const stats = await tasksService.getCacheStats();
+```
+
+### Stall Recovery
+
+Automatic — runs during init and each cache refresh:
+- Tasks in "Running" beyond `TASK_STALL_TIMEOUT` are detected
+- If `retry_count < max_retries`: reset to "Not started" for retry
+- Otherwise: marked as "Error"
+
+### Access in Extensions
+
+```javascript
+// Legacy extensions — available in context
+export default async function (hooksManager, context) {
+  const { tasksService } = context;
+  // ...
+}
+
+// Or import directly
+import tasksService from '../../baasix/services/TasksService';
+```
+
+---
+
 ## Version
 
 - Package: @baasix/baasix@0.1.0-alpha.2

@@ -1772,3 +1772,49 @@ const id = await service.createOne(data);
 await service.updateOne(id, data);
 await service.deleteOne(id);
 ```
+
+## TasksService
+
+Background task management with distributed locking, atomic claiming, stall recovery, and concurrency control.
+
+### Key Methods
+
+```javascript
+// Atomic task claiming
+const claimed = await tasksService.claimTask(taskId); // null if already taken
+
+// Get cached tasks
+const tasks = await tasksService.getNotStartedTasks();
+
+// Distributed job locking (cron jobs)
+const locked = await tasksService.acquireJobLock('job-name', ttlSeconds);
+try { /* process */ } finally { await tasksService.releaseJobLock('job-name'); }
+
+// Instance concurrency lock
+const acquired = await tasksService.tryAcquireLock(60);
+try { /* process */ } finally { await tasksService.releaseLock(); }
+```
+
+### Environment Variables
+
+- TASK_SERVICE_ENABLED: Enable task service (default: false)
+- TASK_CONCURRENCY: Max concurrent tasks per instance (default: 1)
+- TASK_STALL_TIMEOUT: Seconds before Running task is stalled (default: 300)
+- TASK_LIST_REFRESH_INTERVAL: Cache refresh interval in seconds (default: 600)
+- TASK_REDIS_ENABLED: Enable Redis for distributed locking (default: false)
+- TASK_REDIS_URL: Redis URL for distributed locking
+
+### Stall Recovery
+
+Automatic: tasks stuck in "Running" beyond TASK_STALL_TIMEOUT are recovered.
+If max_retries > retry_count: reset to "Not started". Otherwise: marked "Error".
+
+### Access
+
+```javascript
+// In extension context
+const { tasksService } = context;
+
+// Or import directly
+import tasksService from '../../baasix/services/TasksService';
+```

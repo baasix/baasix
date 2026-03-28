@@ -493,7 +493,12 @@ export class ItemsService {
       return;
     }
 
-    for (const include of processedIncludes) {
+    // Check for global '**' wildcard — means all fields at any depth are allowed
+    const hasGlobalDeepWildcard = allowedFields.includes('**');
+
+    // Iterate in reverse so we can safely splice unauthorized includes
+    for (let i = processedIncludes.length - 1; i >= 0; i--) {
+      const include = processedIncludes[i];
       const relationPath = parentPath ? `${parentPath}.${include.relation}` : include.relation;
       
       // Collect allowed direct fields and nested relations for this relation
@@ -521,6 +526,14 @@ export class ItemsService {
             }
           }
         }
+      }
+
+      // If no permission fields reference this relation, remove the include entirely.
+      // The permission doesn't authorize any fields from this relation, so it must not
+      // appear in the response. Exception: '**' global wildcard allows all nested fields.
+      if (!hasAnyFieldForRelation && !hasGlobalDeepWildcard) {
+        processedIncludes.splice(i, 1);
+        continue;
       }
 
       // Only filter attributes if we have DIRECT fields specified for this relation

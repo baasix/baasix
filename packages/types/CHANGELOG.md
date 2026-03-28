@@ -1,5 +1,11 @@
 # @baasix/types
 
+## 1.0.5
+
+### Patch Changes
+
+- Updated TasksService with more optimisation to reduce DB calls.
+
 ## 1.0.4
 
 ### Patch Changes

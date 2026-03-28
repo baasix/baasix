@@ -324,7 +324,9 @@ SECRET_KEY=your-secret-key-min-32-chars
 
 # Background Tasks (optional)
 # TASK_SERVICE_ENABLED=true
-# TASK_REDIS_ENABLED=true          # For multi-instance
+# TASK_CONCURRENCY=1               # Max concurrent tasks per instance
+# TASK_STALL_TIMEOUT=300           # Seconds before stuck task is recovered
+# TASK_REDIS_ENABLED=true          # For multi-instance distributed locking
 # TASK_REDIS_URL=redis://localhost:6379
 ```
 

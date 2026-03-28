@@ -244,6 +244,7 @@ async function initializeApp() {
       mailService,
       storageService,
       ItemsService,
+      tasksService,
     };
 
     app.use(authMiddleware);

@@ -1,5 +1,19 @@
 # @baasix/baasix
 
+## 0.1.56
+
+### Patch Changes
+
+- TasksService: Increased redis connectionTimeout and updated retryStrategy
+
+## 0.1.54
+
+### Patch Changes
+
+- Updated TasksService with more optimisation to reduce DB calls.
+- Updated dependencies
+  - @baasix/types@1.0.5
+
 ## 0.1.53
 
 ### Patch Changes

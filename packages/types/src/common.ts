@@ -123,6 +123,9 @@ export interface BackgroundTask {
   id: string | number;
   task_status: string;
   scheduled_time: Date;
+  max_retries?: number;
+  retry_count?: number;
+  started_at?: Date | null;
   [key: string]: unknown;
 }
 

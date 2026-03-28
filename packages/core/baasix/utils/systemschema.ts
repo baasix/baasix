@@ -592,6 +592,25 @@ export const systemSchemas = {
                     task_data: { type: "JSON", allowNull: true },
                     result_data: { type: "JSON" },
                     error_data: { type: "JSON", allowNull: true },
+                    max_retries: {
+                        type: "Integer",
+                        allowNull: false,
+                        defaultValue: 0,
+                        description: "Maximum number of automatic retries if task stalls (0 = no retry)",
+                    },
+                    retry_count: {
+                        type: "Integer",
+                        allowNull: false,
+                        defaultValue: 0,
+                        SystemGenerated: "true",
+                        description: "Current retry count (auto-incremented on stall recovery)",
+                    },
+                    started_at: {
+                        type: "DateTime",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                        description: "Timestamp when task was last set to Running (for stall detection)",
+                    },
                     tenant_Id: {
                         type: "UUID",
                         allowNull: true,
@@ -611,7 +630,10 @@ export const systemSchemas = {
                 timestamps: true,
                 paranoid: false,
                 usertrack: true,
-                indexes: [],
+                indexes: [
+                    { fields: ["task_status", "scheduled_time"], name: "idx_tasks_status_schedule" },
+                    { fields: ["task_status", "started_at"], name: "idx_tasks_status_started" },
+                ],
             },
         },
         {
