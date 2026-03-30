@@ -137,6 +137,7 @@ app.use(
     credentials: env.get("AUTH_CORS_CREDENTIALS") !== "false",
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    exposedHeaders: ["Date"],
   })
 );
 

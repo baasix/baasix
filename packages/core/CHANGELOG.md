@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.57
+
+### Patch Changes
+
+- Expose date in response header
+
 ## 0.1.56
 
 ### Patch Changes
