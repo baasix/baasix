@@ -1,7 +1,7 @@
 import env from "../utils/env.js";
 import fs from "fs/promises";
 import path from "path";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { existsSync, mkdirSync } from "fs";
 import type { StorageProvider } from '../types/index.js';
@@ -77,6 +77,10 @@ class StorageService {
         const fullPath = path.join(basePath, filePath);
         await fs.unlink(fullPath);
       },
+      async listFiles(prefix: string) {
+        const files = await fs.readdir(basePath);
+        return files.filter((f) => f.startsWith(prefix));
+      },
       getPublicUrl(filePath: string) {
         return `/storage/${service}/${filePath}`;
       },
@@ -138,6 +142,14 @@ class StorageService {
           Key: filePath,
         });
         await s3Client.send(command);
+      },
+      async listFiles(prefix: string) {
+        const command = new ListObjectsV2Command({
+          Bucket: bucketName,
+          Prefix: prefix,
+        });
+        const response = await s3Client.send(command);
+        return (response.Contents || []).map((obj: any) => obj.Key!).filter(Boolean);
       },
       async getPublicUrl(filePath: string) {
         const command = new GetObjectCommand({

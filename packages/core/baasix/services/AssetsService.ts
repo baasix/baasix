@@ -305,29 +305,21 @@ class AssetsService extends FilesService {
   }
 
   /**
-   * Delete processed versions of an image when the original is deleted
-   * This can be called from a hook when a file is deleted
+   * Delete processed/resized versions of an image when the original is deleted.
+   * Overrides the no-op in FilesService.
    */
-  async deleteProcessedVersions(file: any): Promise<void> {
+  protected async deleteProcessedVersions(file: any): Promise<void> {
     if (!file.type?.startsWith("image/")) return;
 
     const provider = this.storageService.getProvider(file.storage);
-    const isS3 = provider.driver === "S3";
     const baseName = path.basename(file.filename, path.extname(file.filename));
     const pattern = `${baseName}_processed_`;
 
     try {
-      if (isS3) {
-        // For S3, we'd need to list objects with prefix - complex to implement
-        // Could be added later if needed
-        console.info("S3 processed version cleanup not implemented yet");
-      } else {
-        // For LOCAL storage, list directory and delete matching files
-        const files = await fs.promises.readdir(provider.basePath);
+      if (provider.listFiles) {
+        const files = await provider.listFiles(pattern);
         for (const f of files) {
-          if (f.startsWith(pattern)) {
-            await fs.promises.unlink(path.join(provider.basePath, f));
-          }
+          await provider.deleteFile(f);
         }
       }
     } catch (error) {

@@ -23,6 +23,7 @@ export interface StorageProvider {
   getFile: (filePath: string) => Promise<any>;
   deleteFile: (filePath: string) => Promise<void>;
   getPublicUrl: (filePath: string) => Promise<string> | string;
+  listFiles?: (prefix: string) => Promise<string[]>;
 }
 
 // ============================================================================

@@ -279,6 +279,21 @@ class FilesService {
     } else {
       throw new APIError(`Unsupported storage driver: ${provider.driver}`, 400);
     }
+
+    // Clean up any processed/resized versions of this image
+    try {
+      await this.deleteProcessedVersions(file);
+    } catch (error) {
+      console.error("Failed to delete processed versions:", error);
+    }
+  }
+
+  /**
+   * Delete processed/resized versions of an image file.
+   * Override in AssetsService for the actual implementation.
+   */
+  protected async deleteProcessedVersions(_file: any): Promise<void> {
+    // No-op in base FilesService; AssetsService overrides this
   }
 
   async uploadFromUrl(fileUrl: string, metadata: FileMetadata = {}): Promise<string | number> {

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.58
+
+### Patch Changes
+
+- Implemented logic to delete processed files when deleting the original file.
+
 ## 0.1.57
 
 ### Patch Changes
