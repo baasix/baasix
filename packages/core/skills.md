@@ -13,6 +13,7 @@ Baasix is an open-source Backend-as-a-Service (BaaS) that generates REST APIs fr
 - **50+ Filter Operators**: Most comprehensive query system
 - **Visual Workflows**: 17 node types for automation
 - **Enterprise Ready**: Multi-tenancy, caching, real-time
+- **Plugin System**: Extensible architecture with hooks, endpoints, schedules
 
 ---
 
@@ -35,6 +36,139 @@ SECRET_KEY=your-32-character-secret-key-here
 // 5. Run
 npm run dev
 ```
+
+---
+
+## API Routes Reference
+
+### Authentication Routes
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | /auth/register | Register new user | No |
+| POST | /auth/login | Login, returns JWT token | No |
+| GET | /auth/me | Get current authenticated user | Yes |
+| GET | /auth/logout | Logout and invalidate session | Yes |
+| POST | /auth/magiclink | Request magic link login | No |
+| POST | /auth/switch-tenant | Switch to different tenant | Yes |
+| POST | /auth/refresh | Refresh JWT token | Yes |
+| POST | /auth/forgot-password | Request password reset | No |
+| POST | /auth/reset-password | Reset password with token | No |
+
+### Authentication Examples
+
+```javascript
+// Register
+POST /auth/register
+{
+  "email": "user@example.com",
+  "password": "securepassword",
+  "firstName": "John",
+  "lastName": "Doe"
+}
+
+// Login - returns { token, user }
+POST /auth/login
+{
+  "email": "user@example.com",
+  "password": "securepassword"
+}
+
+// Use token in subsequent requests
+Authorization: Bearer <token>
+```
+
+### Items Routes (CRUD)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /items/:collection | List items with filtering, sorting, pagination |
+| GET | /items/:collection/:id | Get single item by ID |
+| POST | /items/:collection | Create single item |
+| PATCH | /items/:collection/:id | Update single item |
+| DELETE | /items/:collection/:id | Delete single item |
+| POST | /items/:collection/bulk | Bulk create multiple items |
+| PATCH | /items/:collection/bulk | Bulk update multiple items |
+| DELETE | /items/:collection/bulk | Bulk delete multiple items |
+
+### Schema Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /schemas | List all schemas |
+| GET | /schemas/:collection | Get schema for collection (call this BEFORE PATCH to get all existing fields) |
+| POST | /schemas | Create new schema/collection |
+| PATCH | /schemas/:collection | Update schema (⚠️ FULL REPLACEMENT — must include ALL fields, not just changes) |
+| DELETE | /schemas/:collection | Delete schema and table permanently |
+| POST | /schemas/:collection/relationships | Create relationship |
+| PATCH | /schemas/:collection/relationships/:name | Update relationship |
+| DELETE | /schemas/:collection/relationships/:name | Delete relationship |
+| POST | /schemas/:collection/indexes | Create index |
+| DELETE | /schemas/:collection/indexes/:name | Delete index |
+
+#### ⚠️ IMPORTANT: PATCH /schemas/:collection behavior
+
+The PATCH endpoint performs a **FULL REPLACEMENT** of the schema definition.
+When adding, modifying, or removing columns, you MUST:
+1. First GET /schemas/:collection to retrieve the current full schema
+2. Include ALL existing fields in your PATCH request body (not just new/changed ones)
+3. Add/modify/remove only the specific fields you need
+
+Sending only new fields will DELETE all other field definitions from the schema.
+
+### Files Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /files | List all files |
+| GET | /files/:id | Get file metadata |
+| POST | /files | Upload file (multipart/form-data) |
+| PATCH | /files/:id | Update file metadata |
+| DELETE | /files/:id | Delete file |
+| GET | /assets/:id | Get file with transformations |
+
+#### Asset Transformations (GET /assets/:id)
+
+| Parameter | Description | Values |
+|-----------|-------------|--------|
+| width | Target width | number |
+| height | Target height | number |
+| fit | Resize mode | cover, contain, fill, inside, outside |
+| quality | Output quality (1-100) | 1-100 |
+| format | Output format; defaults to jpeg. webp/png preserve transparency | jpeg, png, webp, avif |
+| withoutEnlargement | Prevent upscaling | true |
+
+```
+# Resize to WebP
+GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80&format=webp
+
+# Default (JPEG, transparency flattened to white)
+GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80
+```
+
+### Workflow Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /workflows | List workflows |
+| GET | /workflows/:id | Get workflow |
+| POST | /workflows | Create workflow |
+| PATCH | /workflows/:id | Update workflow |
+| DELETE | /workflows/:id | Delete workflow |
+| POST | /workflows/:id/execute | Execute workflow |
+| GET | /workflows/:id/executions | List executions |
+| POST | /workflows/:id/test | Test workflow |
+
+### Other Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /permissions | List permissions |
+| POST | /permissions | Create permission |
+| GET | /notifications | Get user notifications |
+| POST | /reports/:collection | Generate report |
+| GET | /settings | Get app settings |
+| PATCH | /settings | Update settings |
 
 ---
 
@@ -88,8 +222,7 @@ npm run dev
         "validate": {"min": 0}
       },
       "tags": {
-        "type": "Array",
-        "values": {"type": "String"},
+        "type": "Array_String",
         "defaultValue": []
       },
       "metadata": {
@@ -165,6 +298,49 @@ DELETE /items/products/{id}
 // Bulk operations
 POST /items/products/bulk
 [{ "name": "A", "sku": "A" }, { "name": "B", "sku": "B" }]
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| fields | string[] | Fields to return | `["id","name","author.*"]` |
+| filter | object | Filter conditions | `{"status":{"eq":"active"}}` |
+| sort | object/string[] | Sort order | `{"createdAt":"desc"}` or `["-createdAt"]` |
+| limit | number | Items per page (-1 for all) | 20 |
+| page | number | Page number (1-indexed) | 1 |
+| offset | number | Skip N records | 0 |
+| search | string | Full-text search | "keyword" |
+| searchFields | string[] | Fields to search | `["title","content"]` |
+| aggregate | object | Aggregation ops | `{"total":{"function":"count","field":"id"}}` |
+| groupBy | string[] | Group by fields | `["status","category"]` |
+| paranoid | boolean | Include soft-deleted | false |
+| relConditions | object | Filter array relations | `{"comments":{"approved":true}}` |
+
+### Field Selection Patterns
+
+```javascript
+// All direct fields
+fields: ["*"]
+
+// Specific fields
+fields: ["id", "name", "email"]
+
+// Include relation (all fields)
+fields: ["*", "author.*"]
+
+// Specific relation fields
+fields: ["*", "author.firstName", "author.email"]
+
+// Deep nesting
+fields: ["*", "posts.*", "posts.comments.*"]
+
+// Recursive expansion
+fields: ["*.*"]      // All direct + first level relations
+fields: ["*.*.*"]    // Full tree expansion
+
+// Exclude fields
+fields: ["*", "-password", "-secretKey"]
 ```
 
 ### Query with Filters
@@ -243,6 +419,18 @@ GET /items/products?aggregate={
 }
 ```
 
+### Aggregation Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| count | Count records | `{"total": {"function": "count", "field": "id"}}` |
+| sum | Sum values | `{"revenue": {"function": "sum", "field": "amount"}}` |
+| avg | Average | `{"avgPrice": {"function": "avg", "field": "price"}}` |
+| min | Minimum | `{"minAge": {"function": "min", "field": "age"}}` |
+| max | Maximum | `{"maxScore": {"function": "max", "field": "score"}}` |
+
+All numeric aggregate functions (`sum`, `avg`, `min`, `max`) return JavaScript numbers, including when applied to Decimal columns. `count` and `distinct` also return numbers. `array_agg` returns an array.
+
 ### Sorting and Pagination
 
 ```javascript
@@ -261,21 +449,1033 @@ GET /items/products?limit=-1
 
 ---
 
-## Task: Create a Hook Extension
+## Complete Filter Operators
 
-### File Structure
+### Basic Comparison Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| eq | Equal | `{"status": {"eq": "active"}}` |
+| ne | Not equal | `{"status": {"ne": "deleted"}}` |
+| gt | Greater than | `{"age": {"gt": 18}}` |
+| gte | Greater than or equal | `{"price": {"gte": 100}}` |
+| lt | Less than | `{"stock": {"lt": 10}}` |
+| lte | Less than or equal | `{"rating": {"lte": 5}}` |
+| is | IS (for null) | `{"deletedAt": {"is": null}}` |
+| not | NOT (alternative to ne) | `{"status": {"not": "spam"}}` |
+
+### Collection Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| in | Value in array | `{"status": {"in": ["active", "pending"]}}` |
+| notIn | Value not in array | `{"category": {"notIn": ["spam", "deleted"]}}` |
+
+### String Pattern Operators (Auto-wrap with %)
+
+| Operator | Description | Pattern | Example |
+|----------|-------------|---------|---------|
+| like | Case-sensitive | %value% | `{"name": {"like": "john"}}` |
+| notLike | NOT LIKE | %value% | `{"name": {"notLike": "spam"}}` |
+| iLike | Case-insensitive | %value% | `{"email": {"iLike": "GMAIL"}}` |
+| notILike | NOT ILIKE | %value% | `{"email": {"notILike": "test"}}` |
+
+### Prefix/Suffix Operators
+
+| Operator | Description | Pattern | Case |
+|----------|-------------|---------|------|
+| startsWith | Starts with | value% | Insensitive |
+| startsWiths | Starts with | value% | Sensitive |
+| endsWith | Ends with | %value | Insensitive |
+| endsWiths | Ends with | %value | Sensitive |
+| nstartsWith | NOT starts with | value% | Insensitive |
+| nstartsWiths | NOT starts with | value% | Sensitive |
+| nendsWith | NOT ends with | %value | Insensitive |
+| nendsWiths | NOT ends with | %value | Sensitive |
+
+```javascript
+// Examples
+{"name": {"startsWith": "John"}}     // John%, case-insensitive
+{"email": {"endsWith": ".edu"}}      // %.edu, case-insensitive
+{"code": {"startsWiths": "PRD"}}     // PRD%, case-sensitive
 ```
-extensions/
-  baasix-hook-products/
-    index.js
+
+### Range Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| between | BETWEEN min AND max | `{"price": {"between": [10, 100]}}` |
+| notBetween | NOT BETWEEN | `{"age": {"notBetween": [0, 17]}}` |
+
+### Null Check Operators
+
+| Operator | Value | Result |
+|----------|-------|--------|
+| isNull | true | IS NULL |
+| isNull | false | IS NOT NULL |
+| isNotNull | true | IS NOT NULL |
+| isNotNull | false | IS NULL |
+
+```javascript
+{"deletedAt": {"isNull": true}}      // Not deleted
+{"avatar": {"isNotNull": true}}      // Has avatar
 ```
+
+### PostgreSQL Array Operators
+
+| Operator | PostgreSQL | Description | Example |
+|----------|------------|-------------|---------|
+| arraycontains | @> | Array contains all | `{"tags": {"arraycontains": ["js", "api"]}}` |
+| arraycontained | <@ | Array contained by | `{"perms": {"arraycontained": ["read", "write", "admin"]}}` |
+
+### JSONB Operators
+
+#### Containment
+| Operator | PostgreSQL | Description |
+|----------|------------|-------------|
+| jsonbContains | @> | JSONB contains object |
+| jsonbContainedBy | <@ | JSONB is contained by |
+| jsonbNotContains | NOT @> | JSONB does not contain |
+
+```javascript
+{"metadata": {"jsonbContains": {"status": "active", "type": "premium"}}}
+```
+
+#### Key Existence
+| Operator | PostgreSQL | Description |
+|----------|------------|-------------|
+| jsonbHasKey | ? | Has key |
+| jsonbHasAnyKeys | ?| | Has any of keys |
+| jsonbHasAllKeys | ?& | Has all keys |
+
+```javascript
+{"metadata": {"jsonbHasKey": "discount"}}
+{"metadata": {"jsonbHasAnyKeys": ["promo", "coupon"]}}
+{"metadata": {"jsonbHasAllKeys": ["price", "stock", "sku"]}}
+```
+
+#### Key Value Comparisons
+| Operator | Description | Example |
+|----------|-------------|---------|
+| jsonbKeyEquals | Key equals value | `{"metadata": {"jsonbKeyEquals": {"key": "status", "value": "active"}}}` |
+| jsonbKeyNotEquals | Key not equals | `{"metadata": {"jsonbKeyNotEquals": {"key": "status", "value": "deleted"}}}` |
+| jsonbKeyGt | Key > value | `{"metadata": {"jsonbKeyGt": {"key": "price", "value": 100}}}` |
+| jsonbKeyGte | Key >= value | `{"metadata": {"jsonbKeyGte": {"key": "stock", "value": 10}}}` |
+| jsonbKeyLt | Key < value | `{"metadata": {"jsonbKeyLt": {"key": "discount", "value": 50}}}` |
+| jsonbKeyLte | Key <= value | `{"metadata": {"jsonbKeyLte": {"key": "rating", "value": 5}}}` |
+| jsonbKeyIn | Key in list | `{"metadata": {"jsonbKeyIn": {"key": "type", "values": ["A", "B"]}}}` |
+| jsonbKeyNotIn | Key not in list | `{"metadata": {"jsonbKeyNotIn": {"key": "category", "values": ["spam"]}}}` |
+| jsonbKeyLike | Key ILIKE pattern | `{"metadata": {"jsonbKeyLike": {"key": "name", "pattern": "%test%"}}}` |
+| jsonbKeyIsNull | Key is null | `{"metadata": {"jsonbKeyIsNull": "deletedAt"}}` |
+| jsonbKeyIsNotNull | Key is not null | `{"metadata": {"jsonbKeyIsNotNull": "publishedAt"}}` |
+
+#### JSON Path Operators
+| Operator | PostgreSQL | Description |
+|----------|------------|-------------|
+| jsonbPathExists | @? | Path returns items |
+| jsonbPathMatch | @@ | Path predicate matches |
+
+```javascript
+{"profile": {"jsonbPathExists": "$.user.preferences"}}
+{"metadata": {"jsonbPathMatch": "$.price > 100"}}
+```
+
+#### Deep Nested Value Access
+```javascript
+// Access deeply nested value
+{"profile": {"jsonbDeepValue": {
+  "path": ["user", "preferences", "theme"],
+  "value": "dark"
+}}}
+
+// With comparison operator
+{"profile": {"jsonbDeepValue": {
+  "path": ["stats", "loginCount"],
+  "value": 10,
+  "op": "gte"  // eq, ne, gt, gte, lt, lte, like, ilike
+}}}
+```
+
+#### JSONB Array/Type Operators
+```javascript
+// Check array length
+{"tags": {"jsonbArrayLength": {"op": "gte", "value": 3}}}
+
+// Check type
+{"metadata": {"jsonbTypeOf": {"type": "object"}}}
+// Types: object, array, string, number, boolean, null
+```
+
+### Geospatial Operators (PostGIS)
+
+| Operator | PostGIS | Description |
+|----------|---------|-------------|
+| within | ST_Within | Geometry within another |
+| containsGEO | ST_Contains | Geometry contains another |
+| intersects | ST_Intersects | Geometries intersect |
+| nIntersects | NOT ST_Intersects | Don't intersect |
+| dwithin | ST_DWithin | Within distance |
+
+```javascript
+// Point within polygon
+{"location": {"within": {
+  "type": "Polygon",
+  "coordinates": [[[lng1,lat1], [lng2,lat2], [lng3,lat3], [lng1,lat1]]]
+}}}
+
+// Within radius (distance in meters)
+{"location": {"dwithin": {
+  "geometry": {"type": "Point", "coordinates": [-74.006, 40.7128]},
+  "distance": 5000
+}}}
+
+// Sort by distance
+{"sort": {"_distance": {
+  "target": [-74.006, 40.7128],
+  "column": "location",
+  "direction": "ASC"
+}}}
+```
+
+### Logical Operators
+
+```javascript
+// AND (explicit)
+{"AND": [
+  {"status": {"eq": "published"}},
+  {"views": {"gt": 100}}
+]}
+
+// OR
+{"OR": [
+  {"status": {"eq": "featured"}},
+  {"views": {"gt": 1000}}
+]}
+
+// Nested
+{"AND": [
+  {"OR": [
+    {"status": {"eq": "published"}},
+    {"status": {"eq": "featured"}}
+  ]},
+  {"createdAt": {"gt": "2025-01-01"}}
+]}
+
+// Implicit AND (multiple keys)
+{"status": {"eq": "active"}, "price": {"lt": 100}}
+```
+
+### Column-to-Column Comparisons
+
+Use `$COL(columnName)` to compare against another column:
+
+```javascript
+// Compare two fields
+{"actualCost": {"gt": "$COL(estimatedCost)"}}
+
+// With type casting
+{"startTime": {"gt": "$COL(endTime)", "cast": "time"}}
+
+// PostgreSQL cast in reference
+{"startTime": {"gt": "$COL(endTime::time)"}}
+
+// Relational comparison
+{"salary": {"gt": "$COL(manager.salary)"}}
+```
+
+### Type Casting
+
+Add `"cast": "type"` to any filter condition:
+
+| Cast Type | Description |
+|-----------|-------------|
+| text, varchar | Convert to string |
+| integer, bigint | Convert to integer |
+| decimal, numeric | Convert to decimal |
+| boolean | Convert to boolean |
+| date | Extract date from datetime |
+| time | Extract time from datetime |
+| timestamp | Convert to timestamp |
+| uuid | Convert to UUID |
+| json, jsonb | Convert to JSON |
+
+```javascript
+// Date extraction
+{"createdAt": {"eq": "2025-01-15", "cast": "date"}}
+
+// Time extraction
+{"workStart": {"between": ["08:00:00", "18:00:00"], "cast": "time"}}
+
+// Number to text for pattern matching
+{"price": {"startsWith": "199", "cast": "text"}}
+```
+
+### Dynamic Variables
+
+| Variable | Description |
+|----------|-------------|
+| $CURRENT_USER | Current user's ID |
+| $CURRENT_USER.field | User's field (e.g., $CURRENT_USER.department) |
+| $CURRENT_ROLE | Current role's ID |
+| $CURRENT_ROLE.field | Role's field |
+| $CURRENT_TENANT | Current tenant ID |
+| $CURRENT_TENANT.field | Tenant's field (e.g., $CURRENT_TENANT.name) |
+| $CURRENT_SETTINGS.field | Settings field, tenant-aware (e.g., $CURRENT_SETTINGS.currency) |
+| $NOW | Current timestamp |
+
+```javascript
+{"authorId": {"eq": "$CURRENT_USER"}}
+{"tenant_Id": {"eq": "$CURRENT_TENANT"}}
+{"publishedAt": {"lte": "$NOW"}}
+```
+
+### Relative Date Variables
+
+Pattern: `$NOW[+|-][UNIT]_[NUMBER]`
+
+| Unit | Example |
+|------|---------|
+| SECONDS | $NOW-SECONDS_30 |
+| MINUTES | $NOW+MINUTES_15 |
+| HOURS | $NOW-HOURS_2 |
+| DAYS | $NOW+DAYS_7 |
+| WEEKS | $NOW-WEEKS_3 |
+| MONTHS | $NOW+MONTHS_6 |
+| YEARS | $NOW-YEARS_1 |
+
+```javascript
+// Last 30 days
+{"createdAt": {"gte": "$NOW-DAYS_30"}}
+
+// Next week
+{"scheduledAt": {"between": ["$NOW", "$NOW+DAYS_7"]}}
+
+// Last 2 hours
+{"lastModified": {"gte": "$NOW-HOURS_2"}}
+```
+
+### Relational Field Filtering
+
+```javascript
+// BelongsTo
+{"author.name": {"like": "John"}}
+
+// Deep nesting (3+ levels)
+{"comments.user.profile.verified": {"eq": true}}
+
+// Arrays in relations
+{"author.skills": {"arraycontains": ["javascript"]}}
+```
+
+---
+
+## Schema Definition Reference
+
+### Complete Schema Structure
+
+```javascript
+POST /schemas
+{
+  "collectionName": "products",
+  "schema": {
+    "name": "Product",
+    "timestamps": true,        // createdAt, updatedAt
+    "paranoid": false,         // deletedAt for soft deletes
+    "indexes": [],
+    "fields": {
+      "id": {
+        "type": "UUID",
+        "primaryKey": true,
+        "defaultValue": {"type": "UUIDV4"}
+      }
+      // ... more fields
+    }
+  }
+}
+```
+
+### Field Types Reference
+
+| Type | PostgreSQL | Description |
+|------|------------|-------------|
+| **String types** | | |
+| String | VARCHAR(255) | Short text (use values.length for custom) |
+| Text | TEXT | Unlimited text |
+| CiText | CITEXT | Case-insensitive text |
+| HTML | TEXT | HTML content |
+| **Numeric types** | | |
+| Integer | INTEGER | 32-bit integer |
+| BigInt | BIGINT | 64-bit integer |
+| Real | REAL | Single-precision floating point |
+| Double | DOUBLE PRECISION | Double-precision floating point |
+| Decimal | DECIMAL(p,s) | Exact decimal (values: precision, scale) |
+| **Boolean** | | |
+| Boolean | BOOLEAN | true/false |
+| **Date/Time types** | | |
+| Date | DATE | Date only |
+| DateTime | TIMESTAMP WITH TZ | Date and time (with timezone) |
+| DateTime_NO_TZ | TIMESTAMP | Date and time (without timezone) |
+| Time | TIME WITH TZ | Time only (with timezone) |
+| Time_NO_TZ | TIME | Time only (without timezone) |
+| **Identifiers** | | |
+| UUID | UUID | UUID v4 |
+| TOKEN | VARCHAR(9) | 9-character token |
+| **JSON types** | | |
+| JSON | JSON | JSON (not queryable) |
+| JSONB | JSONB | Binary JSON (queryable, indexed) |
+| **Enum** | | |
+| ENUM | VARCHAR(255) | Stored as varchar |
+| **Virtual** | | |
+| VIRTUAL | (computed) | Computed column (requires `calculated` expression) |
+| **Array types** | | |
+| Array_String | TEXT[] | Array of strings |
+| Array_Integer | INTEGER[] | Array of integers |
+| Array_Double | DOUBLE PRECISION[] | Array of doubles |
+| Array_Decimal | NUMERIC[] | Array of decimals |
+| Array_DateTime | TIMESTAMP WITH TZ[] | Array of datetimes |
+| Array_DateTime_NO_TZ | TIMESTAMP[] | Array of datetimes (no TZ) |
+| Array_Date | DATE[] | Array of dates |
+| Array_Time | TIME WITH TZ[] | Array of times |
+| Array_Time_NO_TZ | TIME[] | Array of times (no TZ) |
+| Array_UUID | UUID[] | Array of UUIDs |
+| Array_Boolean | BOOLEAN[] | Array of booleans |
+| **Range types** | | |
+| Range_Integer | INT4RANGE | Integer range |
+| Range_Double | NUMRANGE | Double range |
+| Range_Decimal | NUMRANGE | Decimal range |
+| Range_DateTime | TSTZRANGE | DateTime range (with TZ) |
+| Range_DateTime_NO_TZ | TSRANGE | DateTime range (no TZ) |
+| Range_Date | DATERANGE | Date range |
+| Range_Time | (time range) | Time range (with TZ) |
+| Range_Time_NO_TZ | (time range) | Time range (no TZ) |
+| **PostGIS Geometry** | | |
+| Point | POINT | PostGIS point |
+| LineString | LINESTRING | PostGIS linestring |
+| Polygon | POLYGON | PostGIS polygon |
+| MultiPoint | MULTIPOINT | Multiple points |
+| MultiLineString | MULTILINESTRING | Multiple linestrings |
+| MultiPolygon | MULTIPOLYGON | Multiple polygons |
+| GeometryCollection | GEOMETRYCOLLECTION | Collection of geometries |
+| Geography | GEOGRAPHY | Geographic coordinates |
+
+### Field Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| type | string | Field type (required) |
+| primaryKey | boolean | Is primary key |
+| allowNull | boolean | Allow NULL values |
+| unique | boolean | Unique constraint |
+| defaultValue | any | Default value or type object |
+| values | object | Type-specific options |
+| validate | object | Validation rules |
+| comment | string | Column comment |
+
+### Default Value Types
+
+```javascript
+{"type": "UUIDV4"}         // Generate UUID v4
+{"type": "SUID"}           // Generate short unique ID (compact, URL-safe)
+{"type": "NOW"}            // Current timestamp
+{"type": "AUTOINCREMENT"}  // Auto-incrementing integer
+{"type": "SQL", "value": "(SELECT ...)"} // Custom SQL expression
+"static value"             // Literal value
+0                          // Numeric default
+false                      // Boolean default
+[]                         // Empty array
+{}                         // Empty object
+```
+
+#### SQL Default Value Examples
+
+```javascript
+// Next sort order
+{
+  "sortOrder": {
+    "type": "Integer",
+    "defaultValue": {"type": "SQL", "value": "(SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products)"}
+  }
+}
+
+// Random code
+{
+  "code": {
+    "type": "String",
+    "defaultValue": {"type": "SQL", "value": "md5(random()::text)"}
+  }
+}
+
+// Current fiscal year
+{
+  "fiscalYear": {
+    "type": "Integer",
+    "defaultValue": {"type": "SQL", "value": "EXTRACT(YEAR FROM CURRENT_DATE)"}
+  }
+}
+```
+
+### Field Validation Rules
+
+Baasix enforces validation rules at runtime during create and update operations.
+
+#### Numeric Validation (Integer, BigInt, Decimal, Double, Real)
+
+```javascript
+{
+  "age": {
+    "type": "Integer",
+    "validate": {
+      "min": 0,          // Minimum allowed value
+      "max": 150,        // Maximum allowed value
+      "isInt": true      // Must be integer (for Double/Decimal)
+    }
+  },
+  "price": {
+    "type": "Decimal",
+    "values": {"precision": 10, "scale": 2},
+    "validate": {
+      "min": 0.01,
+      "max": 99999.99
+    }
+  }
+}
+```
+
+#### String Validation
+
+```javascript
+{
+  "email": {
+    "type": "String",
+    "validate": {
+      "isEmail": true,      // Must be valid email format
+      "notEmpty": true,     // Cannot be empty string
+      "len": [5, 255]       // Length between 5-255 characters
+    }
+  },
+  "website": {
+    "type": "String",
+    "validate": {
+      "isUrl": true         // Must be valid URL format
+    }
+  },
+  "zipCode": {
+    "type": "String",
+    "validate": {
+      "is": "^\\d{5}(-\\d{4})?$"  // Regex pattern matching
+    }
+  }
+}
+```
+
+#### Array Validation
+
+Validation rules apply to each element in the array:
+
+```javascript
+{
+  "scores": {
+    "type": "Array_Integer",
+    "validate": {
+      "min": 0,    // Each element must be >= 0
+      "max": 100   // Each element must be <= 100
+    }
+  }
+}
+```
+
+#### Range Validation
+
+Validation rules apply to both lower and upper bounds. Also ensures lower bound <= upper bound.
+
+```javascript
+{
+  "age_range": {
+    "type": "Range_Integer",
+    "validate": {
+      "min": 0,    // Lower/upper bounds must be >= 0
+      "max": 200   // Lower/upper bounds must be <= 200
+    }
+  }
+}
+```
+
+### Field Definition Examples
+
+```javascript
+{
+  // Primary key
+  "id": {
+    "type": "UUID",
+    "primaryKey": true,
+    "defaultValue": {"type": "UUIDV4"}
+  },
+
+  // String with length
+  "title": {
+    "type": "String",
+    "allowNull": false,
+    "values": {"length": 500}
+  },
+
+  // Text (unlimited)
+  "content": {
+    "type": "Text",
+    "allowNull": true
+  },
+
+  // Decimal with precision
+  "price": {
+    "type": "Decimal",
+    "values": {"precision": 10, "scale": 2},
+    "allowNull": false,
+    "defaultValue": 0.00
+  },
+
+  // Integer with validation
+  "age": {
+    "type": "Integer",
+    "validate": {"min": 0, "max": 150}
+  },
+
+  // Boolean with default
+  "isPublished": {
+    "type": "Boolean",
+    "allowNull": false,
+    "defaultValue": false
+  },
+
+  // DateTime
+  "publishedAt": {
+    "type": "DateTime",
+    "allowNull": true
+  },
+
+  // Array of strings
+  "tags": {
+    "type": "Array_String",
+    "defaultValue": []
+  },
+
+  // JSONB
+  "metadata": {
+    "type": "JSONB",
+    "allowNull": true,
+    "defaultValue": {}
+  },
+
+  // Geometry (PostGIS)
+  "location": {
+    "type": "Point",
+    "allowNull": true
+  }
+}
+```
+
+### Relationship Types
+
+#### M2O (Many-to-One / BelongsTo)
+```javascript
+POST /schemas/posts/relationships
+{
+  "type": "M2O",
+  "target": "baasix_User",
+  "name": "author",         // Field on posts
+  "alias": "posts"          // Reverse relation name on users (optional)
+}
+// Creates: posts.author_Id → baasix_User.id
+// Auto-creates index on author_Id for better query performance
+```
+
+#### O2M (One-to-Many / HasMany)
+```javascript
+// Automatically created as reverse of M2O
+// Access: user.posts
+```
+
+#### M2M (Many-to-Many)
+```javascript
+POST /schemas/posts/relationships
+{
+  "type": "M2M",
+  "target": "tags",
+  "name": "tags",
+  "alias": "posts"
+}
+// Creates junction table: posts_tags_tags_junction (auto-generated)
+// Junction table has isJunction: true in schema
+
+// With custom junction table name (useful for long collection names)
+POST /schemas/posts/relationships
+{
+  "type": "M2M",
+  "target": "tags",
+  "name": "tags",
+  "alias": "posts",
+  "through": "post_tags"    // Custom name (max 63 chars for PostgreSQL)
+}
+```
+
+#### M2A (Many-to-Any / Polymorphic)
+```javascript
+POST /schemas/comments/relationships
+{
+  "type": "M2A",
+  "name": "commentable",
+  "tables": ["posts", "products"],  // Can relate to multiple collections
+  "alias": "comments",
+  "through": "comment_refs"          // Optional custom junction table name
+}
+// Creates polymorphic junction table with collection column
+```
+
+#### Junction Tables (M2M/M2A)
+- **Auto-generated name**: `{source}_{target}_{name}_junction`
+- **Custom name**: Use `through` property (max 63 characters for PostgreSQL)
+- **Schema property**: `isJunction: true` marks junction tables
+- **Auto-indexed**: All FK columns are automatically indexed
+
+### Indexes
+
+```javascript
+POST /schemas/:collection/indexes
+{
+  "name": "idx_email_unique",
+  "fields": ["email"],
+  "unique": true
+}
+
+// Composite index
+{
+  "name": "idx_status_created",
+  "fields": ["status", "createdAt"]
+}
+```
+
+---
+
+## Services API
+
+### ItemsService
+
+```javascript
+import { ItemsService } from "@baasix/baasix";
+
+const service = new ItemsService("collection_name", {
+  accountability: req.accountability,  // User context
+  tenant: tenantId                      // For multi-tenant
+});
+
+// Read methods
+const result = await service.readByQuery({
+  filter: {...},
+  fields: [...],
+  sort: {...},
+  limit: 20,
+  page: 1,
+  search: "term",
+  searchFields: ["field1", "field2"],
+  relConditions: {...}
+});
+// Returns: { data: [...], totalCount: number }
+
+const item = await service.readOne(id, { fields: [...] });
+
+// Write methods
+const id = await service.createOne(data);
+const ids = await service.createMany([data1, data2]);
+const id = await service.updateOne(id, data);
+const ids = await service.updateMany([id1, id2], data);
+await service.deleteOne(id);
+await service.deleteMany([id1, id2]);
+
+// Soft delete (if paranoid enabled on schema)
+// deleteOne automatically soft-deletes for paranoid schemas
+await service.deleteOne(id); // soft deletes
+await service.deleteOne(id, { force: true }); // hard deletes
+await service.restore(id); // restores soft-deleted item
+
+// Options
+await service.createOne(data, { 
+  bypassPermissions: true,
+  bypassHooks: true 
+});
+```
+
+### FilesService
+
+```javascript
+import { FilesService } from "@baasix/baasix";
+
+const filesService = new FilesService({ accountability });
+
+// Upload file
+const fileId = await filesService.createOne(
+  { file: req.files.upload },
+  { title: "Photo", storage: "local", isPublic: true }
+);
+
+// Get file
+const file = await filesService.readOne(fileId);
+
+// Delete file
+await filesService.deleteOne(fileId);
+
+// Download from URL
+const fileId = await filesService.downloadFromUrl(url, metadata);
+```
+
+### MailService
+
+```javascript
+import { MailService } from "@baasix/baasix";
+
+await MailService.sendMail({
+  to: "user@example.com",
+  subject: "Welcome!",
+  templateName: "welcome",  // templates/mails/welcome.liquid
+  context: { userName: "John", link: "https://..." }
+});
+```
+
+### NotificationService
+
+```javascript
+import { NotificationService } from "@baasix/baasix";
+
+const notificationService = new NotificationService({ accountability });
+
+await notificationService.send({
+  type: "info",
+  title: "New Comment",
+  message: "Someone commented",
+  data: { postId: "123" },
+  userIds: ["user-1", "user-2"]
+});
+
+await notificationService.markAsSeen(userId, notificationIds);
+const count = await notificationService.getUnreadCount(userId);
+```
+
+### CacheService
+
+```javascript
+import { getCacheService, invalidateCollection, invalidateEntireCache } from "@baasix/baasix";
+
+const cache = getCacheService();
+
+await cache.set("key", value, ttlInSeconds);
+const value = await cache.get("key");
+await cache.delete("key");
+
+// Invalidate collection cache
+await invalidateCollection("posts");
+
+// Clear all cache
+await invalidateEntireCache();
+```
+
+### StorageService
+
+```javascript
+import { StorageService } from "@baasix/baasix";
+
+// Save file
+const path = await StorageService.saveFile("local", "path/file.pdf", buffer);
+
+// Get file
+const buffer = await StorageService.getFile("local", "path/file.pdf");
+
+// Get URL (signed for S3)
+const url = await StorageService.getPublicUrl("s3", "path/file.pdf");
+
+// Delete
+await StorageService.deleteFile("local", "path/file.pdf");
+```
+
+### ReportService
+
+```javascript
+import { ReportService } from "@baasix/baasix";
+
+const reportService = new ReportService("orders", { accountability });
+
+// Generate a report with fields, filter, sort, aggregate, groupBy
+const report = await reportService.generateReport({
+  fields: ["status", "category"],
+  filter: { status: { eq: "completed" } },
+  sort: { createdAt: "desc" },
+  limit: 100,
+  page: 1,
+  aggregate: {
+    revenue: { function: "sum", field: "total" },
+    count: { function: "count", field: "id" }
+  },
+  groupBy: ["status", "category"]
+});
+// Uses ItemsService internally, supports grouped reports with relational fields
+```
+
+### StatsService
+
+```javascript
+import { StatsService } from "@baasix/baasix";
+
+const statsService = new StatsService({ accountability });
+
+// Generate stats across multiple collections
+const result = await statsService.generateStats([
+  {
+    name: "totalOrders",
+    collection: "orders",
+    query: {
+      aggregate: { count: { function: "count", field: "id" } },
+      filter: { status: { eq: "completed" } }
+    }
+  },
+  {
+    name: "totalRevenue",
+    collection: "orders",
+    query: {
+      aggregate: { total: { function: "sum", field: "amount" } }
+    }
+  },
+  {
+    name: "activeUsers",
+    collection: "baasix_User",
+    query: {
+      aggregate: { count: { function: "count", field: "id" } },
+      filter: { status: { eq: "active" } }
+    }
+  }
+]);
+// Returns: { data, totalStats, successfulStats }
+// Creates a ReportService per collection internally
+```
+
+### WorkflowService
+
+```javascript
+import { WorkflowService } from "@baasix/baasix";
+
+const workflowService = new WorkflowService({ accountability });
+
+// Execute workflow
+const result = await workflowService.executeWorkflow(
+  workflowId,
+  triggerData
+);
+```
+
+### TasksService
+
+Background task management with distributed locking, atomic claiming, stall recovery, and concurrency control.
+
+```javascript
+// Atomic task claiming — prevents duplicate processing
+const claimed = await tasksService.claimTask(taskId);
+if (!claimed) continue; // Already taken by another worker
+
+// Get cached "Not started" tasks (within 4hr window)
+const tasks = await tasksService.getNotStartedTasks();
+
+// Distributed job locking — for cron jobs that must run on one instance
+const locked = await tasksService.acquireJobLock('job-name', ttlSeconds);
+try { /* process */ } finally { await tasksService.releaseJobLock('job-name'); }
+
+// Instance-level concurrency lock (respects TASK_CONCURRENCY)
+const acquired = await tasksService.tryAcquireLock(60);
+try { /* process */ } finally { await tasksService.releaseLock(); }
+
+// Force cache refresh
+await tasksService.forceRefresh();
+
+// Cache stats
+const stats = await tasksService.getCacheStats();
+```
+
+#### TasksService Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| TASK_SERVICE_ENABLED | false | Enable task service |
+| TASK_CONCURRENCY | 1 | Max concurrent tasks per instance |
+| TASK_STALL_TIMEOUT | 300 | Seconds before Running task is stalled |
+| TASK_LIST_REFRESH_INTERVAL | 600 | Cache refresh interval in seconds |
+| TASK_SHUTDOWN_WAIT_TIME | 30 | Wait for running tasks on shutdown |
+| TASK_REDIS_ENABLED | false | Enable Redis for distributed locking |
+| TASK_REDIS_URL | - | Redis URL for distributed locking |
+
+#### baasix_Tasks Table Columns
+
+- `task_status`: "Not started" | "Running" | "Completed" | "Error"
+- `type`: Task type string
+- `scheduled_time`: When to execute
+- `started_at`: Auto-set when task starts (used for stall detection)
+- `max_retries`: Max retry attempts (default: 0)
+- `retry_count`: Current retry count (system-managed)
+- `task_data`: JSON task payload
+- `result_data`: JSON result
+- `error_data`: JSON error info
+
+#### Stall Recovery
+
+Automatic — runs during init and each cache refresh:
+- Tasks in "Running" beyond `TASK_STALL_TIMEOUT` are detected
+- If `retry_count < max_retries`: reset to "Not started" for retry
+- Otherwise: marked as "Error"
+
+---
+
+## Extensions
+
+### Extension Types
+
+| Type | Folder Pattern | Purpose |
+|------|----------------|---------|
+| Hook | baasix-hook-{name} | Lifecycle hooks |
+| Endpoint | baasix-endpoint-{name} | Custom API routes |
+| Schedule | baasix-schedule-{name} | Cron jobs |
+| Template | baasix-templates | Email/custom templates |
+
+### Hook Extension Context
+
+Hook extensions receive `(hooksService, context)` where context contains:
+
+```javascript
+{
+  db,                  // Drizzle database instance
+  permissionService,   // PermissionService instance
+  mailService,         // MailService (static methods)
+  storageService,      // StorageService instance
+  ItemsService,        // ItemsService class (constructor)
+  tasksService         // TasksService instance
+}
+```
+
+> **Note**: For other services like ReportService, StatsService, FilesService, getCacheService, etc., import them directly from `@baasix/baasix` in your extension.
+
+### Hook Events Reference
+
+| Event | Phase | Can Modify |
+|-------|-------|------------|
+| items.create | Before | data |
+| items.create.after | After | - |
+| items.read | Before (list) | query |
+| items.read.after | After (list) | result |
+| items.read.one | Before (single) | query |
+| items.read.one.after | After (single) | result |
+| items.update | Before | data |
+| items.update.after | After | - |
+| items.delete | Before | - (can throw) |
+| items.delete.after | After | - |
 
 ### Complete Hook Example
 
 ```javascript
 // extensions/baasix-hook-products/index.js
 export default (hooksService, context) => {
-  const { ItemsService, MailService, getCacheService } = context;
+  const { ItemsService, mailService } = context;
 
   // ==========================================
   // BEFORE CREATE - Validate & Transform
@@ -324,14 +1524,9 @@ export default (hooksService, context) => {
     collection,
     db
   }) => {
-    // Invalidate cache
-    const cache = getCacheService();
-    await cache.delete("products:list");
-    await cache.delete(`products:category:${document.category_Id}`);
-
-    // Send notification to admin
+    // Send notification to admin for high-value products
     if (document.price > 1000) {
-      await MailService.sendMail({
+      await mailService.sendMail({
         to: "admin@example.com",
         subject: "High-value product created",
         templateName: "high-value-product",
@@ -452,18 +1647,7 @@ export default (hooksService, context) => {
 };
 ```
 
----
-
-## Task: Create an Endpoint Extension
-
-### File Structure
-```
-extensions/
-  baasix-endpoint-dashboard/
-    index.js
-```
-
-### Complete Endpoint Example
+### Endpoint Extension
 
 ```javascript
 // extensions/baasix-endpoint-dashboard/index.js
@@ -595,8 +1779,8 @@ export default {
         });
 
         // Send notification email
-        const { MailService } = context;
-        await MailService.sendMail({
+        const { mailService } = context;
+        await mailService.sendMail({
           to: "support@example.com",
           subject: `New Contact: ${subject || "General Inquiry"}`,
           templateName: "contact-notification",
@@ -653,7 +1837,9 @@ export default {
 
         const { id } = req.params;
         const { accountability } = req;
-        const { FilesService } = context;
+
+        // Import FilesService directly (not in hook context)
+        const { FilesService } = await import("@baasix/baasix");
 
         // Upload file
         const filesService = new FilesService({ accountability });
@@ -681,19 +1867,16 @@ export default {
 };
 ```
 
----
-
-## Task: Create a Schedule Extension
+### Schedule Extension
 
 ```javascript
 // extensions/baasix-schedule-cleanup/index.js
 export default {
   id: "nightly-cleanup",
-  schedule: "0 2 * * *",  // 2 AM daily
+  schedule: "0 2 * * *",  // 2 AM daily (cron syntax)
 
   handler: async (context) => {
-    const { ItemsService, getCacheService } = context;
-    const cache = getCacheService();
+    const { ItemsService } = context;
 
     // Clean old logs (30 days)
     const logsService = new ItemsService("activity_logs", {});
@@ -727,16 +1910,98 @@ export default {
       console.log(`Deleted ${expiredSessions.data.length} expired sessions`);
     }
 
-    // Clear cache
-    await cache.delete("dashboard:*");
-    console.log("Cache cleared");
+    console.log("Cleanup completed");
   }
+};
+```
+
+### Accessing Additional Services in Extensions
+
+```javascript
+// Hook or endpoint extension — import additional services directly
+import {
+  ReportService,
+  StatsService,
+  FilesService,
+  getCacheService,
+  invalidateCollection,
+  invalidateEntireCache,
+  WorkflowService,
+  NotificationService
+} from "@baasix/baasix";
+
+export default (hooksService, context) => {
+  // context has: db, permissionService, mailService, storageService, ItemsService, tasksService
+
+  hooksService.registerHook("orders", "items.create.after", async ({ document, accountability }) => {
+    // Use imported services
+    const cache = getCacheService();
+    await cache.delete("dashboard:stats");
+    await invalidateCollection("orders");
+
+    const reportService = new ReportService("orders", { accountability });
+    const report = await reportService.generateReport({
+      aggregate: { total: { function: "sum", field: "amount" } }
+    });
+
+    const notificationService = new NotificationService({ accountability });
+    await notificationService.send({
+      type: "info",
+      title: "New Order",
+      message: `Order total: ${document.total}`,
+      userIds: ["admin-user-id"]
+    });
+  });
 };
 ```
 
 ---
 
-## Task: Set Up Permissions
+## Workflow System
+
+### Trigger Types
+
+| Type | Description |
+|------|-------------|
+| manual | Execute via API |
+| webhook | Execute via webhook URL |
+| schedule | Cron-based execution |
+| hook | Trigger on data changes |
+
+### Node Types (17 total)
+
+| Node | Purpose |
+|------|---------|
+| HTTP | Make HTTP requests |
+| Transform | Transform data |
+| Condition | Conditional branching |
+| Service | Call ItemsService methods |
+| Loop | Iterate over arrays |
+| Filter | Filter array items |
+| Aggregate | Aggregate calculations |
+| Delay | Add delay |
+| Notification | Send notifications |
+| Email | Send emails |
+| Workflow | Execute sub-workflow |
+| Stats | Collect statistics |
+| File | File operations |
+| Variable | Set/get variables |
+| Script | Execute custom JavaScript |
+| Try | Error handling (try-catch branching) |
+| Trigger | Workflow entry point |
+
+### Template Variables
+
+```javascript
+{{trigger.data.fieldName}}     // Trigger data
+{{outputs.nodeId.data}}        // Node output
+{{variables.name}}             // Workflow variables
+{{accountability.user.id}}     // Current user
+```
+
+---
+
+## Permissions
 
 ### Permission Structure
 
@@ -752,6 +2017,14 @@ export default {
   }
 }
 ```
+
+### Built-in Roles
+
+| Role | Description |
+|------|-------------|
+| administrator | Full system access (not tenant-specific) |
+| public | Unauthenticated users (not tenant-specific) |
+| user | Standard user access (tenant-specific) |
 
 ### Common Permission Patterns
 
@@ -781,6 +2054,61 @@ export default {
   "action": "read",
   "fields": ["*"]
 }
+```
+
+---
+
+## Error Handling
+
+### Error Response Format
+
+```json
+{
+  "error": {
+    "message": "Error description",
+    "code": "ERROR_CODE"
+  }
+}
+```
+
+### HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success |
+| 201 | Created |
+| 400 | Bad request / Validation error |
+| 401 | Unauthorized (not logged in) |
+| 403 | Forbidden (no permission) |
+| 404 | Not found |
+| 409 | Conflict (duplicate) |
+| 422 | Unprocessable entity |
+| 429 | Rate limited |
+| 500 | Internal server error |
+
+### APIError Class
+
+```javascript
+import { APIError } from "@baasix/baasix";
+
+// In endpoints/hooks
+try {
+  // Your code
+} catch (error) {
+  if (error instanceof APIError) {
+    throw error;  // Re-throw APIError as-is
+  }
+  console.error("Unexpected error:", error);
+  throw new APIError("An unexpected error occurred", 500);
+}
+
+// Common error codes
+throw new APIError("Resource not found", 404);
+throw new APIError("Invalid request data", 400);
+throw new APIError("Authentication required", 401);
+throw new APIError("Permission denied", 403);
+throw new APIError("Resource already exists", 409);
+throw new APIError("Rate limit exceeded", 429);
 ```
 
 ---
@@ -869,33 +2197,6 @@ GET /items/orders?fields=["*","items.*","items.product.*"]&filter={
     }
   }
 }
-```
-
----
-
-## Error Handling Best Practices
-
-```javascript
-import { APIError } from "@baasix/baasix";
-
-// In endpoints/hooks
-try {
-  // Your code
-} catch (error) {
-  if (error instanceof APIError) {
-    throw error;  // Re-throw APIError as-is
-  }
-  console.error("Unexpected error:", error);
-  throw new APIError("An unexpected error occurred", 500);
-}
-
-// Common error codes
-throw new APIError("Resource not found", 404);
-throw new APIError("Invalid request data", 400);
-throw new APIError("Authentication required", 401);
-throw new APIError("Permission denied", 403);
-throw new APIError("Resource already exists", 409);
-throw new APIError("Rate limit exceeded", 429);
 ```
 
 ---
@@ -1001,69 +2302,6 @@ describe("Products API", () => {
 
 ---
 
-## Environment Variables Reference
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| DATABASE_URL | Yes | - | PostgreSQL connection string |
-| SECRET_KEY | Yes | - | JWT/encryption secret (32+ chars) |
-| PORT | No | 8056 | HTTP port |
-| LOG_LEVEL | No | info | Log level (fatal/error/warn/info/debug/trace) |
-| SYSTEM_CACHE_ADAPTER | No | memory | System cache adapter (memory/redis/upstash) |
-| SYSTEM_CACHE_REDIS_URL | No | - | Redis URL for system cache |
-| SYSTEM_CACHE_SYNC_INTERVAL | No | 5 | L1↔L2 sync interval in seconds (permissions, roles, settings) |
-| SYSTEM_CACHE_SIZE_GB | No | 1 | Max system cache size in GB (memory adapter) |
-| SYSTEM_CACHE_TTL | No | 30 | System cache default TTL in seconds |
-| DATA_CACHE_ENABLED | No | false | Enable data/query caching |
-| DATA_CACHE_ADAPTER | No | memory | Data cache adapter (memory/redis/upstash) |
-| DATA_CACHE_REDIS_URL | No | - | Redis URL for data cache |
-| DATA_CACHE_TTL | No | 3600 | Data cache TTL (seconds) |
-| DATA_CACHE_STRATEGY | No | explicit | Data cache strategy (explicit/all) |
-| DATA_CACHE_SIZE_GB | No | 1 | Max data cache size in GB (memory adapter) |
-| MULTI_TENANT | No | false | Enable multi-tenancy |
-| SOCKET_ENABLED | No | false | Enable Socket.IO |
-| PUBLIC_REGISTRATION | No | true | Allow public registration |
-| RATE_LIMIT | No | 100 | Requests per interval |
-| RATE_LIMIT_INTERVAL | No | 5000 | Rate limit interval (ms) |
-| BODY_SIZE_LIMIT | No | 20mb | Max JSON request body size |
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-1. **401 Unauthorized**
-   - Check `Authorization: Bearer <token>` header
-   - Verify token hasn't expired
-   - Ensure user exists and is active
-
-2. **403 Forbidden**
-   - Check permissions for role/collection/action
-   - Verify permission conditions match the data
-
-3. **Filters not working**
-   - Ensure filter is valid JSON in query string
-   - Use correct operator syntax (eq, not =)
-   - Check for typos in field names
-
-4. **Relations not loading**
-   - Include relation in fields: `["*", "relation.*"]`
-   - Verify relationship exists in schema
-   - Check permissions for related collection
-
-5. **Extension not loading**
-   - Verify folder name: `baasix-hook-{name}`, `baasix-endpoint-{name}`
-   - Check for syntax errors in index.js
-   - Ensure proper ES module export
-
-6. **Cache issues**
-   - Verify Redis connection
-   - Check SYSTEM_CACHE_REDIS_URL / DATA_CACHE_REDIS_URL in .env
-   - Manually invalidate: `invalidateCollection("collection")`
-
----
-
 ## CLI (Command Line Interface)
 
 Baasix provides a CLI tool (`baasix`) for project scaffolding, type generation, and migrations.
@@ -1152,77 +2390,148 @@ export async function down(baasix) {
 
 ---
 
-## TasksService
+## Environment Variables Reference
 
-Background task management with distributed locking, atomic claiming, stall recovery, and concurrency control.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| DATABASE_URL | Yes | - | PostgreSQL connection string |
+| SECRET_KEY | Yes | - | JWT/encryption secret (32+ chars) |
+| PORT | No | 8056 | HTTP port |
+| BODY_SIZE_LIMIT | No | 20mb | Max JSON request body size |
+| LOG_LEVEL | No | info | Log level (fatal/error/warn/info/debug/trace) |
+| MULTI_TENANT | No | false | Enable multi-tenancy |
+| SOCKET_ENABLED | No | false | Enable Socket.IO |
+| PUBLIC_REGISTRATION | No | true | Allow public registration |
+| RATE_LIMIT | No | 100 | Requests per interval |
+| RATE_LIMIT_INTERVAL | No | 5000 | Rate limit interval (ms) |
+| SYSTEM_CACHE_ADAPTER | No | memory | System cache adapter (memory/redis/upstash) |
+| SYSTEM_CACHE_REDIS_URL | No | - | Redis URL for system cache |
+| SYSTEM_CACHE_SYNC_INTERVAL | No | 5 | L1↔L2 sync interval in seconds |
+| SYSTEM_CACHE_SIZE_GB | No | 1 | Max system cache size in GB (memory adapter) |
+| SYSTEM_CACHE_TTL | No | 30 | System cache default TTL in seconds |
+| DATA_CACHE_ENABLED | No | false | Enable data/query caching |
+| DATA_CACHE_ADAPTER | No | memory | Data cache adapter (memory/redis/upstash) |
+| DATA_CACHE_REDIS_URL | No | - | Redis URL for data cache |
+| DATA_CACHE_TTL | No | 3600 | Data cache TTL (seconds) |
+| DATA_CACHE_STRATEGY | No | explicit | Data cache strategy (explicit/all) |
+| DATA_CACHE_SIZE_GB | No | 1 | Max data cache size in GB (memory adapter) |
+| STORAGE_SERVICES_ENABLED | No | LOCAL | Comma-separated list (LOCAL,S3) |
+| STORAGE_DEFAULT_SERVICE | No | LOCAL | Default storage service |
+| LOCAL_STORAGE_DRIVER | No | LOCAL | Storage driver (LOCAL or S3) |
+| LOCAL_STORAGE_PATH | No | ./uploads | Local storage path |
+| S3_STORAGE_DRIVER | No | S3 | S3 driver |
+| S3_STORAGE_BUCKET | No | - | S3 bucket name |
+| S3_STORAGE_REGION | No | - | S3 region |
+| S3_STORAGE_ACCESS_KEY_ID | No | - | S3 access key |
+| S3_STORAGE_SECRET_ACCESS_KEY | No | - | S3 secret key |
+| S3_STORAGE_ENDPOINT | No | - | S3 endpoint URL |
+| MAIL_HOST | No | - | SMTP host |
+| MAIL_PORT | No | 587 | SMTP port |
+| MAIL_USER | No | - | SMTP user |
+| MAIL_PASSWORD | No | - | SMTP password |
+| MAIL_FROM | No | - | Default sender |
+| AUDIT_LOG_CLEANUP_ENABLED | No | false | Enable automatic audit log cleanup |
+| AUDIT_LOG_RETENTION_DAYS | No | 90 | Audit log retention in days |
+| EMAIL_LOG_CLEANUP_ENABLED | No | false | Enable automatic email log cleanup |
+| EMAIL_LOG_RETENTION_DAYS | No | 30 | Email log retention in days |
 
-### Environment Variables
+---
 
-```bash
-TASK_SERVICE_ENABLED=true          # Enable task service
-TASK_CONCURRENCY=1                 # Max concurrent tasks per instance (default: 1)
-TASK_STALL_TIMEOUT=300             # Seconds before Running task is stalled (default: 300)
-TASK_LIST_REFRESH_INTERVAL=600     # Cache refresh interval in seconds (default: 600)
-TASK_SHUTDOWN_WAIT_TIME=30         # Wait for running tasks on shutdown (default: 30)
-TASK_REDIS_ENABLED=false           # Enable Redis for distributed locking
-TASK_REDIS_URL=redis://localhost:6379
-```
+## Best Practices
 
-### baasix_Tasks Table Columns
+1. **Always include an `id` field** with UUID or AUTOINCREMENT
+2. **Use `timestamps: true`** for automatic createdAt/updatedAt
+3. **Use JSONB over JSON** for queryable flexible data
+4. **Use relConditions** to filter array relations (O2M/M2M)
+5. **Use field selection** for performance (don't fetch `*` when not needed)
+6. **Paginate large datasets** with limit/page
+7. **Set proper indexes** for frequently filtered fields
+8. **Handle errors** in extensions with try-catch
+9. **Use req.accountability** to access current user in endpoints
+10. **Test with real data patterns** that match production
+11. **Use transactions** (hooks receive transaction context automatically)
+12. **Cache expensive computations** using CacheService
+13. **Validate input** in custom endpoints before processing
 
-- `task_status`: "Not started" | "Running" | "Completed" | "Error"
-- `type`: Task type string
-- `scheduled_time`: When to execute
-- `started_at`: Auto-set when task starts (used for stall detection)
-- `max_retries`: Max retry attempts (default: 0)
-- `retry_count`: Current retry count (system-managed)
-- `task_data`: JSON task payload
-- `result_data`: JSON result
-- `error_data`: JSON error info
+---
 
-### Core Methods
+## Troubleshooting
+
+### Common Issues
+
+1. **401 Unauthorized**
+   - Check `Authorization: Bearer <token>` header
+   - Verify token hasn't expired
+   - Ensure user exists and is active
+
+2. **403 Forbidden**
+   - Check permissions for role/collection/action
+   - Verify permission conditions match the data
+
+3. **Filters not working**
+   - Ensure filter is valid JSON in query string
+   - Use correct operator syntax (eq, not =)
+   - Check for typos in field names
+
+4. **Relations not loading**
+   - Include relation in fields: `["*", "relation.*"]`
+   - Verify relationship exists in schema
+   - Check permissions for related collection
+
+5. **Extension not loading**
+   - Verify folder name: `baasix-hook-{name}`, `baasix-endpoint-{name}`
+   - Check for syntax errors in index.js
+   - Ensure proper ES module export
+
+6. **Cache issues**
+   - Verify Redis connection
+   - Check SYSTEM_CACHE_REDIS_URL / DATA_CACHE_REDIS_URL in .env
+   - Manually invalidate: `invalidateCollection("collection")`
+
+---
+
+## Exported Modules Reference
+
+Everything importable from `@baasix/baasix`:
 
 ```javascript
-// Atomic task claiming — prevents duplicate processing
-const claimed = await tasksService.claimTask(taskId);
-if (!claimed) continue; // Already taken by another worker
+// Services
+import {
+  ItemsService,       // CRUD for any collection
+  FilesService,       // File upload/management
+  MailService,        // Email sending
+  NotificationService,// User notifications
+  PermissionService,  // Permission management
+  SettingsService,    // App settings
+  StorageService,     // File storage (local/S3)
+  AssetsService,      // Asset transformations
+  ReportService,      // Report generation with aggregation
+  StatsService,       // Multi-collection statistics
+  WorkflowService,    // Workflow execution
+  TasksService,       // Background task management
+  MigrationService,   // Database migrations
+  HooksManager,       // Hook registration/management
+  SocketService,      // WebSocket management
+  RealtimeService,    // Real-time subscriptions
+} from "@baasix/baasix";
 
-// Get cached "Not started" tasks (within 4hr window)
-const tasks = await tasksService.getNotStartedTasks();
+// App & Server
+import { app, startServer, startServerForTesting, destroyAllTablesInDB } from "@baasix/baasix";
 
-// Distributed job locking — for cron jobs that must run on one instance
-const locked = await tasksService.acquireJobLock('job-name', ttlSeconds);
-try { /* process */ } finally { await tasksService.releaseJobLock('job-name'); }
+// Cache
+import { getCacheService, invalidateCollection, invalidateEntireCache } from "@baasix/baasix";
 
-// Instance-level concurrency lock (respects TASK_CONCURRENCY)
-const acquired = await tasksService.tryAcquireLock(60);
-try { /* process */ } finally { await tasksService.releaseLock(); }
+// Logger
+import { getLogger, initializeLogger } from "@baasix/baasix";
 
-// Force cache refresh
-await tasksService.forceRefresh();
+// Errors
+import { APIError } from "@baasix/baasix";
 
-// Cache stats
-const stats = await tasksService.getCacheStats();
-```
+// Plugin system
+import { definePlugin, createPluginMeta, PluginManager } from "@baasix/baasix";
 
-### Stall Recovery
-
-Automatic — runs during init and each cache refresh:
-- Tasks in "Running" beyond `TASK_STALL_TIMEOUT` are detected
-- If `retry_count < max_retries`: reset to "Not started" for retry
-- Otherwise: marked as "Error"
-
-### Access in Extensions
-
-```javascript
-// Legacy extensions — available in context
-export default async function (hooksManager, context) {
-  const { tasksService } = context;
-  // ...
-}
-
-// Or import directly
-import tasksService from '../../baasix/services/TasksService';
+// Auth
+import { getAuthInstance } from "@baasix/baasix";
 ```
 
 ---

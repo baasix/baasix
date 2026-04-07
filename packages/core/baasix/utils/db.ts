@@ -333,6 +333,7 @@ export async function createTransaction(): Promise<Transaction> {
         throw new Error('Transaction already rolled back');
       }
       transaction._committed = true;
+      (transaction as any)._settle?.();
       // Wait for Drizzle transaction to complete before returning
       await txCompletePromise;
     };
@@ -342,6 +343,7 @@ export async function createTransaction(): Promise<Transaction> {
         throw new Error('Transaction already committed');
       }
       transaction._rolledBack = true;
+      (transaction as any)._settle?.();
       throw new Error('__ROLLBACK__');
     };
 
@@ -362,16 +364,14 @@ export async function createTransaction(): Promise<Transaction> {
         }
       }, TRANSACTION_TIMEOUT_MS);
 
-      const checkInterval = setInterval(() => {
-        if (transaction._committed || transaction._rolledBack) {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            clearInterval(checkInterval);
-            resolve();
-          }
+      // Store the resolver so commit/rollback can settle directly
+      (transaction as any)._settle = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve();
         }
-      }, 10);
+      };
     });
 
     // If rolled back, throw to trigger Drizzle's rollback

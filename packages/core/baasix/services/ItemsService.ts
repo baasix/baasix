@@ -7,6 +7,7 @@ import { schemaManager } from '../utils/schemaManager.js';
 import { hooksManager } from './HooksManager.js';
 import env from '../utils/env.js';
 import { permissionService } from './PermissionService.js';
+import { getContextAccountability } from '../utils/requestContext.js';
 import { resolveDynamicVariables } from '../utils/dynamicVariableResolver.js';
 import {
   drizzleWhere,
@@ -3291,6 +3292,10 @@ export class ItemsService {
         after: changes.after ? JSON.parse(JSON.stringify(changes.after)) : null
       };
 
+      // Use ALS accountability as fallback so audit logs capture user info
+      // even when ItemsService was created without explicit accountability (admin bypass)
+      const auditAccountability = this.accountability || getContextAccountability();
+
       // Prepare audit log data
       const auditLogData: Record<string, any> = {
         type: 'data',
@@ -3298,12 +3303,12 @@ export class ItemsService {
         entityId: String(auditEntityId),
         action: action,
         changes: serializedChanges,
-        userId: this.accountability?.user?.id || null,
-        ipaddress: this.accountability?.ipaddress || null,
+        userId: auditAccountability?.user?.id || null,
+        ipaddress: auditAccountability?.ipaddress || null,
       };
 
       // Add tenant_Id if multi-tenant is enabled
-      const tenantId = this.tenant || this.accountability?.tenant;
+      const tenantId = this.tenant || auditAccountability?.tenant;
       if (tenantId) {
         auditLogData.tenant_Id = tenantId;
       }

@@ -319,6 +319,11 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
           // Connect MCP server to this transport
           const server = await getMCPServer();
           await server.connect(transport);
+        } else {
+          // Existing session — refresh the accountability (and token) so that
+          // tool handlers use the latest credentials instead of the potentially
+          // expired ones that were stored when the session was first created.
+          setMCPSession(sessionId!, accountability);
         }
 
         // Handle the request

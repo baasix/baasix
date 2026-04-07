@@ -65,6 +65,21 @@ export async function invalidateAuthCache(roleId?: string): Promise<void> {
 }
 
 /**
+ * Invalidate cached user-role assignment for a specific user
+ * Called when baasix_UserRole is created, updated, or deleted
+ */
+export async function invalidateUserRoleCache(userId: string, tenantId?: string): Promise<void> {
+  try {
+    const cache = getCache();
+    const tenantKey = tenantId ?? 'global';
+    const cacheKey = `auth:userrole:${userId}:${tenantKey}`;
+    await cache.delete(cacheKey);
+  } catch (error) {
+    console.error(`[Common] Failed to invalidate user role cache:`, error);
+  }
+}
+
+/**
  * Invalidate cache for a collection
  * Used in: permission.route.ts
  */

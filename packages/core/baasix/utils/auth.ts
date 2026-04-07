@@ -16,6 +16,7 @@ import { schemaManager } from "./schemaManager.js";
 import { permissionService } from '../services/PermissionService.js';
 import fieldUtils from "./fieldUtils.js";
 import type { JWTPayload, UserWithRolesAndPermissions } from '../types/index.js';
+import { setContextAccountability } from './requestContext.js';
 
 // Re-export types for backward compatibility
 export type { JWTPayload, UserWithRolesAndPermissions };
@@ -345,6 +346,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
         permissions: [],
         ipaddress: req.ip || req.connection?.remoteAddress,
       };
+      setContextAccountability(req.accountability);
       return next();
     }
 
@@ -364,6 +366,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
         permissions: [],
         ipaddress: req.ip || req.connection?.remoteAddress,
       };
+      setContextAccountability(req.accountability);
       return next();
     }
 
@@ -402,7 +405,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
       }
       userRole = userRoles?.[0] || null;
       if (userRole) {
-        await cache.set(userRoleCacheKey, userRole, 60000); // 60s TTL
+        await cache.set(userRoleCacheKey, userRole); // Hybrid key: TTL ignored, invalidated by baasix_UserRole hook
       }
     }
 
@@ -442,6 +445,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
       permissions: permissions || [],
       ipaddress: req.ip || req.connection?.remoteAddress,
     };
+    setContextAccountability(req.accountability);
 
     next();
   } catch (error: any) {
@@ -461,6 +465,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
       permissions: [],
       ipaddress: req.ip || req.connection?.remoteAddress,
     };
+    setContextAccountability(req.accountability);
     next();
   }
 };

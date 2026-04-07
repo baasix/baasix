@@ -15,6 +15,7 @@ import mailService from "./services/MailService.js";
 import permissionService from "./services/PermissionService.js";
 import storageService from "./services/StorageService.js";
 import { authMiddleware } from "./utils/auth.js";
+import { requestContextMiddleware } from "./utils/requestContext.js";
 import { hooksManager } from "./services/HooksManager.js";
 import { db, initializeDatabaseWithCache } from "./utils/db.js";
 import { schemaManager } from "./utils/schemaManager.js";
@@ -248,6 +249,7 @@ async function initializeApp() {
       tasksService,
     };
 
+    app.use(requestContextMiddleware);
     app.use(authMiddleware);
 
     await loadSystemRoutes(app, context);

@@ -189,6 +189,7 @@ export {
   requireAuth,
   collectionHasTenantField,
   invalidateAuthCache,
+  invalidateUserRoleCache,
   invalidateCollectionCache,
   invalidateSettingsCache,
   invalidateSettingsCacheAfterImport,

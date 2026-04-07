@@ -1,5 +1,17 @@
 # @baasix/baasix
 
+## 0.1.60
+
+### Patch Changes
+
+- Fixed AI SKILLS
+
+## 0.1.59
+
+### Patch Changes
+
+- Fixed roles of user cache not cleared on update
+
 ## 0.1.58
 
 ### Patch Changes

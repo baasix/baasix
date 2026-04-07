@@ -212,6 +212,34 @@ if (!globalThis.__baasix_hooksManagerInitialized) {
 
     return context;
   });
+
+  // ── Internal hook: Invalidate user-role auth cache on baasix_UserRole mutations ──
+  // This catches ALL code paths: direct API, nested relational updates, bulk, imports.
+  const invalidateUserRoleCacheFromHook = async (context: HookContext) => {
+    try {
+      const { invalidateUserRoleCache } = await import('../utils/common.js');
+
+      const doc = context.document;
+      const prev = context.previousDocument;
+
+      // Invalidate current and previous user (in case user_Id itself changed)
+      const userIds = new Set<string>();
+      if (doc?.user_Id) userIds.add(doc.user_Id);
+      if (prev?.user_Id) userIds.add(prev.user_Id);
+
+      for (const userId of userIds) {
+        const tenantId = doc?.tenant_Id || prev?.tenant_Id;
+        await invalidateUserRoleCache(userId, tenantId);
+      }
+    } catch (error: any) {
+      console.error('[HooksManager] Failed to invalidate user role cache:', error.message);
+    }
+    return context;
+  };
+
+  hooksManager.registerHook('baasix_UserRole', 'items.create.after', invalidateUserRoleCacheFromHook);
+  hooksManager.registerHook('baasix_UserRole', 'items.update.after', invalidateUserRoleCacheFromHook);
+  hooksManager.registerHook('baasix_UserRole', 'items.delete.after', invalidateUserRoleCacheFromHook);
 }
 
 export default hooksManager;
