@@ -20,6 +20,7 @@ class CustomSequencer extends Sequencer {
             // Schema and structure first
             "schema.test.js",
             "schemaFlags.test.js",
+            "schemaSyncAndSUID.test.js",
             "uniqueIndex.test.js",
             "defaultValues.test.js",
 

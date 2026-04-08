@@ -129,6 +129,11 @@ export function mapJsonTypeToDrizzle(fieldName: string, fieldSchema: FieldSchema
       column = uuid(fieldName);
       break;
 
+    // SUID (Short Unique ID - 21-character URL-safe string)
+    case 'SUID':
+      column = varchar(fieldName, { length: 21 });
+      break;
+
     // TOKEN (9-character unique string)
     case 'TOKEN':
       column = varchar(fieldName, { length: 9 });
@@ -308,9 +313,8 @@ function applyDefaultValue(column: any, defaultValue: any, _fieldType: string): 
         return column.default(sql`gen_random_uuid()`);
 
       case 'SUID':
-        // Short unique ID - would need a PostgreSQL function
-        // For now, just use UUID
-        return column.default(sql`gen_random_uuid()`);
+        // Short unique ID - 21 char URL-safe string (like nanoid)
+        return column.default(sql`baasix_generate_suid()`);
 
       case 'NOW':
         return column.defaultNow();

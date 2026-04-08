@@ -152,6 +152,28 @@ export class SchemaManager {
       await sql.unsafe('CREATE EXTENSION IF NOT EXISTS pgcrypto');
       console.log('PostgreSQL extension pgcrypto enabled');
 
+      // Create baasix_generate_suid() function for Short Unique IDs
+      // Generates a 21-character URL-safe string (like nanoid) using base64url alphabet
+      await sql.unsafe(`
+        CREATE OR REPLACE FUNCTION baasix_generate_suid(size int = 21)
+        RETURNS text AS $$
+        DECLARE
+          id text := '';
+          i int := 0;
+          urlsafe_chars text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+          bytes bytea;
+        BEGIN
+          bytes := gen_random_bytes(size);
+          WHILE i < size LOOP
+            id := id || substr(urlsafe_chars, (get_byte(bytes, i) & 63) + 1, 1);
+            i := i + 1;
+          END LOOP;
+          RETURN id;
+        END;
+        $$ LANGUAGE plpgsql VOLATILE;
+      `);
+      console.log('PostgreSQL function baasix_generate_suid created');
+
       // Enable PostGIS if configured
       if (env.get('DATABASE_POSTGIS') === 'true') {
         await sql.unsafe('CREATE EXTENSION IF NOT EXISTS postgis');
@@ -663,14 +685,15 @@ export class SchemaManager {
   private async syncTableColumns(collectionName: string, schema: any): Promise<void> {
     const sql = getSqlClient();
 
-    // Get existing columns in the table
+    // Get existing columns in the table (include is_nullable and column_default for constraint syncing)
     const existingColumns = await sql`
-      SELECT column_name, data_type
+      SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns
       WHERE table_name = ${collectionName}
     `;
 
     const existingColumnNames = existingColumns.map((col: any) => col.column_name);
+    const existingColumnMap = new Map(existingColumns.map((col: any) => [col.column_name, col]));
 
     // Check each field in schema
     for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
@@ -702,6 +725,64 @@ export class SchemaManager {
             console.log(`Added missing column ${fieldName} to ${collectionName}`);
           } catch (error) {
             console.error(`Failed to add column ${fieldName} to ${collectionName}:`, error);
+          }
+        }
+      } else {
+        // Column exists — sync NOT NULL constraint if it changed
+        const existingCol = existingColumnMap.get(fieldName);
+        if (existingCol) {
+          // --- Sync NOT NULL constraint ---
+          const dbIsNullable = existingCol.is_nullable === 'YES';
+          const schemaAllowNull = fs.allowNull !== false; // default is nullable (allowNull: true)
+
+          if (dbIsNullable && !schemaAllowNull) {
+            // Schema says NOT NULL but DB allows NULL → SET NOT NULL
+            try {
+              await sql.unsafe(`ALTER TABLE "${collectionName}" ALTER COLUMN "${fieldName}" SET NOT NULL`);
+              console.log(`Set NOT NULL on column ${fieldName} in ${collectionName}`);
+            } catch (error) {
+              console.error(`Failed to set NOT NULL on column ${fieldName} in ${collectionName}:`, error);
+            }
+          } else if (!dbIsNullable && schemaAllowNull && !fs.primaryKey) {
+            // Schema says nullable but DB has NOT NULL → DROP NOT NULL (skip primary keys)
+            try {
+              await sql.unsafe(`ALTER TABLE "${collectionName}" ALTER COLUMN "${fieldName}" DROP NOT NULL`);
+              console.log(`Dropped NOT NULL on column ${fieldName} in ${collectionName}`);
+            } catch (error) {
+              console.error(`Failed to drop NOT NULL on column ${fieldName} in ${collectionName}:`, error);
+            }
+          }
+
+          // --- Sync DEFAULT value ---
+          const schemaDefault = this.getDefaultExpression(fs);
+          const dbDefault = existingCol.column_default;
+
+          // Skip SERIAL/auto-increment columns (their defaults are managed by sequences)
+          const isSerialDefault = dbDefault && dbDefault.startsWith('nextval(');
+          if (!isSerialDefault) {
+            if (schemaDefault === null && dbDefault !== null) {
+              // Schema has no default but DB has one → DROP DEFAULT
+              try {
+                await sql.unsafe(`ALTER TABLE "${collectionName}" ALTER COLUMN "${fieldName}" DROP DEFAULT`);
+                console.log(`Dropped DEFAULT on column ${fieldName} in ${collectionName}`);
+              } catch (error) {
+                console.error(`Failed to drop DEFAULT on column ${fieldName} in ${collectionName}:`, error);
+              }
+            } else if (schemaDefault !== null) {
+              // Compare: normalize DB default for comparison
+              const normalizedDbDefault = dbDefault ? this.normalizeDefaultForComparison(dbDefault) : null;
+              const normalizedSchemaDefault = this.normalizeDefaultForComparison(schemaDefault);
+
+              if (normalizedDbDefault !== normalizedSchemaDefault) {
+                // Default changed or was added → SET DEFAULT
+                try {
+                  await sql.unsafe(`ALTER TABLE "${collectionName}" ALTER COLUMN "${fieldName}" SET DEFAULT ${schemaDefault}`);
+                  console.log(`Set DEFAULT ${schemaDefault} on column ${fieldName} in ${collectionName}`);
+                } catch (error) {
+                  console.error(`Failed to set DEFAULT on column ${fieldName} in ${collectionName}:`, error);
+                }
+              }
+            }
           }
         }
       }
@@ -1059,6 +1140,9 @@ export class SchemaManager {
       case 'UUID':
         pgType = 'UUID';
         break;
+      case 'SUID':
+        pgType = 'VARCHAR(21)';
+        break;
       case 'String':
         pgType = fieldSchema.values?.stringLength ? `VARCHAR(${fieldSchema.values.stringLength})` : 'TEXT';
         break;
@@ -1157,8 +1241,8 @@ export class SchemaManager {
             parts.push('DEFAULT gen_random_uuid()');
             break;
           case 'SUID':
-            // Short unique ID - uses gen_random_uuid() for now
-            parts.push('DEFAULT gen_random_uuid()');
+            // Short unique ID - 21 char URL-safe string (like nanoid)
+            parts.push('DEFAULT baasix_generate_suid()');
             break;
           case 'NOW':
             parts.push('DEFAULT NOW()');
@@ -1180,6 +1264,59 @@ export class SchemaManager {
     }
     
     return parts.join(' ');
+  }
+
+  /**
+   * Convert a schema field's defaultValue into a raw SQL DEFAULT expression (without the "DEFAULT" keyword).
+   * Returns null if no default is defined.
+   */
+  private getDefaultExpression(fieldSchema: any): string | null {
+    if (fieldSchema.defaultValue === undefined || fieldSchema.defaultValue === null) {
+      return null;
+    }
+
+    // Skip auto-increment types
+    if (fieldSchema.autoIncrement || fieldSchema.type === 'AutoIncrement') {
+      return null;
+    }
+
+    if (typeof fieldSchema.defaultValue === 'object' && fieldSchema.defaultValue.type) {
+      switch (fieldSchema.defaultValue.type) {
+        case 'UUIDV4':
+          return 'gen_random_uuid()';
+        case 'SUID':
+          return 'baasix_generate_suid()';
+        case 'NOW':
+          return 'NOW()';
+        case 'SQL':
+          return fieldSchema.defaultValue.value || null;
+      }
+      return null;
+    } else if (typeof fieldSchema.defaultValue === 'string') {
+      return `'${fieldSchema.defaultValue}'`;
+    } else if (typeof fieldSchema.defaultValue === 'number') {
+      return `${fieldSchema.defaultValue}`;
+    } else if (typeof fieldSchema.defaultValue === 'boolean') {
+      return `${fieldSchema.defaultValue}`;
+    }
+    return null;
+  }
+
+  /**
+   * Normalize a default expression for comparison.
+   * PostgreSQL stores defaults with type casts (e.g. 'hello'::text, now(), gen_random_uuid())
+   * so we strip casts and lowercase for a fair comparison.
+   */
+  private normalizeDefaultForComparison(expr: string): string {
+    let normalized = expr.toLowerCase().trim();
+    // Remove trailing ::type casts (e.g., 'hello'::character varying, 'hello'::text)
+    normalized = normalized.replace(/::[a-z\d [\]()]+$/g, '');
+    // Normalize whitespace
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+    // Normalize now() variants
+    normalized = normalized.replace(/^now\(\)$/, 'now()');
+    normalized = normalized.replace(/^current_timestamp$/, 'now()');
+    return normalized;
   }
 
   /**

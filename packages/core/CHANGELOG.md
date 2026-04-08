@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.61
+
+### Patch Changes
+
+- Added fix for updating not null and default value.
+
 ## 0.1.60
 
 ### Patch Changes
