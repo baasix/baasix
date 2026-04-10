@@ -20,7 +20,7 @@ export default (hooksService, context) => {
   hooksService.registerHook(
     "posts2",
     "items.read",
-    async ({ query, data, accountability, collection, schema }) => {
+    async ({ query, data, accountability, collection, schema, transaction }) => {
       console.log("Reading posts with query:", query);
       // Add a condition to only return published posts for non-admin users
       if (accountability.role.name !== "administrator") {

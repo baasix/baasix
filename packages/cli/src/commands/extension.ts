@@ -227,13 +227,15 @@ export default (hooksService${useTypeScript ? ": HooksService" : ""}, context${u
   hooksService.registerHook(
     "${collection}",
     "items.read",
-    async ({ query, data, accountability, collection, schema }${useTypeScript ? ": HookPayload" : ""}) => {
+    async ({ query, data, accountability, collection, schema, transaction }${useTypeScript ? ": HookPayload" : ""}) => {
       console.log(\`[${name}] Reading \${collection} with query:\`, query);
       
       // Example: Filter results for non-admin users
       // if (accountability.role.name !== "administrator") {
       //   query.filter = { ...query.filter, published: true };
       // }
+      
+      // Note: transaction is available if the read was called within a transaction
       
       return { query };
     }

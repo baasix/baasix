@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.62
+
+### Patch Changes
+
+- Adde transaction support for read hooks.
+
 ## 0.1.61
 
 ### Patch Changes

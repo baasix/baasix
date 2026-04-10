@@ -18,7 +18,8 @@
  */
 
 import type { Express, Request, Response } from "../types/index.js";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
+import bodyParser from "body-parser";
 import env from "../utils/env.js";
 
 // ==================== Type Definitions ====================
@@ -93,6 +94,100 @@ async function loadMCPDependencies(): Promise<void> {
 
 // Cache for email/password-based login (per email)
 const loginCache = new Map<string, { accountability: MCPAccountability; expiry: number }>();
+
+// ==================== OAuth 2.1 for MCP Remote Auth ====================
+
+// In-memory stores for OAuth clients, authorization codes, and access tokens
+const oauthClients = new Map<string, {
+  client_id: string;
+  client_secret: string;
+  redirect_uris: string[];
+  client_name?: string;
+  token_endpoint_auth_method: string;
+  created_at: number;
+}>();
+
+const authorizationCodes = new Map<string, {
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+  expires_at: number;
+  accountability: MCPAccountability;
+}>();
+
+const oauthAccessTokens = new Map<string, {
+  client_id: string;
+  scope: string;
+  expires_at: number;
+  accountability: MCPAccountability;
+}>();
+
+function escapeHtml(unsafe: string): string {
+  return String(unsafe || '')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderLoginPage(res: Response, params: {
+  client_id: string;
+  redirect_uri: string;
+  response_type: string;
+  state?: string;
+  scope?: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+  error?: string;
+}): void {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baasix - MCP Authorization</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f2f5; }
+    .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); width: 360px; }
+    h2 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #666; font-size: 0.875rem; margin-bottom: 1.5rem; }
+    label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: #333; }
+    input[type="email"], input[type="password"] { width: 100%; padding: 0.5rem 0.75rem; margin-bottom: 1rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.875rem; }
+    input:focus { outline: none; border-color: #0070f3; box-shadow: 0 0 0 2px rgba(0,112,243,.15); }
+    button { width: 100%; padding: 0.625rem; background: #0070f3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 500; }
+    button:hover { background: #005bb5; }
+    .error { background: #fef2f2; color: #dc2626; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.8125rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body><div class="card">
+  <h2>Baasix MCP</h2>
+  <p class="subtitle">Sign in to authorize MCP access</p>
+  ${params.error ? `<div class="error">${escapeHtml(params.error)}</div>` : ''}
+  <form method="POST">
+    <input type="hidden" name="client_id" value="${escapeHtml(params.client_id)}">
+    <input type="hidden" name="redirect_uri" value="${escapeHtml(params.redirect_uri)}">
+    <input type="hidden" name="response_type" value="${escapeHtml(params.response_type)}">
+    <input type="hidden" name="state" value="${escapeHtml(params.state || '')}">
+    <input type="hidden" name="scope" value="${escapeHtml(params.scope || '')}">
+    <input type="hidden" name="code_challenge" value="${escapeHtml(params.code_challenge || '')}">
+    <input type="hidden" name="code_challenge_method" value="${escapeHtml(params.code_challenge_method || '')}">
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" placeholder="Password" required>
+    <button type="submit">Sign In</button>
+  </form>
+</div></body></html>`;
+  res.setHeader("Content-Type", "text/html");
+  res.send(html);
+}
+
+// URL-encoded body parser for OAuth form submissions
+const urlencodedParser = bodyParser.urlencoded({ extended: true });
 
 /**
  * Login using email and password via internal auth service (no HTTP round-trip).
@@ -219,9 +314,18 @@ async function getAccountability(req: RequestWithAccountability): Promise<{ acco
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.substring(7).trim();
     if (token) {
+      // Check if it's an OAuth access token from MCP OAuth flow
+      const oauthToken = oauthAccessTokens.get(token);
+      if (oauthToken && oauthToken.expires_at > Date.now()) {
+        return { accountability: oauthToken.accountability };
+      }
+      if (oauthToken) {
+        oauthAccessTokens.delete(token); // Clean up expired token
+      }
+
       // req.accountability is already populated by auth middleware with the full shape:
       // { user: { id, email, isAdmin, role, ... }, role: { id, name, isTenantSpecific }, permissions, tenant, ipaddress }
-      if (req.accountability?.user || req.accountability?.role) {
+      if (req.accountability?.user) {
         return {
           accountability: {
             user: req.accountability.user || null,
@@ -272,6 +376,258 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
   const mcpPath = env.get("MCP_PATH") || "/mcp";
 
   console.info(`[MCP] Registering MCP endpoint at ${mcpPath}`);
+
+  // ==================== OAuth 2.1 Endpoints for MCP Remote Auth ====================
+
+  const baseURL = env.get("BASE_URL") || `http://localhost:${env.get("PORT") || 4400}`;
+
+  // OAuth Protected Resource Metadata (RFC 9728)
+  app.get(`/.well-known/oauth-protected-resource${mcpPath}`, (_req: Request, res: Response) => {
+    res.json({
+      resource: `${baseURL}${mcpPath}`,
+      authorization_servers: [baseURL],
+      bearer_methods_supported: ["header"],
+      scopes_supported: ["mcp:tools"],
+    });
+  });
+
+  // Also serve at root path as fallback
+  app.get("/.well-known/oauth-protected-resource", (_req: Request, res: Response) => {
+    res.json({
+      resource: `${baseURL}${mcpPath}`,
+      authorization_servers: [baseURL],
+      bearer_methods_supported: ["header"],
+      scopes_supported: ["mcp:tools"],
+    });
+  });
+
+  // OAuth Authorization Server Metadata (RFC 8414)
+  app.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response) => {
+    res.json({
+      issuer: baseURL,
+      authorization_endpoint: `${baseURL}${mcpPath}/oauth/authorize`,
+      token_endpoint: `${baseURL}${mcpPath}/oauth/token`,
+      registration_endpoint: `${baseURL}${mcpPath}/oauth/register`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code"],
+      token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
+      code_challenge_methods_supported: ["S256"],
+      scopes_supported: ["mcp:tools"],
+    });
+  });
+
+  // Dynamic Client Registration (RFC 7591)
+  app.post(`${mcpPath}/oauth/register`, (req: Request, res: Response) => {
+    const body = req.body;
+    const client_id = randomUUID();
+    const client_secret = randomUUID();
+
+    const tokenEndpointAuthMethod = body.token_endpoint_auth_method || "client_secret_basic";
+    const isPublic = tokenEndpointAuthMethod === "none";
+
+    oauthClients.set(client_id, {
+      client_id,
+      client_secret: isPublic ? "" : client_secret,
+      redirect_uris: body.redirect_uris || [],
+      client_name: body.client_name,
+      token_endpoint_auth_method: tokenEndpointAuthMethod,
+      created_at: Date.now(),
+    });
+
+    const response: Record<string, any> = {
+      client_id,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      ...body,
+    };
+
+    if (!isPublic) {
+      response.client_secret = client_secret;
+      response.client_secret_expires_at = 0;
+    }
+
+    console.info(`[MCP OAuth] Client registered: ${client_id} (${body.client_name || 'unnamed'})`);
+    res.status(201).json(response);
+  });
+
+  // Authorization Endpoint - GET (show login form)
+  app.get(`${mcpPath}/oauth/authorize`, (req: Request, res: Response) => {
+    const { client_id, redirect_uri, response_type, state, scope, code_challenge, code_challenge_method } = req.query as Record<string, string>;
+
+    if (response_type !== "code") {
+      res.status(400).json({ error: "unsupported_response_type" });
+      return;
+    }
+
+    const client = oauthClients.get(client_id);
+    if (!client) {
+      res.status(400).json({ error: "invalid_client", error_description: "Unknown client_id" });
+      return;
+    }
+
+    if (redirect_uri && !client.redirect_uris.includes(redirect_uri)) {
+      res.status(400).json({ error: "invalid_request", error_description: "Invalid redirect_uri" });
+      return;
+    }
+
+    renderLoginPage(res, { client_id, redirect_uri, response_type, state, scope, code_challenge, code_challenge_method });
+  });
+
+  // Authorization Endpoint - POST (handle login form submission)
+  app.post(`${mcpPath}/oauth/authorize`, urlencodedParser, async (req: Request, res: Response) => {
+    const { email, password, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method } = req.body;
+
+    const client = oauthClients.get(client_id);
+    if (!client) {
+      renderLoginPage(res, { client_id, redirect_uri, response_type: "code", state, scope, code_challenge, code_challenge_method, error: "Unknown client" });
+      return;
+    }
+
+    if (redirect_uri && !client.redirect_uris.includes(redirect_uri)) {
+      renderLoginPage(res, { client_id, redirect_uri, response_type: "code", state, scope, code_challenge, code_challenge_method, error: "Invalid redirect URI" });
+      return;
+    }
+
+    const ip = (req as any).ip || "127.0.0.1";
+    const accountability = await performLogin(email, password, `oauth:${email}`, ip);
+
+    if (!accountability) {
+      renderLoginPage(res, { client_id, redirect_uri, response_type: "code", state, scope, code_challenge, code_challenge_method, error: "Invalid email or password" });
+      return;
+    }
+
+    // Generate authorization code
+    const code = randomUUID();
+    authorizationCodes.set(code, {
+      client_id,
+      redirect_uri,
+      scope: scope || "mcp:tools",
+      code_challenge,
+      code_challenge_method,
+      expires_at: Date.now() + 10 * 60 * 1000,
+      accountability,
+    });
+
+    const redirectURL = new URL(redirect_uri);
+    redirectURL.searchParams.set("code", code);
+    if (state) redirectURL.searchParams.set("state", state);
+
+    console.info(`[MCP OAuth] Authorization code issued for user ${accountability.user?.email}`);
+    res.redirect(302, redirectURL.toString());
+  });
+
+  // Token Endpoint
+  app.post(`${mcpPath}/oauth/token`, urlencodedParser, async (req: Request, res: Response) => {
+    const { grant_type, code, redirect_uri, code_verifier, client_id: body_client_id, client_secret: body_client_secret } = req.body;
+
+    let client_id = body_client_id;
+    let client_secret = body_client_secret;
+
+    // Parse Basic auth header
+    const tokenAuthHeader = req.headers["authorization"] as string;
+    if (tokenAuthHeader?.startsWith("Basic ")) {
+      try {
+        const decoded = Buffer.from(tokenAuthHeader.substring(6), "base64").toString();
+        const colonIdx = decoded.indexOf(":");
+        if (colonIdx === -1) throw new Error("Invalid format");
+        client_id = decodeURIComponent(decoded.substring(0, colonIdx));
+        client_secret = decodeURIComponent(decoded.substring(colonIdx + 1));
+      } catch {
+        res.status(401).json({ error: "invalid_client", error_description: "Invalid Basic auth header" });
+        return;
+      }
+    }
+
+    if (grant_type !== "authorization_code") {
+      res.status(400).json({ error: "unsupported_grant_type" });
+      return;
+    }
+
+    if (!code) {
+      res.status(400).json({ error: "invalid_request", error_description: "code is required" });
+      return;
+    }
+
+    const authCode = authorizationCodes.get(code);
+    if (!authCode) {
+      res.status(400).json({ error: "invalid_grant", error_description: "Invalid or expired authorization code" });
+      return;
+    }
+
+    // Delete the code (single use)
+    authorizationCodes.delete(code);
+
+    if (authCode.expires_at < Date.now()) {
+      res.status(400).json({ error: "invalid_grant", error_description: "Authorization code expired" });
+      return;
+    }
+
+    if (authCode.client_id !== client_id) {
+      res.status(400).json({ error: "invalid_client", error_description: "client_id mismatch" });
+      return;
+    }
+
+    if (authCode.redirect_uri && authCode.redirect_uri !== redirect_uri) {
+      res.status(400).json({ error: "invalid_grant", error_description: "redirect_uri mismatch" });
+      return;
+    }
+
+    // Validate client credentials for confidential clients
+    const client = oauthClients.get(client_id);
+    if (client && client.token_endpoint_auth_method !== "none") {
+      if (client.client_secret && client.client_secret !== client_secret) {
+        res.status(401).json({ error: "invalid_client", error_description: "Invalid client credentials" });
+        return;
+      }
+    }
+
+    // PKCE verification
+    if (authCode.code_challenge) {
+      if (!code_verifier) {
+        res.status(400).json({ error: "invalid_request", error_description: "code_verifier is required" });
+        return;
+      }
+
+      let challenge: string;
+      if (authCode.code_challenge_method === "S256") {
+        challenge = createHash("sha256").update(code_verifier).digest("base64url");
+      } else {
+        challenge = code_verifier;
+      }
+
+      if (challenge !== authCode.code_challenge) {
+        res.status(400).json({ error: "invalid_grant", error_description: "PKCE verification failed" });
+        return;
+      }
+    }
+
+    // Generate access token
+    const access_token = randomUUID();
+    oauthAccessTokens.set(access_token, {
+      client_id,
+      scope: authCode.scope,
+      expires_at: Date.now() + 60 * 60 * 1000, // 1 hour
+      accountability: authCode.accountability,
+    });
+
+    // Clean up expired tokens periodically
+    if (oauthAccessTokens.size % 100 === 0) {
+      const now = Date.now();
+      for (const [key, val] of oauthAccessTokens) {
+        if (val.expires_at < now) oauthAccessTokens.delete(key);
+      }
+    }
+
+    console.info(`[MCP OAuth] Access token issued for client ${client_id}`);
+
+    res.json({
+      access_token,
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: authCode.scope,
+    });
+  });
+
+  // ==================== End OAuth 2.1 Endpoints ====================
 
   /**
    * Handle MCP requests via Streamable HTTP transport

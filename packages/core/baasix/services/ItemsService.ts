@@ -1086,8 +1086,10 @@ export class ItemsService {
     offset: number | undefined,
     isAdmin: boolean,
     bypassPermissions: boolean,
-    filterJoins: any[] = []
+    filterJoins: any[] = [],
+    transaction?: Transaction
   ): Promise<ReadResult> {
+    const dbClient = transaction || db;
     console.log('[ItemsService] Using Drizzle query builder for HasMany sorting/filtering');
 
     // STEP 1: Build ID query using PostgreSQL DISTINCT ON for proper deduplication
@@ -1149,7 +1151,7 @@ export class ItemsService {
 
     console.log(`[ItemsService] Using DISTINCT ON with fields: ${distinctOnFields.join(', ')}`);
 
-    let idQuery = db
+    let idQuery = dbClient
       .select({ [this.primaryKey]: sql.raw(distinctOnClause) })
       .from(this.table)
       .$dynamic();
@@ -1257,7 +1259,7 @@ export class ItemsService {
       processedIncludes // Use original includes with separate: true for HasMany
     );
 
-    let fullQuery: any = db.select(selectColumns).from(this.table);
+    let fullQuery: any = dbClient.select(selectColumns).from(this.table);
 
     // Apply joins (only BelongsTo/HasOne, not HasMany)
     for (const include of processedIncludes) {
@@ -1283,7 +1285,7 @@ export class ItemsService {
     if (hasSeparateQueries(processedIncludes)) {
       // This handles both nesting joined relations and loading separate ones
       finalRecords = await loadSeparateRelations(
-        db,
+        dbClient,
         records,
         processedIncludes,
         this.collection
@@ -1298,7 +1300,7 @@ export class ItemsService {
     const orderedRecords = ids.map(id => recordMap.get(id)).filter(r => r != null);
 
     // Get total count using Drizzle query builder (same joins as ID query)
-    let countQuery = db
+    let countQuery = dbClient
       .select({ count: sql`COUNT(DISTINCT ${this.getPrimaryKeyColumn()})`.mapWith(Number) })
       .from(this.table)
       .$dynamic();
@@ -1393,14 +1395,16 @@ export class ItemsService {
    */
   async readByQuery(
     query: QueryOptions = {},
-    bypassPermissions: boolean = false
+    bypassPermissions: boolean = false,
+    transaction?: Transaction
   ): Promise<ReadResult> {
+    const dbClient = transaction || db;
     // Execute before-read hooks
     let hookData = await hooksManager.executeHooks(
       this.collection,
       'items.read',
       this.accountability,
-      { query }
+      { query, transaction }
     );
 
     const modifiedQuery = hookData.query as QueryOptions;
@@ -1410,7 +1414,7 @@ export class ItemsService {
 
       // Check if this is an aggregate query
       if (modifiedQuery.aggregate) {
-        return await this.executeAggregateQuery(modifiedQuery, isAdmin, bypassPermissions);
+        return await this.executeAggregateQuery(modifiedQuery, isAdmin, bypassPermissions, transaction);
       }
 
       // Build query components
@@ -1469,7 +1473,8 @@ export class ItemsService {
           offset,
           isAdmin,
           bypassPermissions,
-          filterJoins
+          filterJoins,
+          transaction
         );
       }
 
@@ -1479,7 +1484,7 @@ export class ItemsService {
         console.error(`[ItemsService.readByQuery] ERROR: selectColumns is EMPTY for ${this.collection}! This will cause SQL syntax error.`);
         console.error(`[ItemsService.readByQuery] query:`, query);
       }
-      let baseQuery: any = db.select(selectColumns).from(this.table);
+      let baseQuery: any = dbClient.select(selectColumns).from(this.table);
 
       // Apply filterJoins using Drizzle's query builder 
       // FilterJoins are created when filtering by relation paths (e.g., "userRoles.role.name")
@@ -1564,7 +1569,7 @@ export class ItemsService {
           let processedRecords = records;
           if (hasSeparateQueries(processedIncludes)) {
             processedRecords = await loadSeparateRelations(
-              db,
+              dbClient,
               records,
               processedIncludes,
               this.collection
@@ -1581,7 +1586,7 @@ export class ItemsService {
             console.error(`[ItemsService.readByQuery] Primary key name:`, this.primaryKey);
             console.error(`[ItemsService.readByQuery] Available columns:`, Object.keys(this.table).filter(k => !k.startsWith('_')));
           }
-          let countQuery: any = db.select({ count: sql`COUNT(DISTINCT ${primaryKeyColumn})` }).from(this.table);
+          let countQuery: any = dbClient.select({ count: sql`COUNT(DISTINCT ${primaryKeyColumn})` }).from(this.table);
 
           // Apply same joins and where for count
           if (hasFilterJoins) {
@@ -1642,7 +1647,7 @@ export class ItemsService {
         this.collection,
         'items.read.after',
         this.accountability,
-        { query: modifiedQuery, result: { data: sanitizedRecords, totalCount } }
+        { query: modifiedQuery, result: { data: sanitizedRecords, totalCount }, transaction }
       );
 
       return hookData.result;
@@ -1658,8 +1663,10 @@ export class ItemsService {
   private async executeAggregateQuery(
     query: QueryOptions,
     isAdmin: boolean,
-    bypassPermissions: boolean
+    bypassPermissions: boolean,
+    transaction?: Transaction
   ): Promise<ReadResult> {
+    const dbClient = transaction || db;
     const { aggregate, groupBy = [], filter = {}, sort, limit: queryLimit, page: queryPage } = query;
 
     if (!aggregate) {
@@ -1816,7 +1823,7 @@ export class ItemsService {
 
     if (allJoins.length > 0) {
       // Build aggregate query using Drizzle query builder
-      let aggregateQuery = db.select(selectObj).from(this.table).$dynamic();
+      let aggregateQuery = dbClient.select(selectObj).from(this.table).$dynamic();
 
       // Apply joins (same as filterJoins)
       for (const join of allJoins) {
@@ -1879,7 +1886,7 @@ export class ItemsService {
       results = await aggregateQuery;
     } else {
       // No relation joins - use standard Drizzle API
-      let aggregateQuery = db.select(selectObj).from(this.table).$dynamic();
+      let aggregateQuery = dbClient.select(selectObj).from(this.table).$dynamic();
 
       if (whereClause) {
         aggregateQuery = aggregateQuery.where(whereClause);
@@ -1940,7 +1947,7 @@ export class ItemsService {
           countSelect[groupField] = groupExpr;
         }
 
-        let countQuery = db.select(countSelect).from(this.table).$dynamic();
+        let countQuery = dbClient.select(countSelect).from(this.table).$dynamic();
 
         // Apply same joins
         for (const join of allJoins) {
@@ -1977,8 +1984,10 @@ export class ItemsService {
   async readOne(
     id: string | number,
     query: QueryOptions = {},
-    bypassPermissions: boolean = false
+    bypassPermissions: boolean = false,
+    transaction?: Transaction
   ): Promise<any> {
+    const dbClient = transaction || db;
     const parsedId = this.parseId(id);
 
     if (!parsedId) {
@@ -1990,7 +1999,7 @@ export class ItemsService {
       this.collection,
       'items.read.one',
       this.accountability,
-      { id: parsedId, query }
+      { id: parsedId, query, transaction }
     );
 
     try {
@@ -2011,7 +2020,7 @@ export class ItemsService {
       });
 
       // Build base query
-      let baseQuery: any = db.select(selectColumns).from(this.table);
+      let baseQuery: any = dbClient.select(selectColumns).from(this.table);
 
       // Apply filterJoins first (these come from relation path filters in WHERE clause)
       // use Drizzle query builder methods instead of raw SQL
@@ -2052,7 +2061,7 @@ export class ItemsService {
       let finalRecords = records;
       if (hasSeparateQueries(processedIncludes)) {
         finalRecords = await loadSeparateRelations(
-          db,
+          dbClient,
           records,
           processedIncludes,
           this.collection
@@ -2072,7 +2081,7 @@ export class ItemsService {
         this.collection,
         'items.read.one.after',
         this.accountability,
-        { id: parsedId, query, document: strippedDocument }
+        { id: parsedId, query, document: strippedDocument, transaction }
       );
 
       return hookData.document;
@@ -3143,15 +3152,15 @@ export class ItemsService {
   /**
    * Alias for readByQuery
    */
-  async list(query: QueryOptions = {}, bypassPermissions: boolean = false): Promise<ReadResult> {
-    return this.readByQuery(query, bypassPermissions);
+  async list(query: QueryOptions = {}, bypassPermissions: boolean = false, transaction?: Transaction): Promise<ReadResult> {
+    return this.readByQuery(query, bypassPermissions, transaction);
   }
 
   /**
    * Alias for readOne
    */
-  async read(id: string | number, query: QueryOptions = {}, bypassPermissions: boolean = false): Promise<any> {
-    return this.readOne(id, query, bypassPermissions);
+  async read(id: string | number, query: QueryOptions = {}, bypassPermissions: boolean = false, transaction?: Transaction): Promise<any> {
+    return this.readOne(id, query, bypassPermissions, transaction);
   }
 
   /**

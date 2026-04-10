@@ -1179,7 +1179,13 @@ const result = await service.readByQuery({
 });
 // Returns: { data: [...], totalCount: number }
 
+// Read with transaction support
+const result = await service.readByQuery(query, false, transaction);
+
 const item = await service.readOne(id, { fields: [...] });
+
+// ReadOne with transaction support
+const item = await service.readOne(id, query, false, transaction);
 
 // Write methods
 const id = await service.createOne(data);
@@ -1461,10 +1467,10 @@ Hook extensions receive `(hooksService, context)` where context contains:
 |-------|-------|------------|
 | items.create | Before | data |
 | items.create.after | After | - |
-| items.read | Before (list) | query |
-| items.read.after | After (list) | result |
-| items.read.one | Before (single) | query |
-| items.read.one.after | After (single) | result |
+| items.read | Before (list) | query, transaction |
+| items.read.after | After (list) | result, transaction |
+| items.read.one | Before (single) | query, transaction |
+| items.read.one.after | After (single) | result, transaction |
 | items.update | Before | data |
 | items.update.after | After | - |
 | items.delete | Before | - (can throw) |
@@ -1543,7 +1549,8 @@ export default (hooksService, context) => {
   // ==========================================
   hooksService.registerHook("products", "items.read", async ({
     query,
-    accountability
+    accountability,
+    transaction
   }) => {
     // Non-admins can only see published products
     if (accountability?.role?.name !== "administrator") {
@@ -1566,7 +1573,8 @@ export default (hooksService, context) => {
   hooksService.registerHook("products", "items.read.after", async ({
     query,
     result,
-    accountability
+    accountability,
+    transaction
   }) => {
     // Add computed fields
     if (Array.isArray(result.data)) {

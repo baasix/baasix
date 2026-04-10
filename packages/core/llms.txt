@@ -1007,7 +1007,13 @@ const result = await service.readByQuery({
 });
 // Returns: { data: [...], totalCount: number }
 
+// Read with transaction support
+const result = await service.readByQuery(query, false, transaction);
+
 const item = await service.readOne(id, { fields: [...] });
+
+// ReadOne with transaction support
+const item = await service.readOne(id, query, false, transaction);
 
 // Write methods
 const id = await service.createOne(data);
@@ -1179,7 +1185,7 @@ export default (hooksService, context) => {
 
   // Before read (modify query)
   hooksService.registerHook("posts", "items.read", async ({
-    query, accountability
+    query, accountability, transaction
   }) => {
     if (accountability.role.name !== "administrator") {
       const filter = JSON.parse(query.filter || "{}");
@@ -1192,7 +1198,7 @@ export default (hooksService, context) => {
 
   // After read
   hooksService.registerHook("posts", "items.read.after", async ({
-    query, result, accountability
+    query, result, accountability, transaction
   }) => {
     // Transform results
     return { result };
@@ -1229,8 +1235,8 @@ export default (hooksService, context) => {
 |-------|-------|------------|
 | items.create | Before | data |
 | items.create.after | After | - |
-| items.read | Before | query |
-| items.read.after | After | result |
+| items.read | Before | query, transaction |
+| items.read.after | After | result, transaction |
 | items.update | Before | data |
 | items.update.after | After | - |
 | items.delete | Before | - (can throw) |
@@ -1771,6 +1777,10 @@ const item = await service.readOne(id, { fields });
 const id = await service.createOne(data);
 await service.updateOne(id, data);
 await service.deleteOne(id);
+
+// Read with transaction support
+const items = await service.readByQuery(query, false, transaction);
+const item = await service.readOne(id, query, false, transaction);
 ```
 
 ## TasksService

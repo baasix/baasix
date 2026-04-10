@@ -41,7 +41,7 @@ export default (hooksService, context) => {
   hooksService.registerHook(
     "posts",
     "items.read",
-    async ({ query, data, accountability, collection, schema }) => {
+    async ({ query, data, accountability, collection, schema, transaction }) => {
       // Only show published posts to non-admin users
       if (accountability?.role?.name !== "administrator") {
         const existingFilter = query.filter ? JSON.parse(query.filter) : {};

@@ -1,6 +1,6 @@
 {
   "name": "baasix",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "description": "CLI for Baasix Backend-as-a-Service",
   "module": "dist/index.mjs",
