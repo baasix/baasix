@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.64
+
+### Patch Changes
+
+- Fixed timezone issue in dashboard chart.
+
 ## 0.1.63
 
 ### Patch Changes
