@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.63
+
+### Patch Changes
+
+- Added diff tool to optimize DB
+
 ## 0.1.62
 
 ### Patch Changes
