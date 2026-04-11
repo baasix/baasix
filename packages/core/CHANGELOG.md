@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.65
+
+### Patch Changes
+
+- Fixed unwanted text columns creation during startup
+
 ## 0.1.64
 
 ### Patch Changes

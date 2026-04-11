@@ -9,49 +9,55 @@ import type { Express } from "../types/index.js";
  * Relation-only fields (no explicit type) do NOT produce columns,
  * but BelongsTo relations produce a foreignKey column.
  */
+// Relation type indicators stored in the `type` field by the UI — these are NOT real column types
+const RELATION_TYPE_INDICATORS = new Set(["M2O", "O2O", "O2M", "M2M"]);
+
 function getExpectedColumns(schema: any): Map<string, { type: string; fromField: string }> {
   const columns = new Map<string, { type: string; fromField: string }>();
 
   for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
     const fs = fieldSchema as any;
 
-    // BelongsTo relations create a foreign key column
+    // BelongsTo relations create a foreign key column (not a column with the field name)
     if (fs.relType === "BelongsTo") {
       const foreignKey = fs.foreignKey || `${fieldName}_Id`;
-      if (foreignKey === fieldName && fs.type) {
-        // Field itself is the FK column with explicit type
-        columns.set(fieldName, { type: fs.type, fromField: fieldName });
-      } else if (foreignKey !== fieldName) {
-        // Separate FK column
-        columns.set(foreignKey, { type: fs.type || "UUID", fromField: fieldName });
-      }
-      // If foreignKey === fieldName but no explicit type, handled by FK logic
-      if (foreignKey === fieldName && !fs.type) {
-        columns.set(foreignKey, { type: "UUID", fromField: fieldName });
+      // Determine the actual column type — ignore relation type indicators like "M2O"
+      const actualType = (fs.type && !RELATION_TYPE_INDICATORS.has(fs.type)) ? fs.type : "UUID";
+
+      if (foreignKey === fieldName) {
+        // Field itself IS the FK column
+        columns.set(fieldName, { type: actualType, fromField: fieldName });
+      } else {
+        // Separate FK column — try to get type from the dedicated FK field in the schema
+        const fkField = schema.fields[foreignKey] as any;
+        const fkType = fkField?.type && !RELATION_TYPE_INDICATORS.has(fkField.type) ? fkField.type : actualType;
+        columns.set(foreignKey, { type: fkType, fromField: fieldName });
       }
       continue;
     }
 
-    // Skip relation-only fields (no explicit type)
-    if (fs.relType && !fs.type) continue;
+    // Skip relation-only fields (no explicit type, or type is a relation type indicator)
+    if (fs.relType && (!fs.type || RELATION_TYPE_INDICATORS.has(fs.type))) continue;
 
     columns.set(fieldName, { type: fs.type || "String", fromField: fieldName });
   }
 
   // Implicit columns from schema flags
+  // Only add implicit columns if they're not already defined as schema fields
+  // (e.g. usertrack fields may exist as BelongsTo relations with different FK column names)
   if (schema.timestamps !== false) {
-    if (!columns.has("createdAt")) columns.set("createdAt", { type: "DateTime", fromField: "[timestamps]" });
-    if (!columns.has("updatedAt")) columns.set("updatedAt", { type: "DateTime", fromField: "[timestamps]" });
+    if (!columns.has("createdAt") && !schema.fields?.createdAt) columns.set("createdAt", { type: "DateTime", fromField: "[timestamps]" });
+    if (!columns.has("updatedAt") && !schema.fields?.updatedAt) columns.set("updatedAt", { type: "DateTime", fromField: "[timestamps]" });
   }
   if (schema.paranoid) {
-    if (!columns.has("deletedAt")) columns.set("deletedAt", { type: "DateTime", fromField: "[paranoid]" });
+    if (!columns.has("deletedAt") && !schema.fields?.deletedAt) columns.set("deletedAt", { type: "DateTime", fromField: "[paranoid]" });
   }
   if (schema.sortEnabled) {
-    if (!columns.has("sort")) columns.set("sort", { type: "Integer", fromField: "[sortEnabled]" });
+    if (!columns.has("sort") && !schema.fields?.sort) columns.set("sort", { type: "Integer", fromField: "[sortEnabled]" });
   }
   if (schema.usertrack) {
-    if (!columns.has("userCreated")) columns.set("userCreated", { type: "UUID", fromField: "[usertrack]" });
-    if (!columns.has("userUpdated")) columns.set("userUpdated", { type: "UUID", fromField: "[usertrack]" });
+    if (!columns.has("userCreated") && !schema.fields?.userCreated) columns.set("userCreated", { type: "UUID", fromField: "[usertrack]" });
+    if (!columns.has("userUpdated") && !schema.fields?.userUpdated) columns.set("userUpdated", { type: "UUID", fromField: "[usertrack]" });
   }
 
   return columns;

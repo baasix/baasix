@@ -699,8 +699,10 @@ export class SchemaManager {
     for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
       const fs = fieldSchema as any;
 
-      // Skip relation fields that don't have an explicit type
-      if (fs.relType && !fs.type) {
+      // Skip relation fields that don't have an explicit type,
+      // or whose type is a relation type indicator (M2O, O2O, etc.) rather than a real column type
+      const RELATION_TYPE_INDICATORS = ["M2O", "O2O", "O2M", "M2M"];
+      if (fs.relType && (!fs.type || RELATION_TYPE_INDICATORS.includes(fs.type))) {
         // For BelongsTo relations, check if the foreign key column needs to be added
         if (fs.relType === 'BelongsTo') {
           const foreignKey = fs.foreignKey || `${fieldName}_Id`;
@@ -862,8 +864,10 @@ export class SchemaManager {
 
         if (!foreignKeyExists && foreignKey !== fieldName) {
           // Only create foreign key column if it doesn't already exist as a separate field
+          const RELATION_TYPES_CT = ["M2O", "O2O", "O2M", "M2M"];
+          const fkType = (fs.type && !RELATION_TYPES_CT.includes(fs.type)) ? fs.type : 'UUID';
           const columnDef = this.buildColumnDefinition(foreignKey, {
-            type: fs.type || 'UUID',
+            type: fkType,
             allowNull: fs.allowNull,
             unique: fs.unique
           });
@@ -875,16 +879,18 @@ export class SchemaManager {
         // Store association for later foreign key constraint creation
         foreignKeyAssociations.push({fieldName, assoc: fs});
 
-        // If foreignKey === fieldName AND field has explicit type, don't skip - create column below
-        if (foreignKey === fieldName && fs.type) {
+        // If foreignKey === fieldName AND field has a real column type (not a relation indicator), create column below
+        const RELATION_INDICATORS_CT = ["M2O", "O2O", "O2M", "M2M"];
+        if (foreignKey === fieldName && fs.type && !RELATION_INDICATORS_CT.includes(fs.type)) {
           // Fall through to create the column
         } else {
           continue;
         }
       }
 
-      // Skip other relation types that don't have explicit type
-      if (fs.relType && !fs.type) continue;
+      // Skip other relation types that don't have explicit type (or have relation type indicators)
+      const RELATION_TYPE_IND = ["M2O", "O2O", "O2M", "M2M"];
+      if (fs.relType && (!fs.type || RELATION_TYPE_IND.includes(fs.type))) continue;
 
       const columnDef = this.buildColumnDefinition(fieldName, fs);
       if (columnDef) {
