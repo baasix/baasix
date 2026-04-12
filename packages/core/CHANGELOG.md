@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.66
+
+### Patch Changes
+
+- Fixed ENUM warnings in logs
+
 ## 0.1.65
 
 ### Patch Changes

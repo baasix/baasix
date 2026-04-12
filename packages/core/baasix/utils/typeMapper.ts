@@ -141,6 +141,7 @@ export function mapJsonTypeToDrizzle(fieldName: string, fieldSchema: FieldSchema
 
     // ENUM
     case 'ENUM':
+    case 'Enum':
       // ENUMs require pre-definition, will handle separately
       column = varchar(fieldName, { length: 255 });
       break;

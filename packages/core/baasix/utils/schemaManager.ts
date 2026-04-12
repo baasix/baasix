@@ -1696,7 +1696,9 @@ export class SchemaManager {
       for (const [fieldName, fieldSchema] of Object.entries(fields)) {
         // Skip relationship-only fields (no explicit type defined)
         // But process fields that have both type AND relType (e.g., foreign key columns)
-        if (isRelationField(fieldSchema) && !fieldSchema.type) {
+        // Also skip fields where type is a relation indicator (M2O, O2O, etc.) — not a real column type
+        const RELATION_TYPE_IND_MODEL = ["M2O", "O2O", "O2M", "M2M"];
+        if (isRelationField(fieldSchema) && (!fieldSchema.type || RELATION_TYPE_IND_MODEL.includes(fieldSchema.type))) {
           continue;
         }
 
