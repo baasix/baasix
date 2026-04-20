@@ -400,6 +400,7 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
           width: `${zoneWidth}px`,
         },
       };
+      const halfZoneWidth = zoneWidth / 2;
 
       const tableRect = tableRectRef.current;
 
@@ -425,7 +426,6 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
         styles[draggingDirection].backgroundColor = '#adf';
         styles[draggingDirection].mixBlendMode = 'unset';
       } else if (!draggingDirection && hoveredDirection === 'right') {
-        const halfZoneWidth = zoneWidth / 2;
         const highlightWidth = 2;
         const highlightStart = halfZoneWidth - highlightWidth / 2;
         styles.right.backgroundImage = `linear-gradient(90deg, transparent ${highlightStart}px, ${ACTIVE_RESIZER_COLOR} ${highlightStart}px, ${ACTIVE_RESIZER_COLOR} ${
@@ -435,6 +435,17 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
         if (tableRect) {
           styles.right.top = `${window.scrollY + tableRect.top}px`;
           styles.right.height = `${tableRect.height}px`;
+        }
+      } else if (!draggingDirection && hoveredDirection === 'bottom') {
+        const highlightWidth = 2;
+        const highlightStart = halfZoneWidth - highlightWidth / 2;
+        styles.bottom.backgroundImage = `linear-gradient(0deg, transparent ${highlightStart}px, ${ACTIVE_RESIZER_COLOR} ${highlightStart}px, ${ACTIVE_RESIZER_COLOR} ${
+          highlightStart + highlightWidth
+        }px, transparent ${highlightStart + highlightWidth}px)`;
+        styles.bottom.mixBlendMode = 'unset';
+        if (tableRect) {
+          styles.bottom.left = `${window.scrollX + tableRect.left}px`;
+          styles.bottom.width = `${tableRect.width}px`;
         }
       }
 
@@ -483,6 +494,8 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
           <div
             className="TableCellResizer__resizer TableCellResizer__ui"
             style={resizerStyles.bottom || undefined}
+            onPointerEnter={handlePointerEnter('bottom')}
+            onPointerLeave={handlePointerLeave}
             onPointerDown={toggleResize('bottom')}
           />
         </>

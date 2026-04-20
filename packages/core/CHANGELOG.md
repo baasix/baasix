@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.67
+
+### Patch Changes
+
+- Lexical: Missing table resizer, Schema Auditng enhancements.
+
 ## 0.1.66
 
 ### Patch Changes

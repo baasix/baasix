@@ -697,6 +697,11 @@ export const systemSchemas = {
                         showAs: ["name"],
                     },
                 },
+                indexes: [
+                    { fields: ["createdAt"], name: "idx_auditlog_createdat" },
+                    { fields: ["createdAt", "action"], name: "idx_auditlog_createdat_action" },
+                    { fields: ["entity", "entityId"], name: "idx_auditlog_entity" },
+                ],
             },
         },
         {

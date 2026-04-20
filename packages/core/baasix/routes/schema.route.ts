@@ -487,17 +487,17 @@ const registerEndpoint = (app: Express, context?: any) => {
         }
     });
 
-    // Add missing foreign key indexes to all collections (migration utility)
+    // Add missing indexes to all collections (foreign key indexes + schema-defined indexes)
     app.post("/schemas/indexes/migrate", adminOnly, async (req, res, next) => {
         try {
-            console.log('Starting foreign key index migration...');
+            console.log('Starting index migration...');
             const result = await schemaManager.addMissingForeignKeyIndexes(req.accountability);
             
             // Invalidate schema definition cache after migration
             await invalidateEntireCache('baasix_SchemaDefinition');
 
             res.status(200).json({
-                message: "Foreign key index migration completed",
+                message: "Index migration completed",
                 summary: {
                     created: result.created.length,
                     skipped: result.skipped.length,

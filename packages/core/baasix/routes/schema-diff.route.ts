@@ -144,6 +144,45 @@ const registerEndpoint = (app: Express, context?: any) => {
         fieldsOnlyInDb: Array<{ column: string; dataType: string; isNullable: string; columnDefault: string | null }>;
       }> = [];
 
+      // Index diffs: indexes defined in schema but missing from database
+      const indexDiffs: Array<{
+        collection: string;
+        indexesOnlyInSchema: Array<{ name: string; fields: string[]; unique: boolean }>;
+        indexesOnlyInDb: Array<{ name: string; columns: string; isUnique: boolean }>;
+      }> = [];
+
+      // Fetch all indexes from database in one query
+      const dbIndexes = await sql`
+        SELECT 
+          t.relname AS table_name,
+          i.relname AS index_name,
+          ix.indisunique AS is_unique,
+          array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) AS columns
+        FROM pg_index ix
+        JOIN pg_class t ON t.oid = ix.indrelid
+        JOIN pg_class i ON i.oid = ix.indexrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+        WHERE n.nspname = 'public'
+          AND NOT ix.indisprimary
+        GROUP BY t.relname, i.relname, ix.indisunique
+        ORDER BY t.relname, i.relname
+      `;
+
+      const dbIndexesByTable = new Map<string, Array<{ name: string; columns: string[]; isUnique: boolean }>>();
+      for (const idx of dbIndexes) {
+        if (!dbIndexesByTable.has(idx.table_name)) {
+          dbIndexesByTable.set(idx.table_name, []);
+        }
+        dbIndexesByTable.get(idx.table_name)!.push({
+          name: idx.index_name,
+          columns: idx.columns,
+          isUnique: idx.is_unique,
+        });
+      }
+
+      let totalMissingIndexes = 0;
+
       for (const [collectionName, schemaDef] of allSchemaDefinitions) {
         if (!dbTableNames.has(collectionName)) continue; // table doesn't exist in DB
 
@@ -180,6 +219,49 @@ const registerEndpoint = (app: Express, context?: any) => {
             fieldsOnlyInDb,
           });
         }
+
+        // Index comparison: compare schema-defined indexes with actual DB indexes
+        const schemaIndexes: Array<{ name: string; fields: string[]; unique: boolean }> = schemaDef.indexes || [];
+        const actualIndexes = dbIndexesByTable.get(collectionName) || [];
+        const actualIndexNames = new Set(actualIndexes.map((i: any) => i.name));
+
+        const indexesOnlyInSchema: Array<{ name: string; fields: string[]; unique: boolean }> = [];
+        const indexesOnlyInDb: Array<{ name: string; columns: string; isUnique: boolean }> = [];
+
+        // Indexes in schema but not in database
+        for (const idx of schemaIndexes) {
+          const indexName = idx.name || `${collectionName}_${idx.fields.join('_')}_idx`;
+          if (!actualIndexNames.has(indexName)) {
+            indexesOnlyInSchema.push({
+              name: indexName,
+              fields: idx.fields,
+              unique: !!idx.unique,
+            });
+          }
+        }
+
+        // Indexes in DB but not in schema (excluding auto-generated FK constraint indexes)
+        const schemaIndexNames = new Set(
+          schemaIndexes.map((idx: any) => idx.name || `${collectionName}_${idx.fields.join('_')}_idx`)
+        );
+        for (const idx of actualIndexes) {
+          if (!schemaIndexNames.has(idx.name)) {
+            indexesOnlyInDb.push({
+              name: idx.name,
+              columns: idx.columns.join(', '),
+              isUnique: idx.isUnique,
+            });
+          }
+        }
+
+        if (indexesOnlyInSchema.length > 0 || indexesOnlyInDb.length > 0) {
+          indexDiffs.push({
+            collection: collectionName,
+            indexesOnlyInSchema,
+            indexesOnlyInDb,
+          });
+          totalMissingIndexes += indexesOnlyInSchema.length;
+        }
       }
 
       // 5. Summary
@@ -189,6 +271,8 @@ const registerEndpoint = (app: Express, context?: any) => {
         tablesOnlyInSchemaCount: tablesOnlyInSchema.length,
         tablesOnlyInDbCount: tablesOnlyInDb.length,
         collectionsWithFieldDiffs: fieldDiffs.length,
+        collectionsWithIndexDiffs: indexDiffs.length,
+        totalMissingIndexes,
       };
 
       return res.status(200).json({
@@ -197,6 +281,7 @@ const registerEndpoint = (app: Express, context?: any) => {
           tablesOnlyInSchema,
           tablesOnlyInDb,
           fieldDiffs,
+          indexDiffs,
         },
       });
     } catch (error) {

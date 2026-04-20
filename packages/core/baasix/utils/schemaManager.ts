@@ -844,6 +844,13 @@ export class SchemaManager {
       if (!skipFKConstraints) {
         await this.ensureForeignKeyConstraints(collectionName, schema);
       }
+
+      // Sync indexes for existing tables
+      if (schema.indexes && Array.isArray(schema.indexes)) {
+        for (const index of schema.indexes) {
+          await this.createIndex(collectionName, index);
+        }
+      }
       return;
     }
 
@@ -2419,9 +2426,83 @@ export class SchemaManager {
         }
       }
 
-      // Track schemas that need updating
+      // Track schemas that need updating (FK indexes only update schema definitions)
       if (newIndexes.length > 0) {
         schemasToUpdate.set(collectionName, { schema, newIndexes });
+      }
+
+      // Also create any schema-defined indexes that are missing from the database
+      if (schema.indexes && Array.isArray(schema.indexes)) {
+        for (const indexDef of schema.indexes) {
+          const fields = indexDef.fields;
+          if (!fields || !Array.isArray(fields) || fields.length === 0) continue;
+
+          const indexName = indexDef.name || `${collectionName}_${fields.join('_')}_idx`;
+
+          try {
+            // Check if index already exists in database
+            const indexExists = await sql`
+              SELECT EXISTS (
+                SELECT FROM pg_indexes
+                WHERE tablename = ${collectionName}
+                AND indexname = ${indexName}
+              )
+            `;
+
+            if (indexExists[0].exists) {
+              result.skipped.push({
+                collection: collectionName,
+                indexName,
+                reason: 'Index already exists in database',
+              });
+              continue;
+            }
+
+            // Verify all columns exist
+            const columnsExist = await sql`
+              SELECT column_name FROM information_schema.columns
+              WHERE table_name = ${collectionName}
+              AND column_name = ANY(${fields})
+            `;
+            const existingCols = new Set(columnsExist.map((c: any) => c.column_name));
+            const missingCols = fields.filter((f: string) => !existingCols.has(f));
+            if (missingCols.length > 0) {
+              result.skipped.push({
+                collection: collectionName,
+                indexName,
+                reason: `Columns missing: ${missingCols.join(', ')}`,
+              });
+              continue;
+            }
+
+            // Build and execute CREATE INDEX
+            const unique = indexDef.unique ? 'UNIQUE' : '';
+            const fieldList = fields.map((f: string) => `"${f}"`).join(', ');
+            let nullsNotDistinct = '';
+            if (indexDef.unique && indexDef.nullsNotDistinct) {
+              const supportsNND = await isPgVersionAtLeast(15);
+              if (supportsNND) {
+                nullsNotDistinct = ' NULLS NOT DISTINCT';
+              }
+            }
+            const createIndexSQL = `CREATE ${unique} INDEX "${indexName}" ON "${collectionName}" (${fieldList})${nullsNotDistinct}`;
+            await sql.unsafe(createIndexSQL);
+            console.log(`Created schema-defined index ${indexName} on ${collectionName}(${fields.join(', ')})`);
+
+            result.created.push({
+              collection: collectionName,
+              indexName,
+              field: fields.join(', '),
+            });
+          } catch (error: any) {
+            result.errors.push({
+              collection: collectionName,
+              indexName,
+              error: error.message,
+            });
+            console.error(`Failed to create schema-defined index ${indexName}:`, error.message);
+          }
+        }
       }
     }
 
