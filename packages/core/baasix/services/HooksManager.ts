@@ -240,6 +240,21 @@ if (!globalThis.__baasix_hooksManagerInitialized) {
   hooksManager.registerHook('baasix_UserRole', 'items.create.after', invalidateUserRoleCacheFromHook);
   hooksManager.registerHook('baasix_UserRole', 'items.update.after', invalidateUserRoleCacheFromHook);
   hooksManager.registerHook('baasix_UserRole', 'items.delete.after', invalidateUserRoleCacheFromHook);
+
+  // Evict session cache when a session record is deleted via ItemsService
+  // This ensures auth/me returns 401 immediately instead of waiting for 30s TTL
+  hooksManager.registerHook('baasix_Sessions', 'items.delete.after', async (context: HookContext) => {
+    try {
+      const token = context.document?.token;
+      if (!token) return context;
+      const { getCache } = await import('../utils/cache.js');
+      const cache = getCache();
+      await cache.delete(`auth:session:${token}`);
+    } catch (error: any) {
+      console.error('[HooksManager] Failed to invalidate session cache:', error.message);
+    }
+    return context;
+  });
 }
 
 export default hooksManager;

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.69
+
+### Patch Changes
+
+- Added Hooks to clear sessions on manual deletions
+
 ## 0.1.68
 
 ### Patch Changes
