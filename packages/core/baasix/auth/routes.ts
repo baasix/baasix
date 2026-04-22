@@ -316,6 +316,17 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         return res.status(401).json({ message: "No token provided" });
       }
 
+      // Preserve existing session type when refreshing token/session.
+      // Without this, refresh creates a new session with implicit "default" type.
+      let sessionType = "default";
+      const decodedToken = auth.tokenService.decodeToken(token);
+      if (decodedToken?.sessionToken) {
+        const existingSession = await auth.sessionService.validateSession(decodedToken.sessionToken);
+        if (existingSession?.session?.type) {
+          sessionType = existingSession.session.type;
+        }
+      }
+
       // Validate current session
       const sessionResult = await auth.validateSession(token);
       if (!sessionResult) {
@@ -333,6 +344,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         tenantId: tenant?.id || null,
         ipAddress,
         userAgent,
+        type: sessionType,
       });
 
       // Invalidate old session

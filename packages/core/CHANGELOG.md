@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.68
+
+### Patch Changes
+
+- Fixed authtype handling in refresh token endpoint.
+
 ## 0.1.67
 
 ### Patch Changes

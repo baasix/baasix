@@ -99,6 +99,43 @@ describe("Session Types and Limits", () => {
         expect(sessions.data.length).toBeGreaterThan(0);
     });
 
+    test("should preserve authType on refresh for cookie auth mode", async () => {
+        const sessionService = new ItemsService('baasix_Sessions');
+
+        // Clear sessions so latest created session belongs to this test flow.
+        const existingSessions = await sessionService.readByQuery({ limit: -1 }, true);
+        for (const session of existingSessions.data) {
+            await sessionService.deleteOne(session.id);
+        }
+
+        const agent = request.agent(app);
+
+        const loginResponse = await agent
+            .post("/auth/login")
+            .send({
+                email: "admin@baasix.com",
+                password: "admin@123",
+                authMode: "cookie",
+                authType: "mobile",
+            });
+
+        expect(loginResponse.status).toBe(200);
+
+        const refreshResponse = await agent
+            .post("/auth/refresh")
+            .send({ authMode: "cookie" });
+
+        expect(refreshResponse.status).toBe(200);
+
+        const sessions = await sessionService.readByQuery({
+            limit: -1,
+            sort: ['createdAt']
+        }, true);
+
+        const latestSession = sessions.data[sessions.data.length - 1];
+        expect(latestSession.type).toBe("mobile");
+    });
+
     test("should reject invalid session type", async () => {
         const response = await request(app)
             .post("/auth/login")

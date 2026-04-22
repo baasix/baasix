@@ -140,7 +140,15 @@ export function createSessionService(adapter: AuthAdapter, config: SessionConfig
     },
 
     async invalidateAllSessions(userId) {
+      // Capture active tokens first so we can evict session cache entries after delete.
+      const sessions = await adapter.findSessionsByUserId(userId);
       await adapter.deleteSessionsByUserId(userId);
+
+      try {
+        const { getCache } = await import('../../utils/cache.js');
+        const cache = getCache();
+        await Promise.all(sessions.map((session) => cache.delete(`auth:session:${session.token}`)));
+      } catch {}
     },
 
     async listSessions(userId) {
@@ -163,6 +171,12 @@ export function createSessionService(adapter: AuthAdapter, config: SessionConfig
       for (const session of sessions) {
         if (new Date(session.expiresAt) <= now) {
           await adapter.deleteSession(session.id);
+          // Best-effort cache cleanup for expired session entries.
+          try {
+            const { getCache } = await import('../../utils/cache.js');
+            const cache = getCache();
+            await cache.delete(`auth:session:${session.token}`);
+          } catch {}
         }
       }
     },
