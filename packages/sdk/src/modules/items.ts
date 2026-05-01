@@ -571,13 +571,16 @@ export class ItemsModule<T extends BaseItem = BaseItem> {
   /**
    * Restore a soft-deleted item
    *
+   * Only works for collections with `paranoid: true`. Clears the `deletedAt`
+   * timestamp so the record reappears in normal queries.
+   *
    * @example
    * ```typescript
    * await items.restore('product-uuid');
    * ```
    */
   async restore(id: string): Promise<void> {
-    await this.update(id, { deletedAt: null } as unknown as Partial<T>);
+    await this.client.post<MutationResponse<string>>(`/items/${this.collection}/${id}/restore`);
   }
 
   /**

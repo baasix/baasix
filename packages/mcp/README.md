@@ -221,7 +221,8 @@ Or using headers:
 | `baasix_get_item` | Get specific item by ID |
 | `baasix_create_item` | Create new item |
 | `baasix_update_item` | Update existing item |
-| `baasix_delete_item` | Delete item |
+| `baasix_delete_item` | Delete item (soft-delete if collection has `paranoid: true`) |
+| `baasix_restore_item` | Restore a soft-deleted item (paranoid collections only) |
 | `baasix_sort_items` | Reorder items in collection |
 
 ### File Management (3 tools)

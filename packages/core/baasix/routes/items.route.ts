@@ -239,6 +239,23 @@ const registerEndpoint = (app: Express) => {
     }
   });
 
+  // Restore a soft-deleted item (paranoid mode)
+  app.post("/items/:collection/:id/restore", modelExistsMiddleware, async (req, res, next) => {
+    try {
+      const { collection, id } = req.params;
+
+      const itemsService = new ItemsService(collection, {
+        accountability: req.accountability as any,
+      });
+
+      const restoredId = await itemsService.restore(id);
+
+      res.json({ data: { id: restoredId } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Import CSV file
   app.post(
     "/items/:collection/import-csv",

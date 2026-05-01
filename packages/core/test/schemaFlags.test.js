@@ -175,32 +175,88 @@ describe("Schema Flag Tests", () => {
 
         expect(response.status).toBe(201);
 
-        // Get the schema to verify paranoid flag
+        // Get the schema to verify paranoid flag and deletedAt field
         const getResponse = await request(app)
             .get("/schemas/FlagTestModel")
             .set("Authorization", `Bearer ${adminToken}`);
 
         expect(getResponse.status).toBe(200);
         expect(getResponse.body.data.schema.paranoid).toBe(true);
+        expect(getResponse.body.data.schema.fields.deletedAt).toBeDefined();
+        // deletedAt must NOT have a defaultValue — it must start as null on new records
+        expect(getResponse.body.data.schema.fields.deletedAt.defaultValue).toBeUndefined();
 
-        // Create and then soft-delete an item to test paranoid
+        // Create a second item to ensure the list filter works correctly
+        await request(app)
+            .post("/items/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ name: "Survivor Item", description: "Should remain visible" });
+
+        // Create the item that will be soft-deleted
         const createItemResponse = await request(app)
             .post("/items/FlagTestModel")
             .set("Authorization", `Bearer ${adminToken}`)
             .send({ name: "Deletable Item", description: "Will be soft-deleted" });
 
+        expect(createItemResponse.status).toBe(201);
         const itemId = createItemResponse.body.data.id;
 
-        // Delete the item (which should be a soft delete due to paranoid mode)
-        await request(app).delete(`/items/FlagTestModel/${itemId}`).set("Authorization", `Bearer ${adminToken}`);
+        // Verify newly created item does NOT have deletedAt set (it should be null/undefined)
+        const getCreatedResponse = await request(app)
+            .get(`/items/FlagTestModel/${itemId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(getCreatedResponse.status).toBe(200);
+        expect(getCreatedResponse.body.data.deletedAt).toBeNull();
 
-        // Try to get the deleted item
+        // Verify both items appear in list before deletion
+        const listBeforeDelete = await request(app)
+            .get("/items/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(listBeforeDelete.status).toBe(200);
+        const idsBefore = listBeforeDelete.body.data.map((i) => i.id);
+        expect(idsBefore).toContain(itemId);
+
+        // Soft-delete the item
+        const deleteResponse = await request(app)
+            .delete(`/items/FlagTestModel/${itemId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(deleteResponse.status).toBe(200);
+
+        // Verify soft-deleted item is hidden from the list (paranoid filter active)
+        const listAfterDelete = await request(app)
+            .get("/items/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(listAfterDelete.status).toBe(200);
+        const idsAfter = listAfterDelete.body.data.map((i) => i.id);
+        expect(idsAfter).not.toContain(itemId);
+        // Survivor should still be visible
+        expect(listAfterDelete.body.data.length).toBe(idsBefore.length - 1);
+
+        // Verify soft-deleted item is also hidden when fetched by ID
         const getDeletedResponse = await request(app)
             .get(`/items/FlagTestModel/${itemId}`)
             .set("Authorization", `Bearer ${adminToken}`);
-
-        // Should return 404 since the item is soft-deleted
         expect(getDeletedResponse.status).toBe(403);
+
+        // Restore the soft-deleted item
+        const restoreResponse = await request(app)
+            .post(`/items/FlagTestModel/${itemId}/restore`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(restoreResponse.status).toBe(200);
+        expect(restoreResponse.body.data.id).toBe(itemId);
+
+        // Item should be visible again after restore
+        const getRestoredResponse = await request(app)
+            .get(`/items/FlagTestModel/${itemId}`)
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(getRestoredResponse.status).toBe(200);
+        expect(getRestoredResponse.body.data.deletedAt).toBeNull();
+
+        // Item should reappear in the list
+        const listAfterRestore = await request(app)
+            .get("/items/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(listAfterRestore.body.data.map((i) => i.id)).toContain(itemId);
     });
 
     test("Update schema to add usertrack flag", async () => {

@@ -174,6 +174,11 @@ interface DeleteItemInput {
   id: string;
 }
 
+interface RestoreItemInput {
+  collection: string;
+  id: string;
+}
+
 interface ListFilesInput {
   filter?: Record<string, unknown>;
   page?: number;
@@ -464,6 +469,7 @@ const TOOL_ACTION_MAP: Record<string, string> = {
   baasix_create_item: "create",
   baasix_update_item: "update",
   baasix_delete_item: "delete",
+  baasix_restore_item: "update",
 
   // File Management
   baasix_list_files: "read",
@@ -1399,6 +1405,25 @@ For foreign key fields, use the "_Id" suffixed column name (e.g., category_Id).`
         const res = await callRoute('DELETE', `/items/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`, extra);
         if (!res.ok) return errorResult(res.error || 'Failed to delete item');
         return successResult({ success: true, message: `Item '${id}' deleted` });
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
+  registerTool(
+    "baasix_restore_item",
+    "Restore a soft-deleted record in a paranoid (soft-delete) collection. Only works for collections with paranoid: true. Clears the deletedAt timestamp so the record appears in normal queries again. Requires update permission on the collection.",
+    {
+      collection: z.string().describe("Table/collection name (must have paranoid: true)"),
+      id: z.string().describe("Row ID (UUID) of the soft-deleted item to restore"),
+    },
+    async (args: RestoreItemInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, id } = args;
+      try {
+        const res = await callRoute('POST', `/items/${encodeURIComponent(collection)}/${encodeURIComponent(id)}/restore`, extra);
+        if (!res.ok) return errorResult(res.error || 'Failed to restore item');
+        return successResult({ success: true, message: `Item '${id}' restored`, id });
       } catch (error) {
         return errorResult(error as Error);
       }

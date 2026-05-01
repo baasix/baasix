@@ -1731,7 +1731,7 @@ export class SchemaManager {
       }
 
       // Add deletedAt for paranoid mode
-      if (options?.paranoid) {
+      if (options?.paranoid || jsonSchema?.paranoid) {
         if (!columns.deletedAt) {
           columns.deletedAt = timestamp('deletedAt', { withTimezone: true });
         }
@@ -1744,8 +1744,10 @@ export class SchemaManager {
       this.schemas.set(collectionName, tableSchema);
       
       // Track paranoid mode for this table
-      if (options?.paranoid) {
+      if (options?.paranoid || jsonSchema?.paranoid) {
         this.schemas.set(`${collectionName}_paranoid`, true);
+      } else {
+        this.schemas.delete(`${collectionName}_paranoid`);
       }
 
       // Handle associations (store them for later query use)
@@ -2009,6 +2011,7 @@ export class SchemaManager {
 
     // Remove from memory
     this.schemas.delete(collectionName);
+    this.schemas.delete(`${collectionName}_paranoid`);
     this.relations.delete(collectionName);
     this.schemaDefinitions.delete(collectionName);
   }
@@ -2115,6 +2118,7 @@ export class SchemaManager {
   async deleteModel(collectionName: string): Promise<void> {
     console.log(`Deleting model: ${collectionName}`);
     this.schemas.delete(collectionName);
+    this.schemas.delete(`${collectionName}_paranoid`);
     // In production, this would drop the table
   }
 

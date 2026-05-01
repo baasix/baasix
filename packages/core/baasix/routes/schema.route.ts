@@ -290,6 +290,13 @@ const registerEndpoint = (app: Express, context?: any) => {
             };
         }
 
+        // Handle paranoid flag (add deletedAt field in both create and edit mode)
+        if (processedSchema.paranoid === true) {
+            processedSchema.fields.deletedAt = { type: "DateTime", allowNull: true, SystemGenerated: true };
+        } else if (processedSchema.paranoid === false && editMode) {
+            delete processedSchema.fields.deletedAt;
+        }
+
         if (editMode) {
             // If sortEnabled is enabled, ensure the sort field is added
             if (processedSchema.sortEnabled === true) {
@@ -315,12 +322,7 @@ const registerEndpoint = (app: Express, context?: any) => {
                 delete processedSchema.fields.updatedAt;
             }
 
-            // If paranoid is enabled, ensure it is not removed
-            if (processedSchema.paranoid === true) {
-                processedSchema.fields.deletedAt = { type: "DateTime", allowNull: true, SystemGenerated: true, defaultValue: { type: "NOW" } };
-            } else if (processedSchema.paranoid === false) {
-                delete processedSchema.fields.deletedAt;
-            }
+            // paranoid/deletedAt is now handled outside editMode block above
         }
 
         return processedSchema;

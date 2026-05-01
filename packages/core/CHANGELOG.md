@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.71
+
+### Patch Changes
+
+- Fixed soft deleted related issues and added MCP tool to restore it.
+
 ## 0.1.70
 
 ### Patch Changes

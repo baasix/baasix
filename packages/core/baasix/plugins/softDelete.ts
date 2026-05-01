@@ -10,7 +10,7 @@
  */
 
 import { timestamp } from 'drizzle-orm/pg-core';
-import { SQL, and, isNull } from 'drizzle-orm';
+import { SQL, and, isNull, isNotNull } from 'drizzle-orm';
 
 export interface SoftDeleteOptions {
   deletedAtColumn?: string;
@@ -66,7 +66,7 @@ export class SoftDeleteHelper {
    * Usage: where(table, softDelete.onlyDeleted(table))
    */
   onlyDeleted(table: any): SQL {
-    return isNull(table[this.deletedAtColumn]);
+    return isNotNull(table[this.deletedAtColumn]);
   }
 
   /**

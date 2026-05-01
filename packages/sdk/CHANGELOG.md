@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.16
+
+### Patch Changes
+
+- Fixed soft deleted related issues and added MCP tool to restore it.
+
 ## 0.1.15
 
 ### Patch Changes

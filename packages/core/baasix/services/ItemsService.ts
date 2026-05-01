@@ -654,14 +654,14 @@ export class ItemsService {
     filter = await resolveDynamicVariables(filter, this.accountability);
 
     // Apply soft delete filter (paranoid mode)
-    // Exclude soft-deleted records unless paranoid: false is specified in options
+    // Exclude soft-deleted records unless paranoid: false is specified in options.
     const isParanoid = schemaManager.isParanoid(this.collection);
-    const includeDeleted = query.paranoid === false; // Explicit false check
-    
+    const includeDeleted = query.paranoid === false;
+
     if (isParanoid && !includeDeleted) {
       // Add deletedAt IS NULL filter
       filter = combineFilters(filter, {
-        [`${this.collection}.deletedAt`]: { _is_null: true }
+        deletedAt: { isNull: true }
       });
     }
 
@@ -3224,9 +3224,24 @@ export class ItemsService {
 
       // Build filter for existing record check (include soft-deleted)
       let filter: FilterObject = {
-        [`${this.collection}.${this.primaryKey}`]: parsedId,
-        [`${this.collection}.deletedAt`]: { _is_not_null: true } // Only restore soft-deleted items
+        [this.primaryKey]: parsedId,
+        deletedAt: { isNotNull: true } // Only restore soft-deleted items
       };
+
+      // Apply row-level permission filter conditions (same as updateOneCore)
+      if (!options.bypassPermissions && !isAdmin) {
+        const roleId = this.getRoleId();
+        const permissionFilter = await permissionService.getFilter(
+          roleId,
+          this.collection,
+          'update',
+          this.accountability
+        );
+
+        if (permissionFilter.conditions) {
+          filter = combineFilters(filter, permissionFilter.conditions);
+        }
+      }
 
       filter = await this.enforceTenantContextFilter(filter);
 
@@ -3258,6 +3273,9 @@ export class ItemsService {
       if (!result || result.length === 0) {
         throw new APIError('Failed to restore item', 500);
       }
+
+      // Invalidate cache so subsequent list queries reflect the restored record
+      await this.invalidateCache();
 
       return parsedId;
     } catch (error) {
