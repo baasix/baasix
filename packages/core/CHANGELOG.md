@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.70
+
+### Patch Changes
+
+- Added new MCP tools and Optimised permission import time.
+
 ## 0.1.69
 
 ### Patch Changes

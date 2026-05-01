@@ -70,6 +70,68 @@ const registerEndpoint = (app: Express, context?: any) => {
         return result.data[0] || null;
     }
 
+    async function persistSchema(collectionName: string, schema: any, accountability?: any, existingSchema?: any): Promise<void> {
+        const schemaDefTable = schemaManager.getTable("baasix_SchemaDefinition");
+
+        // Use provided existingSchema or read from DB to detect realtime config changes
+        if (!existingSchema) {
+            const existingSchemaRecords = await db
+                .select()
+                .from(schemaDefTable)
+                .where(eq(schemaDefTable.collectionName, collectionName))
+                .limit(1);
+
+            if (!existingSchemaRecords || existingSchemaRecords.length === 0) {
+                throw new APIError("Schema not found", 404);
+            }
+
+            existingSchema = existingSchemaRecords[0].schema;
+        }
+
+        const realtimeChanged = !deepEqual(existingSchema.realtime, schema.realtime);
+
+        // Update in database
+        await db
+            .update(schemaDefTable)
+            .set({ schema, updatedAt: new Date() })
+            .where(eq(schemaDefTable.collectionName, collectionName));
+
+        // Update in-memory schema
+        await schemaManager.updateModel(collectionName, schema, accountability);
+
+        // Invalidate schema definition cache
+        await invalidateEntireCache('baasix_SchemaDefinition');
+
+        // Sync realtime if the config changed
+        if (realtimeChanged) {
+            console.log(`Realtime config changed for ${collectionName}, syncing...`);
+            console.log(`  Old: ${JSON.stringify(existingSchema.realtime)}`);
+            console.log(`  New: ${JSON.stringify(schema.realtime)}`);
+            try {
+                const realtimeService = (await import('../services/RealtimeService.js')).default;
+                if (realtimeService.isWalAvailable()) {
+                    await realtimeService.reloadCollections([collectionName]);
+                    console.log(`Realtime configuration synced for ${collectionName}`);
+                } else {
+                    console.log(`WAL not available, skipping realtime sync for ${collectionName}`);
+                }
+            } catch (error) {
+                console.warn('Could not sync realtime configuration:', error.message);
+            }
+        }
+    }
+
+    function assertSafeIdentifier(value: string, label: string): void {
+        const identifierRegex = /^[A-Za-z_][A-Za-z0-9_]*$/;
+        if (!identifierRegex.test(value)) {
+            throw new APIError(
+                `Invalid ${label}`,
+                400,
+                `${label} must match PostgreSQL identifier format: letters, numbers, underscores; cannot start with number.`
+            );
+        }
+    }
+
     // Get all schemas
     // Access controlled by SCHEMAS_PUBLIC env variable:
     // - true (default): Bypass permission check (for development/CLI)
@@ -370,52 +432,170 @@ const registerEndpoint = (app: Express, context?: any) => {
                 existingSchema.timestamps !== schema.timestamps ||
                 existingSchema.paranoid !== schema.paranoid;
 
-            // Check if realtime config changed
-            const realtimeChanged = !deepEqual(existingSchema.realtime, schema.realtime);
-
             console.log(`Flags changed: ${flagsChanged}`);
 
             // Process schema flags
-            const processedSchema = processSchemaFlags(schema, true);
-
             // If usertrack was disabled, we don't remove the fields, just keep them
             // If sortEnabled was disabled, we don't remove the sort field, just keep it
+            const processedSchema = processSchemaFlags(schema, true);
 
-            // Update in database
-            await db
-                .update(schemaDefTable)
-                .set({ schema: processedSchema, updatedAt: new Date() })
-                .where(eq(schemaDefTable.collectionName, collectionName));
-
-            // Update in-memory schema
-            await schemaManager.updateModel(collectionName, processedSchema, req.accountability);
-
-            // Invalidate schema definition cache after updating schema
-            await invalidateEntireCache('baasix_SchemaDefinition');
-
-            // Sync realtime if the config changed
-            if (realtimeChanged) {
-                console.log(`Realtime config changed for ${collectionName}, syncing...`);
-                console.log(`  Old: ${JSON.stringify(existingSchema.realtime)}`);
-                console.log(`  New: ${JSON.stringify(schema.realtime)}`);
-                try {
-                    const realtimeService = (await import('../services/RealtimeService.js')).default;
-                    if (realtimeService.isWalAvailable()) {
-                        await realtimeService.reloadCollections([collectionName]);
-                        console.log(`Realtime configuration synced for ${collectionName}`);
-                    } else {
-                        console.log(`WAL not available, skipping realtime sync for ${collectionName}`);
-                    }
-                } catch (error) {
-                    console.warn('Could not sync realtime configuration:', error.message);
-                }
-            }
+            await persistSchema(collectionName, processedSchema, req.accountability, existingSchema);
 
             console.log(`Schema for ${collectionName} updated successfully`);
             res.status(200).json({ message: "Schema updated successfully" });
         } catch (error) {
             console.error("Error updating schema:", error);
             next(new APIError("Error updating schema", 500, error.message));
+        }
+    });
+
+    app.post("/schemas/:collectionName/fields", adminOnly, async (req, res, next) => {
+        try {
+            const { collectionName } = req.params;
+            const { fieldName, field } = req.body;
+
+            if (!fieldName || !field || typeof field !== 'object') {
+                throw new APIError("Invalid request", 400, "Request body must include fieldName and field object");
+            }
+
+            assertSafeIdentifier(collectionName, 'collection name');
+            assertSafeIdentifier(fieldName, 'field name');
+
+            const schemaRecord = await getSchemaDefinition(collectionName, req.accountability);
+            if (!schemaRecord?.schema) {
+                throw new APIError("Schema not found", 404, `Schema '${collectionName}' does not exist`);
+            }
+
+            if ((field as any).relType) {
+                throw new APIError("Invalid field type", 400, "Use relationship endpoints for relation fields");
+            }
+
+            const existingSchema = schemaRecord.schema;
+            if (existingSchema.fields?.[fieldName]) {
+                throw new APIError("Field already exists", 400, `Field '${fieldName}' already exists in '${collectionName}'`);
+            }
+
+            const updatedSchema = {
+                ...existingSchema,
+                fields: {
+                    ...(existingSchema.fields || {}),
+                    [fieldName]: field,
+                },
+            };
+
+            const processedSchema = processSchemaFlags(updatedSchema, true);
+            await persistSchema(collectionName, processedSchema, req.accountability);
+
+            res.status(201).json({ message: `Field '${fieldName}' added successfully` });
+        } catch (error) {
+            console.error("Error adding field:", error);
+            if (error instanceof APIError) {
+                return next(error);
+            }
+            next(new APIError("Error adding field", 500, error.message));
+        }
+    });
+
+    app.patch("/schemas/:collectionName/fields/:fieldName", adminOnly, async (req, res, next) => {
+        try {
+            const { collectionName, fieldName } = req.params;
+            const payloadField = req.body?.field && typeof req.body.field === 'object' ? req.body.field : req.body;
+
+            if (!payloadField || typeof payloadField !== 'object' || Array.isArray(payloadField)) {
+                throw new APIError("Invalid request", 400, "Request body must contain a field object or { field: {...} }");
+            }
+
+            assertSafeIdentifier(collectionName, 'collection name');
+            assertSafeIdentifier(fieldName, 'field name');
+
+            const schemaRecord = await getSchemaDefinition(collectionName, req.accountability);
+            if (!schemaRecord?.schema) {
+                throw new APIError("Schema not found", 404, `Schema '${collectionName}' does not exist`);
+            }
+
+            const existingSchema = schemaRecord.schema;
+            const currentField = existingSchema.fields?.[fieldName];
+
+            if (!currentField) {
+                throw new APIError("Field not found", 404, `Field '${fieldName}' does not exist in '${collectionName}'`);
+            }
+
+            if ((currentField as any).relType || (payloadField as any).relType) {
+                throw new APIError("Invalid field type", 400, "Use relationship endpoints for relation fields");
+            }
+
+            const updatedSchema = {
+                ...existingSchema,
+                fields: {
+                    ...(existingSchema.fields || {}),
+                    [fieldName]: {
+                        ...currentField,
+                        ...payloadField,
+                    },
+                },
+            };
+
+            const processedSchema = processSchemaFlags(updatedSchema, true);
+            await persistSchema(collectionName, processedSchema, req.accountability);
+
+            res.status(200).json({ message: `Field '${fieldName}' updated successfully` });
+        } catch (error) {
+            console.error("Error updating field:", error);
+            if (error instanceof APIError) {
+                return next(error);
+            }
+            next(new APIError("Error updating field", 500, error.message));
+        }
+    });
+
+    app.delete("/schemas/:collectionName/fields/:fieldName", adminOnly, async (req, res, next) => {
+        try {
+            const { collectionName, fieldName } = req.params;
+
+            assertSafeIdentifier(collectionName, 'collection name');
+            assertSafeIdentifier(fieldName, 'field name');
+
+            const schemaRecord = await getSchemaDefinition(collectionName, req.accountability);
+            if (!schemaRecord?.schema) {
+                throw new APIError("Schema not found", 404, `Schema '${collectionName}' does not exist`);
+            }
+
+            const existingSchema = schemaRecord.schema;
+            const fieldData = existingSchema.fields?.[fieldName];
+
+            if (!fieldData) {
+                throw new APIError("Field not found", 404, `Field '${fieldName}' does not exist in '${collectionName}'`);
+            }
+
+            if ((fieldData as any).relType) {
+                throw new APIError("Invalid field type", 400, "Use relationship endpoints to delete relation fields");
+            }
+
+            if (fieldName === 'id') {
+                throw new APIError("Invalid operation", 400, "Primary key field 'id' cannot be deleted");
+            }
+
+            const updatedFields = { ...(existingSchema.fields || {}) };
+            delete updatedFields[fieldName];
+
+            const updatedSchema = {
+                ...existingSchema,
+                fields: updatedFields,
+            };
+
+            const processedSchema = processSchemaFlags(updatedSchema, true);
+            await persistSchema(collectionName, processedSchema, req.accountability);
+
+            res.status(200).json({
+                message: `Field '${fieldName}' deleted successfully`,
+                schemaOnly: true,
+            });
+        } catch (error) {
+            console.error("Error deleting field:", error);
+            if (error instanceof APIError) {
+                return next(error);
+            }
+            next(new APIError("Error deleting field", 500, error.message));
         }
     });
 
@@ -1926,26 +2106,31 @@ const registerEndpoint = (app: Express, context?: any) => {
                     errors: [],
                 };
 
+                // Load all existing roles and permissions in two bulk queries (same as preview)
+                const [allRolesResult, allPermsResult] = await Promise.all([
+                    roleService.readByQuery({ limit: -1 }, true),
+                    permissionItemsService.readByQuery({ limit: -1 }, true),
+                ]);
+                const currentRoleMap = new Map(allRolesResult.data.map((r: any) => [r.name, r]));
+                const permsByRoleId: Map<string, string[]> = new Map();
+                for (const perm of allPermsResult.data) {
+                    if (!permsByRoleId.has(perm.role_Id)) permsByRoleId.set(perm.role_Id, []);
+                    permsByRoleId.get(perm.role_Id)!.push(perm.id);
+                }
+
                 // Process each role and its permissions
                 for (const roleData of importData.roles) {
                     try {
-                        // Check if role exists
-                        const existingRolesResult = await roleService.readByQuery({
-                            filter: { name: roleData.name },
-                            limit: 1
-                        }, true);
-                        const existingRole = existingRolesResult.data[0];
+                        const existingRole = currentRoleMap.get(roleData.name);
 
                         let roleId;
                         if (!existingRole) {
-                            // Create new role - createOne returns only ID in Drizzle
                             roleId = await roleService.createOne({
                                 name: roleData.name,
                                 description: roleData.description
                             });
                             changes.created.push(`Role: ${roleData.name}`);
                         } else {
-                            // Update existing role
                             await roleService.updateOne(existingRole.id, {
                                 description: roleData.description
                             });
@@ -1953,23 +2138,19 @@ const registerEndpoint = (app: Express, context?: any) => {
                             changes.updated.push(`Role: ${roleData.name}`);
                         }
 
-                        // Delete existing permissions for this role
-                        const existingPermsResult = await permissionItemsService.readByQuery({
-                            filter: { role_Id: roleId },
-                            limit: -1
-                        }, true);
-                        for (const perm of existingPermsResult.data) {
-                            await permissionItemsService.deleteOne(perm.id);
+                        // Delete all existing permissions for this role in one call
+                        const existingPermIds = permsByRoleId.get(roleId) ?? [];
+                        if (existingPermIds.length > 0) {
+                            await permissionItemsService.deleteMany(existingPermIds);
                         }
 
-                        // Create new permissions
+                        // Create all new permissions in one bulk call
                         const permissions = roleData.permissions.map((perm: any) => ({
                             ...perm,
                             role_Id: roleId,
                         }));
-
-                        for (const perm of permissions) {
-                            await permissionItemsService.createOne(perm);
+                        if (permissions.length > 0) {
+                            await permissionItemsService.createMany(permissions);
                         }
                         changes.created.push(`Permissions for ${roleData.name}: ${permissions.length}`);
                     } catch (error: any) {

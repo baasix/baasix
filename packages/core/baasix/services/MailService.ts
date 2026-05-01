@@ -624,6 +624,9 @@ ${contentWithoutStyles}
       finalSender = sender;
     }
 
+    // Keep a concrete subject value available for both success and error logs.
+    let finalSubject = subject || '';
+
     try {
       const customContext: Record<string, any> = {};
       let useTenantSettings = false;
@@ -685,7 +688,7 @@ ${contentWithoutStyles}
       const rendered = await this.renderTemplateWithDB(templateName, { ...customContext, ...context, subject }, tenantId);
       const html = rendered.html;
       // Use the subject from database template if available, otherwise use the provided subject
-      const finalSubject = rendered.subject || subject;
+      finalSubject = rendered.subject || subject || '';
 
       const mailOptions: nodemailer.SendMailOptions = {
         from: from || defaultFrom,
@@ -701,7 +704,7 @@ ${contentWithoutStyles}
       // Log email sent event
       this.logEmail({
         email: to,
-        subject,
+        subject: finalSubject,
         templateName,
         sender: finalSender,
         tenantId: tenantId || null,
@@ -716,7 +719,7 @@ ${contentWithoutStyles}
       // Log email error event
       this.logEmail({
         email: to,
-        subject,
+        subject: finalSubject,
         templateName,
         sender: finalSender || sender || '',
         tenantId: tenantId || null,

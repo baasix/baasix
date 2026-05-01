@@ -195,13 +195,16 @@ Or using headers:
 
 ## Available Tools
 
-### Schema Management (13 tools)
+### Schema Management (16 tools)
 | Tool | Description |
 |------|-------------|
 | `baasix_list_schemas` | List all collections with search/pagination |
 | `baasix_get_schema` | Get detailed schema for a collection |
 | `baasix_create_schema` | Create a new collection schema |
 | `baasix_update_schema` | Update existing schema |
+| `baasix_add_schema_field` | Add a single field to collection schema |
+| `baasix_update_schema_field` | Update a single field in collection schema |
+| `baasix_delete_schema_field` | Delete a single field from collection schema |
 | `baasix_delete_schema` | Delete a collection schema |
 | `baasix_add_index` | Add index to collection |
 | `baasix_remove_index` | Remove index from collection |

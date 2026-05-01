@@ -306,6 +306,79 @@ Field types and options are the same as baasix_create_schema.`,
                         },
                     },
                     {
+                        name: "baasix_add_schema_field",
+                        description: `Add a single field/column to an existing collection schema.
+This is an additive operation and does NOT require sending the full schema.
+
+Use this when asked to "add one field", "add one column", or "append a field".
+For relationship fields, use baasix_create_relationship instead.` ,
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                collection: {
+                                    type: "string",
+                                    description: "Collection name",
+                                },
+                                fieldName: {
+                                    type: "string",
+                                    description: "Field/column name to add",
+                                },
+                                field: {
+                                    type: "object",
+                                    description: "Field definition object",
+                                },
+                            },
+                            required: ["collection", "fieldName", "field"],
+                        },
+                    },
+                    {
+                        name: "baasix_update_schema_field",
+                        description: `Update a single existing field/column in a collection schema.
+This updates one field only and does NOT require sending the complete schema.
+
+Use this to change field options such as type, allowNull, defaultValue, or validations for one field.` ,
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                collection: {
+                                    type: "string",
+                                    description: "Collection name",
+                                },
+                                fieldName: {
+                                    type: "string",
+                                    description: "Field/column name to update",
+                                },
+                                field: {
+                                    type: "object",
+                                    description: "Partial or complete field definition to merge into existing field",
+                                },
+                            },
+                            required: ["collection", "fieldName", "field"],
+                        },
+                    },
+                    {
+                        name: "baasix_delete_schema_field",
+                        description: `Delete a single field/column from a collection schema.
+This operation updates schema definition only via schema manager logic.
+It does not directly execute DROP COLUMN SQL.
+
+Use this when asked to "remove one field" or "drop one column".` ,
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                collection: {
+                                    type: "string",
+                                    description: "Collection name",
+                                },
+                                fieldName: {
+                                    type: "string",
+                                    description: "Field/column name to delete",
+                                },
+                            },
+                            required: ["collection", "fieldName"],
+                        },
+                    },
+                    {
                         name: "baasix_delete_schema",
                         description: `DROP/DELETE an entire database table and all its data permanently.
 Use this when asked to "drop a table", "delete a collection", or "remove a table".
@@ -1666,6 +1739,12 @@ The realtime config is stored in the schema definition and can include specific 
                         return await this.handleCreateSchema(args);
                     case "baasix_update_schema":
                         return await this.handleUpdateSchema(args);
+                    case "baasix_add_schema_field":
+                        return await this.handleAddSchemaField(args);
+                    case "baasix_update_schema_field":
+                        return await this.handleUpdateSchemaField(args);
+                    case "baasix_delete_schema_field":
+                        return await this.handleDeleteSchemaField(args);
                     case "baasix_delete_schema":
                         return await this.handleDeleteSchema(args);
                     case "baasix_add_index":
@@ -1866,6 +1945,53 @@ The realtime config is stored in the schema definition and can include specific 
         const result = await baasixRequest(`/schemas/${collection}`, {
             method: "PATCH",
             data: { schema },
+        });
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(result, null, 2),
+                },
+            ],
+        };
+    }
+
+    async handleAddSchemaField(args) {
+        const { collection, fieldName, field } = args;
+        const result = await baasixRequest(`/schemas/${collection}/fields`, {
+            method: "POST",
+            data: { fieldName, field },
+        });
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(result, null, 2),
+                },
+            ],
+        };
+    }
+
+    async handleUpdateSchemaField(args) {
+        const { collection, fieldName, field } = args;
+        const result = await baasixRequest(`/schemas/${collection}/fields/${fieldName}`, {
+            method: "PATCH",
+            data: { field },
+        });
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(result, null, 2),
+                },
+            ],
+        };
+    }
+
+    async handleDeleteSchemaField(args) {
+        const { collection, fieldName } = args;
+        const result = await baasixRequest(`/schemas/${collection}/fields/${fieldName}`, {
+            method: "DELETE",
         });
         return {
             content: [

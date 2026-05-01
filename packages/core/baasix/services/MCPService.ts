@@ -79,6 +79,23 @@ interface UpdateSchemaInput {
   schema: { fields?: Record<string, unknown> };
 }
 
+interface AddSchemaFieldInput {
+  collection: string;
+  fieldName: string;
+  field: Record<string, unknown>;
+}
+
+interface UpdateSchemaFieldInput {
+  collection: string;
+  fieldName: string;
+  field: Record<string, unknown>;
+}
+
+interface DeleteSchemaFieldInput {
+  collection: string;
+  fieldName: string;
+}
+
 interface DeleteSchemaInput {
   collection: string;
 }
@@ -274,6 +291,12 @@ interface GetPermissionsInput {
   role: string;
 }
 
+interface GetRoleCollectionPermissionsInput {
+  role: string;
+  collection: string;
+  action?: "create" | "read" | "update" | "delete";
+}
+
 interface UpdatePermissionsInput {
   role: string;
   permissions: Array<{
@@ -337,6 +360,8 @@ interface UpdateRelationshipInput {
     description?: string;
   };
 }
+
+const SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION = "Supported field types: String, Text, TEXT, CiText, HTML, Integer, BigInt, Decimal, Float, Real, Double, DOUBLE, Boolean, Date, DateTime, DateTime_NO_TZ, Time, Time_NO_TZ, UUID, SUID, TOKEN, JSON, JSONB, Enum, ENUM, VIRTUAL, Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean, Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ, Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography.";
 
 // ==================== Helper Functions ====================
 
@@ -425,6 +450,9 @@ const TOOL_ACTION_MAP: Record<string, string> = {
   baasix_add_index: "create",
   baasix_create_relationship: "create",
   baasix_update_schema: "update",
+  baasix_add_schema_field: "create",
+  baasix_update_schema_field: "update",
+  baasix_delete_schema_field: "delete",
   baasix_update_relationship: "update",
   baasix_delete_schema: "delete",
   baasix_remove_index: "delete",
@@ -478,6 +506,7 @@ const TOOL_ACTION_MAP: Record<string, string> = {
   baasix_list_permissions: "read",
   baasix_get_permission: "read",
   baasix_get_permissions: "read",
+  baasix_get_role_collection_permissions: "read",
   baasix_create_permission: "create",
   baasix_update_permission: "update",
   baasix_delete_permission: "delete",
@@ -530,8 +559,10 @@ KEY CONCEPTS:
 
 COMMON TASK MAPPING:
 - "Create a table" or "create a collection" → use baasix_create_schema (this creates both the schema definition AND the database table)
-- "Add a column/field" → use baasix_update_schema (⚠️ MUST first call baasix_get_schema to get ALL existing fields, then send complete schema with additions)
-- "Remove a column/field" → use baasix_update_schema (retrieve full schema, remove the field, send complete schema without it)
+- "Add a single column/field" → use baasix_add_schema_field
+- "Update a single column/field" → use baasix_update_schema_field
+- "Remove a single column/field" → use baasix_delete_schema_field
+- "Bulk schema edits across many fields" → use baasix_update_schema (⚠️ full replacement)
 - "Insert/add data" or "create a record" → use baasix_create_item
 - "Query/list/fetch data" or "get rows" → use baasix_list_items
 - "Sum", "count", "average", "total", "report", "stats", "analytics", "dashboard", "min/max" → use baasix_generate_report (NOT baasix_list_items)
@@ -554,7 +585,15 @@ WORKFLOW FOR CREATING A NEW TABLE:
 3. baasix_add_index — (optional) add indexes for performance
 4. baasix_create_permission — (optional) set role-based access
 
-SCHEMA FIELD TYPES: String (VARCHAR), Text (unlimited), Integer, BigInt, Decimal (precision/scale), Float, Real, Double, Boolean, Date, DateTime, Time, UUID, SUID (short ID), JSONB, Array, Enum
+SCHEMA FIELD TYPES:
+- String/Text: String, Text, TEXT, CiText, HTML
+- Numbers: Integer, BigInt, Decimal, Float, Real, Double, DOUBLE
+- Date/time: Date, DateTime, DateTime_NO_TZ, Time, Time_NO_TZ
+- IDs/tokens: UUID, SUID, TOKEN
+- JSON/enums/virtual: JSON, JSONB, Enum, ENUM, VIRTUAL
+- Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
+- Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
+- PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
 
 DEFAULT VALUE TYPES: { type: "UUIDV4" }, { type: "SUID" }, { type: "NOW" }, { type: "AUTOINCREMENT" }, { type: "SQL", value: "..." }
 
@@ -678,18 +717,20 @@ The update_schema tool performs a full replacement, so you need the complete cur
 This creates both the schema definition AND the actual PostgreSQL table with all specified columns.
 
 FIELD TYPES:
-- String: VARCHAR — requires values.length (e.g., { "type": "String", "values": { "length": 255 } })
-- Text: Unlimited length text
-- Integer, BigInt: Whole numbers
-- Decimal: requires values.precision & values.scale (e.g., { "type": "Decimal", "values": { "precision": 10, "scale": 2 } })
-- Float, Real, Double: Floating point numbers
-- Boolean: true/false
-- Date, DateTime, Time: Date/time values
-- UUID: Use with defaultValue { "type": "UUIDV4" } for auto-generated IDs
-- SUID: Short unique ID with defaultValue { "type": "SUID" }
-- JSONB: JSON data with indexing support
-- Array: Specify element type via values.type (e.g., { "type": "Array", "values": { "type": "String" } })
-- Enum: Specify allowed values via values.values (e.g., { "type": "Enum", "values": { "values": ["active", "inactive"] } })
+- String/Text: String, Text, TEXT, CiText, HTML
+- Numbers: Integer, BigInt, Decimal, Float, Real, Double, DOUBLE
+- Date/time: Date, DateTime, DateTime_NO_TZ, Time, Time_NO_TZ
+- IDs/tokens: UUID, SUID, TOKEN
+- JSON/enums/virtual: JSON, JSONB, Enum, ENUM, VIRTUAL
+- Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
+- Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
+- PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
+
+COMMON TYPE-SPECIFIC RULES:
+- String: requires values.length (e.g., { "type": "String", "values": { "length": 255 } })
+- Decimal: requires values.precision and values.scale
+- Enum/ENUM: requires values.values array
+- Array_* / Range_* / PostGIS types use explicit type names (recommended over generic aliases)
 
 FIELD OPTIONS: allowNull (boolean), unique (boolean), primaryKey (boolean), defaultValue (value or { type: "UUIDV4"|"SUID"|"NOW"|"AUTOINCREMENT" })
 
@@ -699,13 +740,33 @@ EXAMPLE — Create a "products" table:
 collection: "products"
 schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": true, "defaultValue": { "type": "UUIDV4" } }, "name": { "type": "String", "allowNull": false, "values": { "length": 255 } }, "price": { "type": "Decimal", "values": { "precision": 10, "scale": 2 }, "defaultValue": 0 }, "inStock": { "type": "Boolean", "defaultValue": true } } }`,
     {
-      collection: z.string().describe("Collection name"),
+      collection: z.string().describe("Name of the new collection/table. Must be a valid PostgreSQL identifier (letters, numbers, underscores; cannot start with a number). Max 63 chars."),
       schema: z
         .object({
-          fields: z.record(z.any()).describe("Field definitions"),
+          timestamps: z.boolean().optional().describe("Set true to auto-add createdAt and updatedAt DateTime columns managed by Baasix. Recommended for most tables."),
+          paranoid: z.boolean().optional().describe("Set true to enable soft deletes: adds a deletedAt column. Deleted records are hidden from queries but not physically removed."),
+          sortEnabled: z.boolean().optional().describe("Set true to add a 'sort' Integer column for manual ordering of records."),
+          usertrack: z.boolean().optional().describe("Set true to track which user created/updated each record. Adds userCreated and userUpdated M2O fields to baasix_User."),
+          fields: z.record(
+            z.object({
+              type: z.string().describe(`${SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION} Type-specific requirements: String needs values.length, Decimal needs values.precision+scale, enum-like types need values.values.`),
+              allowNull: z.boolean().optional().describe("Allow NULL values. Default: true. Set false to add a NOT NULL constraint."),
+              unique: z.boolean().optional().describe("Enforce a UNIQUE constraint on this column."),
+              primaryKey: z.boolean().optional().describe("Mark as the primary key column."),
+              defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null(), z.object({ type: z.string(), value: z.string().optional() })]).optional().describe("Default value: a literal (e.g. 0, 'active', true) or { type: 'UUIDV4' | 'SUID' | 'NOW' | 'AUTOINCREMENT' | 'SQL', value?: 'expr' }."),
+              values: z.object({
+                length: z.number().optional().describe("Max character length — required for String/VARCHAR (e.g. 255)"),
+                precision: z.number().optional().describe("Total digits — required for Decimal (e.g. 10)"),
+                scale: z.number().optional().describe("Decimal places — required for Decimal (e.g. 2)"),
+                type: z.string().optional().describe("Element type — required for Array (e.g. 'String', 'Integer')"),
+                values: z.array(z.string()).optional().describe("Allowed values — required for Enum (e.g. ['active','inactive'])"),
+              }).optional().describe("Type-specific config. String→{length}, Decimal→{precision,scale}, Array→{type}, Enum→{values:[...]}"),
+              description: z.string().optional().describe("Human-readable description stored in schema metadata only."),
+            }).passthrough()
+          ).describe("Field definitions keyed by column name. ALWAYS include an 'id' primary key field (type UUID with defaultValue {type:'UUIDV4'})."),
         })
         .passthrough()
-        .describe("Schema definition"),
+        .describe("Schema definition for the new table"),
     },
     async (args: CreateSchemaInput, extra: ToolExtra): Promise<ToolResult> => {
       const { collection, schema } = args;
@@ -724,12 +785,17 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
     `Modify an existing database table — add new columns, change column types, or remove columns.
 Use this when asked to 'add a field', 'add a column', or 'alter a table'.
 
+✅ PREFERRED for single-column changes:
+- Add one column: use baasix_add_schema_field
+- Update one column: use baasix_update_schema_field
+- Delete one column: use baasix_delete_schema_field
+
 ⚠️ CRITICAL: This performs a FULL REPLACEMENT of the schema definition, NOT a merge.
 You MUST first call baasix_get_schema to retrieve the current schema, then include ALL existing fields
 and add/modify/remove only the fields you need. If you send only new fields, ALL existing fields will
 be LOST from the schema definition.
 
-CORRECT WORKFLOW to add a column:
+CORRECT WORKFLOW to add a column using full-replacement (baasix_update_schema):
 1. Call baasix_get_schema for the collection
 2. Copy the entire existing schema (including name, timestamps, paranoid, and ALL fields)
 3. Add/modify/remove the desired fields while keeping all other fields intact
@@ -763,16 +829,162 @@ EXAMPLE — Adding a "description" field to an existing "products" table that ha
       collection: z.string().describe("Collection name"),
       schema: z
         .object({
-          fields: z.record(z.any()).optional().describe("The COMPLETE field definitions including ALL existing fields plus any additions/modifications. This REPLACES the entire schema — do NOT send partial fields."),
+          timestamps: z.boolean().optional().describe("true=keep/add createdAt+updatedAt columns. false=remove them. Omit to leave unchanged."),
+          paranoid: z.boolean().optional().describe("true=keep/add deletedAt soft-delete column. false=remove it. Omit to leave unchanged."),
+          sortEnabled: z.boolean().optional().describe("true=keep/add 'sort' Integer column. Omit to leave unchanged."),
+          usertrack: z.boolean().optional().describe("true=keep/add userCreated+userUpdated tracking fields. Omit to leave unchanged."),
+          fields: z.record(
+            z.object({
+              type: z.string().describe(SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION),
+              allowNull: z.boolean().optional().describe("Allow NULL. Default true. false=NOT NULL constraint."),
+              unique: z.boolean().optional().describe("Enforce UNIQUE constraint."),
+              primaryKey: z.boolean().optional().describe("Primary key column."),
+              defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null(), z.object({ type: z.string(), value: z.string().optional() })]).optional().describe("Literal default or { type: 'UUIDV4'|'SUID'|'NOW'|'AUTOINCREMENT'|'SQL', value?: 'expr' }."),
+              values: z.object({
+                length: z.number().optional().describe("Required for String/VARCHAR"),
+                precision: z.number().optional().describe("Required for Decimal"),
+                scale: z.number().optional().describe("Required for Decimal"),
+                type: z.string().optional().describe("Required for Array element type"),
+                values: z.array(z.string()).optional().describe("Required for Enum allowed values"),
+              }).optional(),
+              description: z.string().optional().describe("Field description (metadata only)"),
+            }).passthrough()
+          ).optional().describe("The COMPLETE field definitions — ALL existing fields plus your changes. This REPLACES the entire fields object. Missing fields will be removed from schema definition."),
         })
         .passthrough()
-        .describe("The COMPLETE schema definition. This REPLACES the entire schema — include ALL fields, not just changes."),
+        .describe("The COMPLETE schema definition. Replaces the entire schema. Fetch current schema with baasix_get_schema first, then include ALL fields plus your additions/modifications."),
     },
     async (args: UpdateSchemaInput, extra: ToolExtra): Promise<ToolResult> => {
       const { collection, schema } = args;
       const res = await callRoute('PATCH', `/schemas/${encodeURIComponent(collection)}`, extra, { schema });
       if (!res.ok) return errorResult(res.error || `Failed to update collection '${collection}'`);
       return successResult({ success: true, message: `Collection '${collection}' updated successfully` });
+    }
+  );
+
+  registerTool(
+    "baasix_add_schema_field",
+    `Add a single field/column to an existing collection without sending the full schema.
+Use this instead of baasix_update_schema when you only need to add one column.
+Do NOT use for relation fields — use baasix_create_relationship for foreign keys.
+
+FIELD TYPES:
+- String/Text: String, Text, TEXT, CiText, HTML
+- Numbers: Integer, BigInt, Decimal, Float, Real, Double, DOUBLE
+- Date/time: Date, DateTime, DateTime_NO_TZ, Time, Time_NO_TZ
+- IDs/tokens: UUID, SUID, TOKEN
+- JSON/enums/virtual: JSON, JSONB, Enum, ENUM, VIRTUAL
+- Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
+- Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
+- PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
+
+COMMON TYPE-SPECIFIC RULES:
+- String: requires values.length (e.g. 255)
+- Decimal: requires values.precision and values.scale
+- Enum/ENUM: requires values.values array
+- Array_* / Range_* / PostGIS types use explicit type names (recommended over generic aliases)
+
+EXAMPLE — Add a nullable "bio" text column:
+{ collection: "users", fieldName: "bio", field: { type: "Text", allowNull: true } }
+
+EXAMPLE — Add a "status" enum with default:
+{ collection: "orders", fieldName: "status", field: { type: "Enum", allowNull: false, defaultValue: "pending", values: { values: ["pending","processing","shipped","delivered"] } } }`,
+    {
+      collection: z.string().describe("Name of the collection/table to add the field to"),
+      fieldName: z.string().describe("Column name to create. Must be a valid PostgreSQL identifier (letters, numbers, underscores; cannot start with a number). Max 63 chars."),
+      field: z
+        .object({
+          type: z.string().describe(`${SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION} Prefer explicit array/range/postgis types (for example Array_UUID, Range_DateTime, Point) over generic aliases.`),
+          allowNull: z.boolean().optional().describe("Whether the column can be NULL. Default: true. Set false to enforce NOT NULL."),
+          unique: z.boolean().optional().describe("Set true to add a UNIQUE constraint — no two rows can have the same value."),
+          primaryKey: z.boolean().optional().describe("Mark this column as the primary key. Rarely needed for new fields; typically only 'id' is the PK."),
+          defaultValue: z.union([
+            z.string(), z.number(), z.boolean(), z.null(),
+            z.object({ type: z.enum(["UUIDV4","SUID","NOW","AUTOINCREMENT","SQL"]), value: z.string().optional() })
+          ]).optional().describe("Default value for the column. Use a literal (e.g. 0, 'active', true) or a special object: { type: 'UUIDV4' } for auto UUID, { type: 'SUID' } for short ID, { type: 'NOW' } for current timestamp, { type: 'AUTOINCREMENT' } for auto-increment integer, { type: 'SQL', value: 'expr' } for raw SQL expression."),
+          values: z.object({
+            length: z.number().optional().describe("Max character length — required for String/VARCHAR (e.g. 255)"),
+            precision: z.number().optional().describe("Total number of digits — required for Decimal (e.g. 10)"),
+            scale: z.number().optional().describe("Number of decimal places — required for Decimal (e.g. 2)"),
+            type: z.string().optional().describe("Element data type — required for Array (e.g. 'String', 'Integer', 'UUID')"),
+            values: z.array(z.string()).optional().describe("Allowed enum values — required for Enum (e.g. ['active','inactive','pending'])"),
+          }).optional().describe("Type-specific configuration: String→{length}, Decimal→{precision,scale}, Array→{type}, Enum→{values:[...]}"),
+          description: z.string().optional().describe("Human-readable description stored in schema metadata only, not in the DB column."),
+        })
+        .passthrough()
+        .describe("Field/column definition object"),
+    },
+    async (args: AddSchemaFieldInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, fieldName, field } = args;
+      const res = await callRoute('POST', `/schemas/${encodeURIComponent(collection)}/fields`, extra, { fieldName, field });
+      if (!res.ok) return errorResult(res.error || `Failed to add field '${fieldName}' to '${collection}'`);
+      return successResult({ success: true, message: `Field '${fieldName}' added to '${collection}' successfully` });
+    }
+  );
+
+  registerTool(
+    "baasix_update_schema_field",
+    `Update properties of a single existing field/column in a collection.
+This is a PARTIAL update — only the properties you send are merged into the existing field definition.
+Do NOT use for relation fields — use baasix_update_relationship instead.
+
+EXAMPLE — Make a field non-nullable:
+{ collection: "products", fieldName: "name", field: { allowNull: false } }
+
+EXAMPLE — Change a String field's max length:
+{ collection: "users", fieldName: "username", field: { type: "String", values: { length: 100 } } }
+
+EXAMPLE — Add a default value to an existing field:
+{ collection: "orders", fieldName: "status", field: { defaultValue: "pending" } }`,
+    {
+      collection: z.string().describe("Name of the collection/table that contains the field"),
+      fieldName: z.string().describe("Name of the existing field/column to update. Use baasix_get_schema to see all fields."),
+      field: z
+        .object({
+          type: z.string().optional().describe(`${SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION} Changing type on a populated column may require data migration.`),
+          allowNull: z.boolean().optional().describe("Set false to add a NOT NULL constraint, true to allow NULLs."),
+          unique: z.boolean().optional().describe("Set true to add a UNIQUE constraint, false to remove it."),
+          defaultValue: z.union([
+            z.string(), z.number(), z.boolean(), z.null(),
+            z.object({ type: z.enum(["UUIDV4","SUID","NOW","AUTOINCREMENT","SQL"]), value: z.string().optional() })
+          ]).optional().describe("New default value. Literal or special object: { type: 'UUIDV4'|'SUID'|'NOW'|'AUTOINCREMENT'|'SQL', value?: 'expr' }."),
+          values: z.object({
+            length: z.number().optional().describe("Max character length for String/VARCHAR"),
+            precision: z.number().optional().describe("Total digits for Decimal"),
+            scale: z.number().optional().describe("Decimal places for Decimal"),
+            type: z.string().optional().describe("Element type for Array"),
+            values: z.array(z.string()).optional().describe("Allowed values for Enum"),
+          }).optional().describe("Type-specific settings to update"),
+          description: z.string().optional().describe("Human-readable description stored in schema metadata"),
+        })
+        .passthrough()
+        .describe("Partial field definition — only the properties you include are merged into the existing field"),
+    },
+    async (args: UpdateSchemaFieldInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, fieldName, field } = args;
+      const res = await callRoute('PATCH', `/schemas/${encodeURIComponent(collection)}/fields/${encodeURIComponent(fieldName)}`, extra, { field });
+      if (!res.ok) return errorResult(res.error || `Failed to update field '${fieldName}' in '${collection}'`);
+      return successResult({ success: true, message: `Field '${fieldName}' updated in '${collection}' successfully` });
+    }
+  );
+
+  registerTool(
+    "baasix_delete_schema_field",
+    `Delete a single field/column from a collection.
+This updates schema definition only via schema manager logic and does not directly execute DROP COLUMN SQL.`,
+    {
+      collection: z.string().describe("Collection name"),
+      fieldName: z.string().describe("Field/column name to delete"),
+    },
+    async (args: DeleteSchemaFieldInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { collection, fieldName } = args;
+      const res = await callRoute(
+        'DELETE',
+        `/schemas/${encodeURIComponent(collection)}/fields/${encodeURIComponent(fieldName)}`,
+        extra
+      );
+      if (!res.ok) return errorResult(res.error || `Failed to delete field '${fieldName}' from '${collection}'`);
+      return successResult({ success: true, message: `Field '${fieldName}' deleted from '${collection}' successfully` });
     }
   );
 
@@ -866,22 +1078,23 @@ PARAMETERS:
 - target: the related table (e.g., "categories")
 - alias: reverse-access name on the target table (e.g., "products" so categories.products works)
 - onDelete: CASCADE | RESTRICT | SET NULL
+- through: optional custom junction table for M2M/M2A. Recommendation: include "_junction" suffix (for example "products_tags_junction") for naming consistency.
 
 EXAMPLE — products belongsTo categories:
 sourceCollection: "products"
 relationshipData: { "name": "category", "type": "M2O", "target": "categories", "alias": "products", "onDelete": "CASCADE" }`,
     {
-      sourceCollection: z.string().describe("Source collection name"),
+      sourceCollection: z.string().describe("Name of the collection/table that will own the relationship (the table that gets the FK column for M2O/O2O)."),
       relationshipData: z
         .object({
-          name: z.string().describe("Relationship field name"),
-          type: z.enum(["M2O", "O2M", "O2O", "M2M", "M2A"]).describe("Relationship type"),
-          target: z.string().optional().describe("Target collection name"),
-          alias: z.string().optional().describe("Alias for reverse relationship"),
-          onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Delete behavior"),
-          onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Update behavior"),
-          tables: z.array(z.string()).optional().describe("Target tables for M2A relationships"),
-          through: z.string().optional().describe("Custom junction table name for M2M/M2A"),
+          name: z.string().describe("Field name for the relationship in the source collection (e.g. 'category'). For M2O/O2O this creates a '{name}_Id' FK column. Used to access the relation (e.g. product.category). Keep it lowercase camelCase."),
+          type: z.enum(["M2O", "O2M", "O2O", "M2M", "M2A"]).describe("Relationship type: M2O=BelongsTo (adds FK column to source), O2M=HasMany (virtual reverse, no column), O2O=HasOne (unique FK), M2M=Many-to-Many (auto-creates junction table), M2A=Polymorphic (one source to many different target types)."),
+          target: z.string().optional().describe("Name of the target collection/table being referenced. Required for M2O, O2M, O2O, M2M. For M2A use 'tables' instead."),
+          alias: z.string().optional().describe("Reverse-access name added to the target collection (e.g. if products M2O categories with alias='products', then categories.products returns all related products). Defaults to the source collection name."),
+          onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("What happens to the source record when the referenced target record is deleted. CASCADE=delete source too, RESTRICT=prevent target deletion if source exists, SET NULL=set FK to NULL."),
+          onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("What happens to the FK when the target PK changes. CASCADE=update FK automatically, RESTRICT=block update, SET NULL=set FK to NULL."),
+          tables: z.array(z.string()).optional().describe("Required for M2A only. Array of target collection names this collection can relate to polymorphically (e.g. ['images','documents','videos'])."),
+          through: z.string().optional().describe("Custom name for the auto-created junction table in M2M/M2A. Recommended naming: include '_junction' suffix (example: 'products_tags_junction'). If omitted, Baasix auto-generates '{source}_{target}_junction'."),
         })
         .describe("Relationship configuration"),
     },
@@ -1286,7 +1499,8 @@ Each permission defines: role_Id (which role), collection (which table), action 
 Filter examples:
 All permissions for a role: {"role_Id": {"eq": "<role-uuid>"}}
 All read permissions: {"action": {"eq": "read"}}
-Permissions for a table: {"collection": {"eq": "products"}}`,
+Permissions for a table: {"collection": {"eq": "products"}}
+Single targeted permission (role + collection + optional action): {"AND": [{"role_Id": {"eq": "<role-uuid>"}}, {"collection": {"eq": "products"}}, {"action": {"eq": "read"}}]}`,
     {
       filter: z.record(z.any()).optional().describe("Filter: {\"role_Id\": {\"eq\": \"<uuid>\"}}, {\"collection\": {\"eq\": \"products\"}}, {\"action\": {\"eq\": \"read\"}}"),
       sort: z.string().optional().describe("Sort as 'field:asc' or 'field:desc'"),
@@ -1934,6 +2148,66 @@ Accepts either the role name (e.g., "editor", "public") or the role UUID.`,
     }
   );
 
+  registerTool(
+    "baasix_get_role_collection_permissions",
+    `Get permissions for one specific role and collection, with optional action filter.
+Use this when you want a targeted RBAC check instead of listing all permissions.
+
+Accepts role name (e.g., "editor", "public") or role UUID.
+Returns matching permission rows for that role+collection (and action if provided).`,
+    {
+      role: z.string().describe("Role name (e.g., 'editor', 'public') or role UUID"),
+      collection: z.string().describe("Collection/table name to filter permissions for"),
+      action: z.enum(["create", "read", "update", "delete"]).optional().describe("Optional action filter. If omitted, returns all actions for the role+collection."),
+    },
+    async (args: GetRoleCollectionPermissionsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { role, collection, action } = args;
+      try {
+        // Find role by name or id
+        const roleParams = new URLSearchParams();
+        roleParams.append('filter', JSON.stringify({ OR: [{ name: { eq: role } }, { id: { eq: role } }] }));
+        roleParams.append('limit', '1');
+
+        const rolesRes = await callRoute('GET', `/items/baasix_Role?${roleParams}`, extra);
+        if (!rolesRes.ok) return errorResult(rolesRes.error || `Failed to look up role '${role}'`);
+
+        const rolesData = rolesRes.data?.data || rolesRes.data;
+        if (!Array.isArray(rolesData) || !rolesData.length) {
+          return errorResult(`Role '${role}' not found`);
+        }
+
+        const roleId = rolesData[0].id;
+        const filter: Record<string, unknown> = {
+          role_Id: { eq: roleId },
+          collection: { eq: collection },
+        };
+        if (action) {
+          (filter as any).action = { eq: action };
+        }
+
+        const permParams = new URLSearchParams();
+        permParams.append('filter', JSON.stringify(filter));
+        permParams.append('limit', '-1');
+
+        const permRes = await callRoute('GET', `/permissions?${permParams}`, extra);
+        if (!permRes.ok) return errorResult(permRes.error || 'Failed to get targeted permissions');
+
+        const data = permRes.data?.data || permRes.data;
+        const permissions = Array.isArray(data) ? data : [];
+
+        return successResult({
+          role: rolesData[0],
+          collection,
+          action: action || null,
+          permissions,
+          totalCount: permissions.length,
+        });
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
   // ==================== Update Permissions for Role Tool ====================
 
   registerTool(
@@ -2374,18 +2648,20 @@ Returns authenticated: false if no user is logged in (public/anonymous access).`
 
   registerTool(
     "baasix_update_relationship",
-    "Modify an existing foreign key / relationship between two database tables (change delete behavior, alias, etc.).",
+    `Modify configuration of an existing foreign key / relationship (e.g. change delete behavior or alias).
+This does NOT change the relationship type or target — to do that, delete and recreate the relationship.
+Use baasix_get_schema first to see the current relationship configuration.`,
     {
-      sourceCollection: z.string().describe("Source collection name"),
-      relationshipName: z.string().describe("Relationship field name to update"),
+      sourceCollection: z.string().describe("Name of the collection that owns the relationship (the table with the FK column)."),
+      relationshipName: z.string().describe("Name of the relationship field to update. Use baasix_get_schema to see existing relationships and their exact names."),
       relationshipData: z
         .object({
-          alias: z.string().optional().describe("Alias for reverse relationship"),
-          onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Delete behavior"),
-          onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("Update behavior"),
-          description: z.string().optional().describe("Relationship description"),
+          alias: z.string().optional().describe("New reverse-access name on the target collection (e.g. 'orders' on baasix_User so user.orders returns all related orders)."),
+          onDelete: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("What happens to the source record when the referenced target is deleted. CASCADE=delete source too, RESTRICT=block deletion, SET NULL=set FK to NULL."),
+          onUpdate: z.enum(["CASCADE", "RESTRICT", "SET NULL"]).optional().describe("What happens to the FK when the target PK changes. CASCADE=update FK, RESTRICT=block update, SET NULL=set FK to NULL."),
+          description: z.string().optional().describe("Human-readable description stored in schema metadata only."),
         })
-        .describe("Updated relationship configuration"),
+        .describe("Updated relationship configuration — only include the properties you want to change"),
     },
     async (args: UpdateRelationshipInput, extra: ToolExtra): Promise<ToolResult> => {
       const { sourceCollection, relationshipName, relationshipData } = args;
