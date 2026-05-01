@@ -2123,9 +2123,14 @@ export class SchemaManager {
    */
   async addIndex(collectionName: string, indexData: any, accountability?: any): Promise<void> {
     const sql = getSqlClient();
+    const db = getDatabase();
 
     try {
       const fields = indexData.fields;
+      if (!Array.isArray(fields) || fields.length === 0) {
+        throw new Error('Index fields must be a non-empty array');
+      }
+
       const indexName = indexData.name || `${collectionName}_${fields.join('_')}_idx`;
       const unique = indexData.unique ? 'UNIQUE' : '';
       // Support NULLS NOT DISTINCT for unique indexes (PostgreSQL 15+)
@@ -2160,17 +2165,59 @@ export class SchemaManager {
         )
       `;
 
-      if (indexExists[0].exists) {
+      if (!indexExists[0].exists) {
+        // Build CREATE INDEX statement
+        const fieldList = fields.map((f: string) => `"${f}"`).join(', ');
+        const createIndexSQL = `CREATE ${unique} INDEX "${indexName}" ON "${collectionName}" (${fieldList})${nullsNotDistinct}`;
+
+        await sql.unsafe(createIndexSQL);
+        console.log(`Created index ${indexName} on ${collectionName}`);
+      } else {
         console.log(`Index ${indexName} already exists on ${collectionName}`);
-        return;
       }
 
-      // Build CREATE INDEX statement
-      const fieldList = fields.map((f: string) => `"${f}"`).join(', ');
-      const createIndexSQL = `CREATE ${unique} INDEX "${indexName}" ON "${collectionName}" (${fieldList})${nullsNotDistinct}`;
+      // Persist index metadata in schema definition (even if index existed in DB already)
+      const existingSchema = await db
+        .select()
+        .from(baasixSchemaDefinition)
+        .where(eq(baasixSchemaDefinition.collectionName, collectionName))
+        .limit(1);
 
-      await sql.unsafe(createIndexSQL);
-      console.log(`Created index ${indexName} on ${collectionName}`);
+      if (existingSchema.length === 0) {
+        throw new Error(`Schema definition for ${collectionName} not found`);
+      }
+
+      const schema = (existingSchema[0].schema as any) || {};
+      if (!schema.indexes || !Array.isArray(schema.indexes)) {
+        schema.indexes = [];
+      }
+
+      const indexMeta = {
+        name: indexName,
+        fields,
+        unique: !!indexData.unique,
+        ...(indexData.type ? { type: indexData.type } : {}),
+        ...(indexData.nullsNotDistinct ? { nullsNotDistinct: true } : {}),
+      };
+
+      const existingIndexPos = schema.indexes.findIndex((idx: any) => idx?.name === indexName);
+      if (existingIndexPos >= 0) {
+        schema.indexes[existingIndexPos] = {
+          ...schema.indexes[existingIndexPos],
+          ...indexMeta,
+        };
+      } else {
+        schema.indexes.push(indexMeta);
+      }
+
+      await db
+        .update(baasixSchemaDefinition)
+        .set({ schema: schema as any, updatedAt: new Date() } as any)
+        .where(eq(baasixSchemaDefinition.collectionName, collectionName));
+
+      // Keep in-memory schema definition cache in sync with DB
+      this.schemaDefinitions.set(collectionName, { collectionName, schema });
+      console.log(`Persisted index ${indexName} in schema definition for ${collectionName}`);
     } catch (error) {
       console.error(`Failed to create index on ${collectionName}:`, error);
       throw error;
@@ -2180,9 +2227,73 @@ export class SchemaManager {
   /**
    * Remove an index (stub for compatibility)
    */
-  async removeIndex(collectionName: string, indexName: string): Promise<void> {
-    console.log(`Removing index ${indexName} from ${collectionName}`);
-    // Stub for now
+  async removeIndex(collectionName: string, indexName: string, accountability?: any): Promise<void> {
+    const sql = getSqlClient();
+    const db = getDatabase();
+
+    try {
+      if (!indexName || typeof indexName !== 'string') {
+        throw new Error('Index name is required');
+      }
+
+      // Remove the physical index if it exists
+      const indexExists = await sql`
+        SELECT EXISTS (
+          SELECT FROM pg_indexes
+          WHERE tablename = ${collectionName}
+          AND indexname = ${indexName}
+        )
+      `;
+
+      if (indexExists[0].exists) {
+        await sql.unsafe(`DROP INDEX IF EXISTS "${indexName}"`);
+        console.log(`Dropped index ${indexName} from ${collectionName}`);
+      } else {
+        console.log(`Index ${indexName} does not exist on ${collectionName}, continuing with schema cleanup`);
+      }
+
+      // Remove index metadata from schema definition (also handles metadata-only drift)
+      const existingSchema = await db
+        .select()
+        .from(baasixSchemaDefinition)
+        .where(eq(baasixSchemaDefinition.collectionName, collectionName))
+        .limit(1);
+
+      if (existingSchema.length === 0) {
+        throw new Error(`Schema definition for ${collectionName} not found`);
+      }
+
+      const schema = (existingSchema[0].schema as any) || {};
+      let schemaChanged = false;
+
+      if (Array.isArray(schema.indexes)) {
+        const initialCount = schema.indexes.length;
+        schema.indexes = schema.indexes.filter((idx: any) => idx?.name !== indexName);
+        schemaChanged = schemaChanged || schema.indexes.length !== initialCount;
+      }
+
+      // Legacy shape support: cleanup options.indexes if present
+      if (schema.options && Array.isArray(schema.options.indexes)) {
+        const initialCount = schema.options.indexes.length;
+        schema.options.indexes = schema.options.indexes.filter((idx: any) => idx?.name !== indexName);
+        schemaChanged = schemaChanged || schema.options.indexes.length !== initialCount;
+      }
+
+      if (schemaChanged) {
+        await db
+          .update(baasixSchemaDefinition)
+          .set({ schema: schema as any, updatedAt: new Date() } as any)
+          .where(eq(baasixSchemaDefinition.collectionName, collectionName));
+
+        this.schemaDefinitions.set(collectionName, { collectionName, schema });
+        console.log(`Removed index ${indexName} from schema definition for ${collectionName}`);
+      } else {
+        console.log(`Index ${indexName} was not present in schema definition for ${collectionName}`);
+      }
+    } catch (error) {
+      console.error(`Failed to remove index ${indexName} from ${collectionName}:`, error);
+      throw error;
+    }
   }
 
   /**
