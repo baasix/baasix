@@ -200,6 +200,9 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (error.message.includes("email address doesn't match")) {
         return res.status(400).json({ message: error.message });
       }
+      if (error.message.includes("not allowed for multi-tenant registration")) {
+        return res.status(400).json({ message: error.message });
+      }
       next(error);
     }
   });

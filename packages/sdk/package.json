@@ -1,6 +1,6 @@
 {
   "name": "@baasix/sdk",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Official JavaScript/TypeScript SDK for Baasix Backend-as-a-Service",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -106,6 +106,6 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@baasix/types": "^1.0.4"
+    "@baasix/types": "^1.0.6"
   }
 }

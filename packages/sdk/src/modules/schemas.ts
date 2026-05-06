@@ -24,6 +24,7 @@ export interface SchemasModuleConfig {
  *   schema: {
  *     name: 'Product',
  *     timestamps: true,
+ *     tenantScoped: true,
  *     fields: {
  *       id: { type: 'UUID', primaryKey: true, defaultValue: { type: 'UUIDV4' } },
  *       name: { type: 'String', allowNull: false },
@@ -101,6 +102,7 @@ export class SchemasModule {
    *     name: 'Order',
    *     timestamps: true,
    *     paranoid: true,
+   *     tenantScoped: true,
    *     fields: {
    *       id: {
    *         type: 'UUID',

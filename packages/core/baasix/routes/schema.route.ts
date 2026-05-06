@@ -432,7 +432,8 @@ const registerEndpoint = (app: Express, context?: any) => {
                 existingSchema.usertrack !== schema.usertrack ||
                 existingSchema.sortEnabled !== schema.sortEnabled ||
                 existingSchema.timestamps !== schema.timestamps ||
-                existingSchema.paranoid !== schema.paranoid;
+                existingSchema.paranoid !== schema.paranoid ||
+                existingSchema.tenantScoped !== schema.tenantScoped;
 
             console.log(`Flags changed: ${flagsChanged}`);
 

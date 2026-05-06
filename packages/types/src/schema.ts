@@ -206,6 +206,13 @@ export interface SchemaDefinition {
   paranoid?: boolean;
   sortEnabled?: boolean;
   /**
+   * Controls tenant context enforcement for this collection.
+   * - true: enforce tenant scoping
+   * - false: global/shared collection (no tenant enforcement)
+   * - undefined: use default runtime behavior
+   */
+  tenantScoped?: boolean;
+  /**
    * Track user who created/updated records (adds createdBy_Id, updatedBy_Id)
    */
   usertrack?: boolean;

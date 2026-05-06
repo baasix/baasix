@@ -214,6 +214,9 @@ Or using headers:
 | `baasix_export_schemas` | Export all schemas as JSON |
 | `baasix_import_schemas` | Import schemas from JSON |
 
+Schema flags supported by create/update tools include `timestamps`, `paranoid`, `sortEnabled`, `usertrack`, and `tenantScoped`.
+Use `tenantScoped: false` for global/shared collections in multi-tenant setups.
+
 ### Item Management (5 tools)
 | Tool | Description |
 |------|-------------|

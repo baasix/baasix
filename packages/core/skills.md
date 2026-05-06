@@ -184,6 +184,7 @@ GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80
     "name": "Product",           // Model name (PascalCase)
     "timestamps": true,          // Adds createdAt, updatedAt
     "paranoid": false,           // Set true for soft deletes (adds deletedAt)
+    "tenantScoped": true,        // Set false for global/shared collections
     "fields": {
       "id": {
         "type": "UUID",
@@ -781,6 +782,7 @@ POST /schemas
     "name": "Product",
     "timestamps": true,        // createdAt, updatedAt
     "paranoid": false,         // deletedAt for soft deletes
+    "tenantScoped": true,      // false = global/shared in multi-tenant deployments
     "indexes": [],
     "fields": {
       "id": {

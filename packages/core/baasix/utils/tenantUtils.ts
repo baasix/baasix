@@ -1,13 +1,5 @@
-import env from "./env.js";
 import { APIError } from "./errorHandler.js";
-
-// Use TENANT_IGNORED_TABLES from .env file to determine which collections are not tenant-specific
-const tenantIgnoredTablesString = env.get("TENANT_IGNORED_TABLES");
-const tenantIgnoredTables = new Set(
-  tenantIgnoredTablesString
-    ? tenantIgnoredTablesString.split(",").map((table: string) => table.trim())
-    : []
-);
+import { schemaManager } from "./schemaManager.js";
 
 // List of system collections that are tenant-specific (Set for O(1) lookups)
 const tenantSpecificSystemCollections = new Set([
@@ -36,8 +28,10 @@ export async function shouldEnforceTenantContext(service: any): Promise<boolean>
     return false;
   }
 
-  // Skip tenant enforcement for collections that are explicitly ignored
-  if (tenantIgnoredTables.has(service.collection)) {
+  // Use per-collection schema metadata to determine tenant scoping.
+  // tenantScoped: false explicitly disables tenant enforcement for the collection.
+  const schemaDefinition = await schemaManager.getSchemaDefinition(service.collection);
+  if (schemaDefinition?.tenantScoped === false) {
     return false;
   }
 

@@ -1,5 +1,13 @@
 # @baasix/sdk
 
+## 0.1.17
+
+### Patch Changes
+
+- Added tenant scoping as setting in schema definition itself.
+- Updated dependencies
+  - @baasix/types@1.0.6
+
 ## 0.1.16
 
 ### Patch Changes

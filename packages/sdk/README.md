@@ -558,6 +558,7 @@ await baasix.schemas.create({
     name: 'Product',
     timestamps: true,
     paranoid: true, // Soft deletes
+    tenantScoped: true, // Tenant-scoped by default; set false for global/shared collections
     fields: {
       id: {
         type: 'UUID',

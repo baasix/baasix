@@ -272,6 +272,7 @@ export async function up(baasix) {
   await baasix.schema.create("products", {
     name: "Products",
     timestamps: true,
+    tenantScoped: true,
     fields: {
       id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
       name: { type: "String", allowNull: false, values: { length: 255 } },

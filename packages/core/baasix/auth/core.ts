@@ -323,6 +323,12 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         const isMultiTenant = options.multiTenant?.enabled;
         
         if (isMultiTenant) {
+          const allowedRolesRaw = process.env.ALLOWED_ROLES_MULTI_TENANT || "";
+          const allowedRoles = allowedRolesRaw
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean);
+
           // First, determine the role to check if it's tenant-specific
           let roleToCheck: Role | null = null;
           if (roleName) {
@@ -331,6 +337,14 @@ export function createAuth(options: AuthOptions): BaasixAuth {
           if (!roleToCheck) {
             const defaultRoleName = process.env.DEFAULT_ROLE_REGISTERED || "user";
             roleToCheck = await adapter.findRoleByName(defaultRoleName);
+          }
+
+          if (!roleToCheck) {
+            throw new Error("Default role not found");
+          }
+
+          if (allowedRoles.length > 0 && !allowedRoles.includes(roleToCheck.name)) {
+            throw new Error(`Role '${roleToCheck.name}' is not allowed for multi-tenant registration`);
           }
           
           // Only require tenant info if the role is tenant-specific

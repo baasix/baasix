@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.1.10
+
+### Patch Changes
+
+- Added tenant scoping as setting in schema definition itself.
+
 ## 0.1.9
 
 ### Patch Changes

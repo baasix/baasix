@@ -30,7 +30,12 @@ beforeAll(async () => {
     await destroyAllTablesInDB();
 
     // Start the server with multi-tenant mode enabled
-    app = await startServerForTesting({ envOverrides: { MULTI_TENANT: "true" } });
+    app = await startServerForTesting({
+        envOverrides: {
+            MULTI_TENANT: "true",
+            ALLOWED_ROLES_MULTI_TENANT: "user,tenant1_admin,tenant2_admin,tenant1_user,tenant2_user,tenant_owner,tenant_manager,crm_receptionist,crm_engineer",
+        },
+    });
 
     // Login as the default admin to get the admin token
     const adminLoginResponse = await request(app)
@@ -481,6 +486,32 @@ describe("Multi-tenant Tests", () => {
     });
 
     describe("User Registration in Multi-tenant Mode", () => {
+        test("Registration does not require tenant when default role is non-tenant-specific", async () => {
+            const originalDefaultRole = process.env.DEFAULT_ROLE_REGISTERED;
+            const originalAllowedRoles = process.env.ALLOWED_ROLES_MULTI_TENANT;
+
+            try {
+                // Use existing non-tenant-specific role from test setup
+                process.env.DEFAULT_ROLE_REGISTERED = "global_role";
+                process.env.ALLOWED_ROLES_MULTI_TENANT = "global_role";
+
+                const response = await request(app).post("/auth/register").send({
+                    firstName: "NoTenant",
+                    lastName: "Global",
+                    email: "no.tenant.global@example.com",
+                    password: "password123",
+                });
+
+                expect(response.status).toBe(200);
+                expect(response.body.user.email).toBe("no.tenant.global@example.com");
+                expect(response.body.tenant).toBeNull();
+                expect(response.body.role.name).toBe("global_role");
+            } finally {
+                process.env.DEFAULT_ROLE_REGISTERED = originalDefaultRole;
+                process.env.ALLOWED_ROLES_MULTI_TENANT = originalAllowedRoles;
+            }
+        });
+
         test("Registration requires a tenant object when multi-tenant is enabled", async () => {
             // Try registering without a tenant object
             const response = await request(app).post("/auth/register").send({
@@ -508,6 +539,28 @@ describe("Multi-tenant Tests", () => {
             expect(response.status).toBe(200);
             expect(response.body.tenant).toBeTruthy();
             expect(response.body.tenant.name).toBe("New User Tenant");
+        });
+
+        test("Registration fails when requested role is not in ALLOWED_ROLES_MULTI_TENANT", async () => {
+            const originalAllowedRoles = process.env.ALLOWED_ROLES_MULTI_TENANT;
+
+            try {
+                process.env.ALLOWED_ROLES_MULTI_TENANT = "tenant1_user";
+
+                const response = await request(app).post("/auth/register").send({
+                    firstName: "Disallowed",
+                    lastName: "Role",
+                    email: "disallowed.role@example.com",
+                    password: "password123",
+                    tenant: { name: "Disallowed Tenant" },
+                    roleName: "tenant2_user",
+                });
+
+                expect(response.status).toBe(400);
+                expect(response.body.message).toContain("not allowed for multi-tenant registration");
+            } finally {
+                process.env.ALLOWED_ROLES_MULTI_TENANT = originalAllowedRoles;
+            }
         });
     });
 
@@ -802,6 +855,132 @@ describe("Multi-tenant Tests", () => {
                     sku: "SAME-SKU",
                 });
             expect(duplicateResponse.status).toBe(409);
+        });
+    });
+
+    describe("Schema-level Tenant Scoping", () => {
+        test("tenantScoped=false allows cross-tenant reads and is exported in schema export", async () => {
+            const sharedCollection = "shared_catalog";
+
+            const createSchemaResponse = await request(app)
+                .post("/schemas")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .send({
+                    collectionName: sharedCollection,
+                    schema: {
+                        name: "SharedCatalog",
+                        tenantScoped: false,
+                        fields: {
+                            id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+                            title: { type: "String", allowNull: false },
+                        },
+                    },
+                });
+
+            expect(createSchemaResponse.status).toBe(201);
+
+            // Grant tenant users access so we can validate tenant-scoping behavior directly.
+            for (const roleId of [tenant1AdminRoleId, tenant2AdminRoleId]) {
+                for (const action of ["create", "read"]) {
+                    await request(app).post("/permissions").set("Authorization", `Bearer ${adminToken}`).send({
+                        role_Id: roleId,
+                        collection: sharedCollection,
+                        action,
+                        fields: "*",
+                    });
+                }
+            }
+
+            const createItemResponse = await request(app)
+                .post(`/items/${sharedCollection}`)
+                .set("Authorization", `Bearer ${tenant1AdminToken}`)
+                .send({ title: "Shared Across Tenants" });
+
+            expect(createItemResponse.status).toBe(201);
+            const sharedItemId = createItemResponse.body.data.id;
+
+            const crossTenantReadResponse = await request(app)
+                .get(`/items/${sharedCollection}/${sharedItemId}`)
+                .set("Authorization", `Bearer ${tenant2AdminToken}`);
+
+            expect(crossTenantReadResponse.status).toBe(200);
+            expect(crossTenantReadResponse.body.data.title).toBe("Shared Across Tenants");
+
+            const schemaExportResponse = await request(app)
+                .get("/schemas-export")
+                .set("Authorization", `Bearer ${adminToken}`);
+
+            expect(schemaExportResponse.status).toBe(200);
+
+            const exportPayload = schemaExportResponse.text
+                ? JSON.parse(schemaExportResponse.text)
+                : schemaExportResponse.body;
+            const exportedSharedSchema = exportPayload.schemas.find((s) => s.collectionName === sharedCollection);
+
+            expect(exportedSharedSchema).toBeTruthy();
+            expect(exportedSharedSchema.schema.tenantScoped).toBe(false);
+        });
+
+        test("schema import preserves tenantScoped=false semantics", async () => {
+            const importedCollection = "shared_catalog_imported";
+            const importPayload = {
+                version: "1.0",
+                timestamp: new Date().toISOString(),
+                schemas: [
+                    {
+                        collectionName: importedCollection,
+                        schema: {
+                            name: "SharedCatalogImported",
+                            tenantScoped: false,
+                            fields: {
+                                id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+                                title: { type: "String", allowNull: false },
+                            },
+                        },
+                    },
+                ],
+            };
+
+            const importResponse = await request(app)
+                .post("/schemas-import")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .attach("schema", Buffer.from(JSON.stringify(importPayload)), "schema.json");
+
+            expect(importResponse.status).toBe(200);
+            expect(importResponse.body.changes.created).toContain(importedCollection);
+
+            for (const roleId of [tenant1AdminRoleId, tenant2AdminRoleId]) {
+                for (const action of ["create", "read"]) {
+                    await request(app).post("/permissions").set("Authorization", `Bearer ${adminToken}`).send({
+                        role_Id: roleId,
+                        collection: importedCollection,
+                        action,
+                        fields: "*",
+                    });
+                }
+            }
+
+            const createImportedItemResponse = await request(app)
+                .post(`/items/${importedCollection}`)
+                .set("Authorization", `Bearer ${tenant1AdminToken}`)
+                .send({ title: "Imported Shared Item" });
+
+            expect(createImportedItemResponse.status).toBe(201);
+
+            const importedItemId = createImportedItemResponse.body.data.id;
+            const crossTenantReadResponse = await request(app)
+                .get(`/items/${importedCollection}/${importedItemId}`)
+                .set("Authorization", `Bearer ${tenant2AdminToken}`);
+
+            expect(crossTenantReadResponse.status).toBe(200);
+            expect(crossTenantReadResponse.body.data.title).toBe("Imported Shared Item");
+
+            const importedSchemaResponse = await request(app)
+                .get(`/schemas/${importedCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`);
+
+            expect(importedSchemaResponse.status).toBe(200);
+            expect(importedSchemaResponse.body.data.schema.tenantScoped).toBe(false);
         });
     });
 });

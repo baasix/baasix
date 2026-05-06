@@ -41,7 +41,7 @@
 - **🌍 PostGIS Geospatial Support** — Advanced spatial data operations
 - **📊 Reporting & Analytics** — Generate complex reports with grouping and aggregation
 - **🪝 Hooks System** — Extend functionality with custom hooks on CRUD operations
-- **🏢 Multi-tenant Architecture** — Host multiple isolated organizations in a single instance
+- **🏢 Multi-tenant Architecture** — Host multiple isolated organizations in a single instance with schema-level tenant scoping
 - **⚡ Real-time Updates** — Socket.IO integration with Redis clustering, plus WAL-based CDC for database changes
 - **🚀 High Performance** — Redis-based caching with configurable TTL
 - **🖥️ CLI Tools** — Project scaffolding, TypeScript type generation, and migration management

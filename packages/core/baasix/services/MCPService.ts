@@ -71,12 +71,28 @@ interface GetSchemaInput {
 
 interface CreateSchemaInput {
   collection: string;
-  schema: { fields: Record<string, unknown> };
+  schema: {
+    name?: string;
+    timestamps?: boolean;
+    paranoid?: boolean;
+    sortEnabled?: boolean;
+    usertrack?: boolean;
+    tenantScoped?: boolean;
+    fields: Record<string, unknown>;
+  };
 }
 
 interface UpdateSchemaInput {
   collection: string;
-  schema: { fields?: Record<string, unknown> };
+  schema: {
+    name?: string;
+    timestamps?: boolean;
+    paranoid?: boolean;
+    sortEnabled?: boolean;
+    usertrack?: boolean;
+    tenantScoped?: boolean;
+    fields?: Record<string, unknown>;
+  };
 }
 
 interface AddSchemaFieldInput {
@@ -741,6 +757,7 @@ COMMON TYPE-SPECIFIC RULES:
 FIELD OPTIONS: allowNull (boolean), unique (boolean), primaryKey (boolean), defaultValue (value or { type: "UUIDV4"|"SUID"|"NOW"|"AUTOINCREMENT" })
 
 ALWAYS include an "id" field as primary key. Add "timestamps": true in the schema for automatic createdAt/updatedAt. Add "paranoid": true for soft deletes (deletedAt).
+Use "tenantScoped": false for global/shared collections in multi-tenant deployments.
 
 EXAMPLE — Create a "products" table:
 collection: "products"
@@ -753,6 +770,7 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
           paranoid: z.boolean().optional().describe("Set true to enable soft deletes: adds a deletedAt column. Deleted records are hidden from queries but not physically removed."),
           sortEnabled: z.boolean().optional().describe("Set true to add a 'sort' Integer column for manual ordering of records."),
           usertrack: z.boolean().optional().describe("Set true to track which user created/updated each record. Adds userCreated and userUpdated M2O fields to baasix_User."),
+          tenantScoped: z.boolean().optional().describe("Set false to make this collection global/shared (no tenant context enforcement). Omit or set true for tenant-scoped behavior."),
           fields: z.record(
             z.object({
               type: z.string().describe(`${SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION} Type-specific requirements: String needs values.length, Decimal needs values.precision+scale, enum-like types need values.values.`),
@@ -803,7 +821,7 @@ be LOST from the schema definition.
 
 CORRECT WORKFLOW to add a column using full-replacement (baasix_update_schema):
 1. Call baasix_get_schema for the collection
-2. Copy the entire existing schema (including name, timestamps, paranoid, and ALL fields)
+2. Copy the entire existing schema (including name, timestamps, paranoid, tenantScoped, and ALL fields)
 3. Add/modify/remove the desired fields while keeping all other fields intact
 4. Send the complete schema to baasix_update_schema
 
@@ -839,6 +857,7 @@ EXAMPLE — Adding a "description" field to an existing "products" table that ha
           paranoid: z.boolean().optional().describe("true=keep/add deletedAt soft-delete column. false=remove it. Omit to leave unchanged."),
           sortEnabled: z.boolean().optional().describe("true=keep/add 'sort' Integer column. Omit to leave unchanged."),
           usertrack: z.boolean().optional().describe("true=keep/add userCreated+userUpdated tracking fields. Omit to leave unchanged."),
+          tenantScoped: z.boolean().optional().describe("false=mark collection as global/shared (no tenant enforcement). true=tenant-scoped. Omit to leave unchanged."),
           fields: z.record(
             z.object({
               type: z.string().describe(SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION),
