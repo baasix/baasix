@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.74
+
+### Patch Changes
+
+- Added vector sorting
+
 ## 0.1.73
 
 ### Patch Changes
