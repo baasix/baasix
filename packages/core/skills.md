@@ -663,6 +663,28 @@ Requires `DATABASE_VECTOR=true` and a field of type `Vector`, `HalfVec`, or `Spa
 {"embedding": {"vectorL1": {"vector": [0.1, 0.2, 0.3], "threshold": 1.0}}}
 ```
 
+#### Sort by Vector Distance (top-K retrieval)
+
+Use `_vectorDistance` in sort to rank results by distance without a fixed threshold.
+Supported operators: `cosine` (default), `l2`, `innerProduct`, `l1`.
+
+```javascript
+// Top-K nearest neighbors ordered by cosine distance
+{"sort": {"_vectorDistance": {
+  "vector": [0.1, 0.2, 0.3],
+  "column": "embedding",
+  "operator": "cosine",
+  "direction": "ASC"
+}}, "limit": 10}
+
+// ANN: filter candidate set + sort by distance
+{
+  "filter": {"embedding": {"vectorCosine": {"vector": [0.1, 0.2, 0.3], "threshold": 0.5}}},
+  "sort": {"_vectorDistance": {"vector": [0.1, 0.2, 0.3], "column": "embedding", "operator": "cosine", "direction": "ASC"}},
+  "limit": 10
+}
+```
+
 ### Logical Operators
 
 ```javascript
@@ -2250,6 +2272,12 @@ GET /items/products?filter={
     }
   }
 }
+
+// True top-K: sort by distance, no hard threshold
+GET /items/documents?sort={"_vectorDistance":{"vector":[...]},"column":"embedding","operator":"cosine","direction":"ASC"}}&limit=10
+
+// ANN hybrid: pre-filter by distance bound, then sort for ranked results
+GET /items/documents?filter={"embedding":{"vectorCosine":{"vector":[...]},"threshold":0.5}}}&sort={"_vectorDistance":{"vector":[...]},"column":"embedding","operator":"cosine","direction":"ASC"}}&limit=10
 ```
 
 ### Pattern: Nested Relations with Filtering

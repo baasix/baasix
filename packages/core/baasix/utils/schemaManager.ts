@@ -1233,6 +1233,17 @@ export class SchemaManager {
       case 'Geography':
         pgType = `geography(Point, ${fieldSchema.values?.srid || 4326})`;
         break;
+
+      // pgvector types
+      case 'Vector':
+        pgType = `vector(${fieldSchema.values?.dimensions || 1536})`;
+        break;
+      case 'HalfVec':
+        pgType = `halfvec(${fieldSchema.values?.dimensions || 1536})`;
+        break;
+      case 'SparseVec':
+        pgType = `sparsevec(${fieldSchema.values?.dimensions || 1536})`;
+        break;
     }
     
     parts.push(pgType);

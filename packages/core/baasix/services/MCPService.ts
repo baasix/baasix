@@ -748,7 +748,7 @@ FIELD TYPES:
 - Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
 - Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
 - PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
-- pgvector: Vector, HalfVec, SparseVec (requires DATABASE_VECTOR=true; supports vectorL2/vectorCosine/vectorInnerProduct/vectorL1 filter operators)
+- pgvector: Vector, HalfVec, SparseVec (requires DATABASE_VECTOR=true; supports vectorL2/vectorCosine/vectorInnerProduct/vectorL1 filter operators and _vectorDistance sort for top-K retrieval)
 
 COMMON TYPE-SPECIFIC RULES:
 - String: requires values.length (e.g., { "type": "String", "values": { "length": 255 } })
@@ -1257,6 +1257,9 @@ Pattern: $NOW[+/-](YEARS|MONTHS|WEEKS|DAYS|HOURS|MINUTES|SECONDS)_N
 --- SORT ---
 Format: "fieldName:asc" or "fieldName:desc"
 Relation sort: "category.name:asc" (sort by related table field)
+Vector distance top-K (pgvector): use sortObject param → {"_vectorDistance": {"vector": [...], "column": "embedding", "operator": "cosine", "direction": "ASC"}}
+Geo distance: use sortObject param → {"_distance": {"target": [lng, lat], "column": "location", "direction": "ASC"}}
+Supported vector operators: cosine (default), l2, innerProduct, l1
 
 --- SEARCH (PostgreSQL full-text search) ---
 The search parameter performs full-text search with prefix matching.
@@ -1300,7 +1303,8 @@ Supports same operators and dynamic variables as filter.
       collection: z.string().describe("Table/collection name to query"),
       filter: z.record(z.any()).optional().describe("Filter object using operators like {field: {operator: value}}. Combine with AND/OR for complex queries."),
       fields: z.array(z.string()).optional().describe("Columns to return. Use [\"*\"] for all, dot notation for relations: [\"*\", \"category.*\"]"),
-      sort: z.string().optional().describe("Sort as 'field:asc' or 'field:desc'. Supports relation paths like 'category.name:asc'"),
+      sort: z.string().optional().describe("Sort as 'field:asc' or 'field:desc'. Supports relation paths like 'category.name:asc'. For vector/geo distance sorts, use sortObject instead."),
+      sortObject: z.record(z.any()).optional().describe("Advanced sort as a JSON object. Use for special sorts: _vectorDistance (pgvector top-K) or _distance (geo). Example for top-K vector search: {\"_vectorDistance\": {\"vector\": [...], \"column\": \"embedding\", \"operator\": \"cosine\", \"direction\": \"ASC\"}}. Example for geo: {\"_distance\": {\"target\": [-74.006, 40.7128], \"column\": \"location\", \"direction\": \"ASC\"}}."),
       page: z.number().optional().default(1).describe("Page number for pagination (starts at 1)"),
       limit: z.number().optional().default(10).describe("Rows per page. Use -1 to fetch ALL rows (no pagination)"),
       search: z.string().optional().describe("Full-text search query string. Searches text/varchar columns by default."),
@@ -1310,7 +1314,7 @@ Supports same operators and dynamic variables as filter.
       relConditions: z.record(z.any()).optional().describe("Filter by related table data: {relationName: {field: {operator: value}}}"),
     },
     async (args: ListItemsInput, extra: ToolExtra): Promise<ToolResult> => {
-      const { collection, filter, fields, sort, page, limit, search, searchFields, aggregate, groupBy, relConditions } =
+      const { collection, filter, fields, sort, sortObject, page, limit, search, searchFields, aggregate, groupBy, relConditions } =
         args;
       try {
         const params = new URLSearchParams();
@@ -1318,7 +1322,10 @@ Supports same operators and dynamic variables as filter.
         if (limit) params.set('limit', String(limit));
         if (filter) params.set('filter', JSON.stringify(filter));
         if (fields) params.set('fields', JSON.stringify(fields));
-        if (sort) {
+        if (sortObject) {
+          // Object-form sort (_vectorDistance, _distance, etc.)
+          params.set('sort', JSON.stringify(sortObject));
+        } else if (sort) {
           const [field, direction] = sort.split(":");
           params.set('sort', JSON.stringify([direction?.toLowerCase() === "desc" ? `-${field}` : field]));
         }

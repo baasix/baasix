@@ -12,7 +12,7 @@
  * - Full-text search relevance ranking
  */
 
-import { SQL, sql, asc, desc } from 'drizzle-orm';
+import { SQL, sql, asc, desc, l2Distance, cosineDistance, innerProduct, l1Distance } from 'drizzle-orm';
 import { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 import type { SortDirection, SortObject, SortContext } from '../types/index.js';
 
@@ -109,7 +109,7 @@ export function drizzleOrder(
 
   // Convert each sort field to Drizzle orderBy
   return Object.entries(sortObject).map(([field, direction]) => {
-    // Handle special _distance sorting
+    // Handle special _distance sorting (geospatial)
     if (field === '_distance' && typeof direction === 'object') {
       const distanceConfig = direction as any;
       const { target, column, direction: sortDir } = distanceConfig;
@@ -132,6 +132,20 @@ export function drizzleOrder(
         { type: 'Point', coordinates: target },
         sortDir as SortDirection
       );
+    }
+
+    // Handle special _vectorDistance sorting (pgvector)
+    if (field === '_vectorDistance' && typeof direction === 'object') {
+      const cfg = direction as any;
+      const { vector: queryVector, column: colName, operator = 'cosine', direction: sortDir = 'ASC' } = cfg;
+
+      // Resolve the PgColumn from the table schema
+      const pgColumn = ctx.schema && ctx.schema[colName];
+      if (!pgColumn) {
+        throw new Error(`_vectorDistance: column '${colName}' not found in schema`);
+      }
+
+      return sortByVectorDistance(pgColumn, queryVector, operator, sortDir as SortDirection);
     }
 
     return processSortField(field, direction as SortDirection, ctx);
@@ -202,6 +216,41 @@ export function sortByDistance(
 
   const normalizedDirection = direction.toUpperCase() as 'ASC' | 'DESC';
   return normalizedDirection === 'ASC' ? asc(distanceSQL) : desc(distanceSQL);
+}
+
+/**
+ * Sort by vector distance (for pgvector queries)
+ *
+ * @param column - The Drizzle PgColumn for the vector field
+ * @param queryVector - The query vector to measure distance from
+ * @param operator - Distance metric: 'l2' | 'cosine' | 'innerProduct' | 'l1'
+ * @param direction - Sort direction (ASC = nearest first; DESC for inner product)
+ */
+export function sortByVectorDistance(
+  column: PgColumn,
+  queryVector: number[],
+  operator: 'l2' | 'cosine' | 'innerProduct' | 'l1' = 'cosine',
+  direction: SortDirection = 'ASC'
+): SQL {
+  let distanceExpr: SQL;
+  switch (operator) {
+    case 'l2':
+      distanceExpr = l2Distance(column, queryVector);
+      break;
+    case 'innerProduct':
+      // innerProduct is negated by pgvector (<#>), so DESC gives highest dot product first
+      distanceExpr = innerProduct(column, queryVector);
+      break;
+    case 'l1':
+      distanceExpr = l1Distance(column, queryVector);
+      break;
+    case 'cosine':
+    default:
+      distanceExpr = cosineDistance(column, queryVector);
+      break;
+  }
+  const normalizedDirection = direction.toUpperCase() as 'ASC' | 'DESC';
+  return normalizedDirection === 'ASC' ? asc(distanceExpr) : desc(distanceExpr);
 }
 
 /**

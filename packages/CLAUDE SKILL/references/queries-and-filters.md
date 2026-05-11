@@ -244,6 +244,28 @@ Requires `DATABASE_VECTOR=true` and a field of type `Vector`, `HalfVec`, or `Spa
 {"embedding": {"vectorL1": {"vector": [0.1, 0.2, 0.3], "threshold": 1.0}}}
 ```
 
+### Sort by Vector Distance (top-K retrieval)
+
+Filter operators use `threshold` (distance \< N). For true top-K, use `_vectorDistance` in sort.
+Supported operators: `cosine` (default), `l2`, `innerProduct`, `l1`.
+
+```javascript
+// Top-K nearest by cosine distance
+{"sort": {"_vectorDistance": {
+  "vector": [0.1, 0.2, 0.3],
+  "column": "embedding",
+  "operator": "cosine",
+  "direction": "ASC"
+}}, "limit": 10}
+
+// Hybrid ANN: filter candidate set, then sort for ranking
+{
+  "filter": {"embedding": {"vectorCosine": {"vector": [0.1, 0.2, 0.3], "threshold": 0.5}}},
+  "sort": {"_vectorDistance": {"vector": [0.1, 0.2, 0.3], "column": "embedding", "operator": "cosine", "direction": "ASC"}},
+  "limit": 10
+}
+```
+
 ---
 
 ## Logical Operators
