@@ -382,7 +382,7 @@ interface UpdateRelationshipInput {
   };
 }
 
-const SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION = "Supported field types: String, Text, TEXT, CiText, HTML, Integer, BigInt, Decimal, Float, Real, Double, DOUBLE, Boolean, Date, DateTime, DateTime_NO_TZ, Time, Time_NO_TZ, UUID, SUID, TOKEN, JSON, JSONB, Enum, ENUM, VIRTUAL, Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean, Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ, Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography.";
+const SUPPORTED_SCHEMA_FIELD_TYPES_DESCRIPTION = "Supported field types: String, Text, TEXT, CiText, HTML, Integer, BigInt, Decimal, Float, Real, Double, DOUBLE, Boolean, Date, DateTime, DateTime_NO_TZ, Time, Time_NO_TZ, UUID, SUID, TOKEN, JSON, JSONB, Enum, ENUM, VIRTUAL, Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean, Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ, Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography, Vector, HalfVec, SparseVec.";
 
 // ==================== Helper Functions ====================
 
@@ -616,6 +616,7 @@ SCHEMA FIELD TYPES:
 - Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
 - Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
 - PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
+- pgvector: Vector, HalfVec, SparseVec (requires DATABASE_VECTOR=true; needs values.dimensions, e.g. 1536)
 
 DEFAULT VALUE TYPES: { type: "UUIDV4" }, { type: "SUID" }, { type: "NOW" }, { type: "AUTOINCREMENT" }, { type: "SQL", value: "..." }
 
@@ -747,12 +748,14 @@ FIELD TYPES:
 - Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
 - Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
 - PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
+- pgvector: Vector, HalfVec, SparseVec (requires DATABASE_VECTOR=true; supports vectorL2/vectorCosine/vectorInnerProduct/vectorL1 filter operators)
 
 COMMON TYPE-SPECIFIC RULES:
 - String: requires values.length (e.g., { "type": "String", "values": { "length": 255 } })
 - Decimal: requires values.precision and values.scale
 - Enum/ENUM: requires values.values array
-- Array_* / Range_* / PostGIS types use explicit type names (recommended over generic aliases)
+- Vector/HalfVec/SparseVec: requires values.dimensions (e.g., { "type": "Vector", "values": { "dimensions": 1536 } })
+- Array_* / Range_* / PostGIS / pgvector types use explicit type names (recommended over generic aliases)
 
 FIELD OPTIONS: allowNull (boolean), unique (boolean), primaryKey (boolean), defaultValue (value or { type: "UUIDV4"|"SUID"|"NOW"|"AUTOINCREMENT" })
 
@@ -902,12 +905,14 @@ FIELD TYPES:
 - Arrays: Array_Integer, Array_String, Array_Double, Array_Decimal, Array_DateTime, Array_DateTime_NO_TZ, Array_Date, Array_Time, Array_Time_NO_TZ, Array_UUID, Array_Boolean
 - Ranges: Range_Integer, Range_Double, Range_Decimal, Range_Date, Range_DateTime, Range_DateTime_NO_TZ, Range_Time, Range_Time_NO_TZ
 - PostGIS: Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection, Geography
+- pgvector: Vector, HalfVec, SparseVec (requires DATABASE_VECTOR=true; needs values.dimensions)
 
 COMMON TYPE-SPECIFIC RULES:
 - String: requires values.length (e.g. 255)
 - Decimal: requires values.precision and values.scale
 - Enum/ENUM: requires values.values array
-- Array_* / Range_* / PostGIS types use explicit type names (recommended over generic aliases)
+- Vector/HalfVec/SparseVec: requires values.dimensions (e.g. 1536)
+- Array_* / Range_* / PostGIS / pgvector types use explicit type names (recommended over generic aliases)
 
 EXAMPLE — Add a nullable "bio" text column:
 { collection: "users", fieldName: "bio", field: { type: "Text", allowNull: true } }

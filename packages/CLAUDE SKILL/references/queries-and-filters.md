@@ -12,7 +12,8 @@
 9. [PostgreSQL Array Operators](#postgresql-array-operators)
 10. [JSONB Operators](#jsonb-operators)
 11. [Geospatial Operators](#geospatial-operators-postgis)
-12. [Logical Operators](#logical-operators)
+12. [Vector Similarity Operators](#vector-similarity-operators-pgvector)
+13. [Logical Operators](#logical-operators)
 13. [Column-to-Column Comparisons](#column-to-column-comparisons)
 14. [Type Casting](#type-casting)
 15. [Dynamic Variables](#dynamic-variables)
@@ -214,6 +215,33 @@ fields: ["*", "-password", "-secretKey"] // Exclude fields
   "type": "Polygon",
   "coordinates": [[[lng1,lat1], [lng2,lat2], [lng3,lat3], [lng1,lat1]]]
 }}}
+```
+
+---
+
+## Vector Similarity Operators (pgvector)
+
+Requires `DATABASE_VECTOR=true` and a field of type `Vector`, `HalfVec`, or `SparseVec`.
+
+| Operator | SQL Operator | Description |
+|----------|-------------|-------------|
+| vectorL2 | `<->` | L2 (Euclidean) distance — lowest = closest |
+| vectorCosine | `<=>` | Cosine distance — lowest = most similar |
+| vectorInnerProduct | `<#>` | Inner product (negated) — highest dot product |
+| vectorL1 | `<+>` | L1 (Manhattan) distance (pgvector >= 0.7) |
+
+```javascript
+// Semantic search (cosine similarity)
+{"embedding": {"vectorCosine": {"vector": [0.1, 0.2, 0.3], "threshold": 0.2}}}
+
+// Nearest neighbors by L2
+{"embedding": {"vectorL2": {"vector": [0.1, 0.2, 0.3], "threshold": 0.5}}}
+
+// Maximum inner product
+{"embedding": {"vectorInnerProduct": {"vector": [0.1, 0.2, 0.3], "threshold": 0.8}}}
+
+// L1 distance
+{"embedding": {"vectorL1": {"vector": [0.1, 0.2, 0.3], "threshold": 1.0}}}
 ```
 
 ---

@@ -25,7 +25,11 @@ import {
   like, ilike, notLike, notIlike,
   and, or, not,
   sql,
-  SQL
+  SQL,
+  l2Distance,
+  cosineDistance,
+  innerProduct,
+  l1Distance,
 } from 'drizzle-orm';
 import { PgColumn } from 'drizzle-orm/pg-core';
 import type { ColumnReference, FilterValue, OperatorContext } from '../types/index.js';
@@ -1266,6 +1270,46 @@ export function dwithinOperator(ctx: OperatorContext, value: { geometry: any; di
 }
 
 /**
+ * Operator: Vector L2 distance filter (Euclidean)
+ * Example: { embedding: { vectorL2: { vector: [0.1,...], threshold: 0.5 } } }
+ *   -> embedding <-> '[0.1,...]' < 0.5
+ * Uses Drizzle's native l2Distance for parameterized, injection-safe SQL.
+ */
+export function vectorL2Operator(ctx: OperatorContext, value: { vector: number[]; threshold: number }): SQL {
+  return sql`${l2Distance(ctx.column, value.vector)} < ${value.threshold}`;
+}
+
+/**
+ * Operator: Vector cosine distance filter
+ * Example: { embedding: { vectorCosine: { vector: [0.1,...], threshold: 0.2 } } }
+ *   -> embedding <=> '[0.1,...]' < 0.2
+ * Uses Drizzle's native cosineDistance for parameterized, injection-safe SQL.
+ */
+export function vectorCosineOperator(ctx: OperatorContext, value: { vector: number[]; threshold: number }): SQL {
+  return sql`${cosineDistance(ctx.column, value.vector)} < ${value.threshold}`;
+}
+
+/**
+ * Operator: Vector inner product filter (maximum inner product search)
+ * Example: { embedding: { vectorInnerProduct: { vector: [0.1,...], threshold: 0.9 } } }
+ *   -> (embedding <#> '[0.1,...]') * -1 > 0.9
+ * Uses Drizzle's native innerProduct for parameterized, injection-safe SQL.
+ */
+export function vectorInnerProductOperator(ctx: OperatorContext, value: { vector: number[]; threshold: number }): SQL {
+  return sql`(${innerProduct(ctx.column, value.vector)}) * -1 > ${value.threshold}`;
+}
+
+/**
+ * Operator: Vector L1 distance filter (Manhattan distance, requires pgvector >= 0.7)
+ * Example: { embedding: { vectorL1: { vector: [0.1,...], threshold: 1.0 } } }
+ *   -> embedding <+> '[0.1,...]' < 1.0
+ * Uses Drizzle's native l1Distance for parameterized, injection-safe SQL.
+ */
+export function vectorL1Operator(ctx: OperatorContext, value: { vector: number[]; threshold: number }): SQL {
+  return sql`${l1Distance(ctx.column, value.vector)} < ${value.threshold}`;
+}
+
+/**
  * Operator: NOT
  * Example: { status: { not: 'active' } } -> status != 'active'
  * Example: { id: { not: null } } -> id IS NOT NULL
@@ -1384,6 +1428,12 @@ export const OPERATOR_MAP = {
   intersects: intersectsOperator,
   nIntersects: nIntersectsOperator,
   dwithin: dwithinOperator,
+
+  // Vector (pgvector) operators
+  vectorL2: vectorL2Operator,
+  vectorCosine: vectorCosineOperator,
+  vectorInnerProduct: vectorInnerProductOperator,
+  vectorL1: vectorL1Operator,
 } as const;
 
 export type OperatorName = keyof typeof OPERATOR_MAP;

@@ -1,5 +1,13 @@
 # @baasix/baasix
 
+## 0.1.73
+
+### Patch Changes
+
+- Added vector support
+- Updated dependencies
+  - @baasix/types@1.0.7
+
 ## 0.1.72
 
 ### Patch Changes

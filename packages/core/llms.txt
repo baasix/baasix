@@ -468,6 +468,31 @@ fields: ["*", "-password", "-secretKey"]
 }}}
 ```
 
+## Vector Similarity Operators (pgvector)
+
+Requires `DATABASE_VECTOR=true` and a field of type `Vector`, `HalfVec`, or `SparseVec`.
+
+| Operator | SQL | Description |
+|----------|-----|-------------|
+| vectorL2 | `<->` | L2 (Euclidean) distance |
+| vectorCosine | `<=>` | Cosine distance |
+| vectorInnerProduct | `<#>` | Inner product (negated) |
+| vectorL1 | `<+>` | L1 (Manhattan) distance (pgvector >= 0.7) |
+
+```javascript
+// Nearest by L2 (Euclidean) distance
+{"embedding": {"vectorL2": {"vector": [0.1, 0.2, 0.3], "threshold": 0.5}}}
+
+// Cosine similarity (semantic search)
+{"embedding": {"vectorCosine": {"vector": [0.1, 0.2, 0.3], "threshold": 0.2}}}
+
+// Maximum inner product search
+{"embedding": {"vectorInnerProduct": {"vector": [0.1, 0.2, 0.3], "threshold": 0.8}}}
+
+// L1 (Manhattan) distance
+{"embedding": {"vectorL1": {"vector": [0.1, 0.2, 0.3], "threshold": 1.0}}}
+```
+
 ## Logical Operators
 
 ```javascript
@@ -682,6 +707,9 @@ POST /schemas
 | Point | POINT | PostGIS point |
 | LineString | LINESTRING | PostGIS linestring |
 | Polygon | POLYGON | PostGIS polygon |
+| Vector | vector(n) | pgvector float32 vector (needs DATABASE_VECTOR=true) |
+| HalfVec | halfvec(n) | pgvector float16 vector |
+| SparseVec | sparsevec(n) | pgvector sparse vector |
 
 ## Field Properties
 
@@ -896,6 +924,13 @@ Note: Range validation also ensures lower bound <= upper bound.
   "location": {
     "type": "Point",
     "allowNull": true
+  },
+
+  // Vector embedding (pgvector — requires DATABASE_VECTOR=true)
+  "embedding": {
+    "type": "Vector",
+    "allowNull": true,
+    "values": { "dimensions": 1536 }
   }
 }
 ```

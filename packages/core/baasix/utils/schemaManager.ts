@@ -179,6 +179,12 @@ export class SchemaManager {
         await sql.unsafe('CREATE EXTENSION IF NOT EXISTS postgis');
         console.log('PostgreSQL extension postgis enabled');
       }
+
+      // Enable pgvector if configured
+      if (env.get('DATABASE_VECTOR') === 'true') {
+        await sql.unsafe('CREATE EXTENSION IF NOT EXISTS vector');
+        console.log('PostgreSQL extension vector (pgvector) enabled');
+      }
     } catch (error) {
       console.error('Failed to enable PostgreSQL extensions:', error);
       throw error;

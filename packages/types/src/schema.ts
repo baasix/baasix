@@ -95,6 +95,8 @@ export interface FieldValues {
   values?: string[];
   /** Spatial reference system identifier (for geometry types) */
   srid?: number;
+  /** Vector dimensions (for pgvector types: Vector, HalfVec, SparseVec) */
+  dimensions?: number;
 }
 
 /**

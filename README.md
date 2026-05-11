@@ -39,6 +39,7 @@
 - **📁 File Storage & Processing** — Upload, manage, and transform files with image optimization
 - **📝 Pino Logger** — High-performance structured logging with configurable transports (Datadog, Loki, etc.)
 - **🌍 PostGIS Geospatial Support** — Advanced spatial data operations
+- **🧠 pgvector Embeddings Support** — Store and query vector embeddings for AI/semantic search
 - **📊 Reporting & Analytics** — Generate complex reports with grouping and aggregation
 - **🪝 Hooks System** — Extend functionality with custom hooks on CRUD operations
 - **🏢 Multi-tenant Architecture** — Host multiple isolated organizations in a single instance with schema-level tenant scoping
@@ -345,7 +346,7 @@ Visit `http://localhost:8056/` to verify the server is running.
 ## 📋 Requirements
 
 - **Node.js** 18+
-- **PostgreSQL** 14+ with PostGIS extension
+- **PostgreSQL** 14+ (PostGIS extension optional for geospatial; pgvector optional for vector embeddings)
 - **Redis** 6+
 
 ---

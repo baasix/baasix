@@ -5,18 +5,18 @@ description: >-
   PostgreSQL, and Drizzle ORM. Use whenever the user mentions Baasix, @baasix/baasix, or
   works in a Baasix project. Covers schemas, CRUD queries, 50+ filter operators, extensions
   (hooks, endpoints, schedules), workflows, permissions, services (ItemsService, FilesService,
-  etc.), env config, migrations, CLI, file uploads, asset transforms, PostGIS, JSONB, multi-tenancy,
-  caching, real-time, and plugins. Also trigger for Baasix patterns like relConditions, dynamic
-  variables ($CURRENT_USER, $NOW), schema PATCH full-replacement behavior, or extension folder
-  naming. Even if the user just says "add a table" or "create an endpoint" in a Baasix project,
-  use this skill.
+  etc.), env config, migrations, CLI, file uploads, asset transforms, PostGIS, pgvector, JSONB,
+  multi-tenancy, caching, real-time, and plugins. Also trigger for Baasix patterns like
+  relConditions, dynamic variables ($CURRENT_USER, $NOW), schema PATCH full-replacement behavior,
+  or extension folder naming. Even if the user just says "add a table" or "create an endpoint" in
+  a Baasix project, use this skill.
 ---
 
 # Baasix — AI Coding Assistant Guide
 
 Baasix is an open-source Backend-as-a-Service that generates REST APIs from data models.
 
-**Key capabilities:** Dynamic schemas via API, PostgreSQL + PostGIS, Drizzle ORM, 50+ filter operators, visual workflows (17 node types), multi-tenancy, caching, real-time, plugin system.
+**Key capabilities:** Dynamic schemas via API, PostgreSQL + PostGIS + pgvector, Drizzle ORM, 50+ filter operators (including vector similarity), visual workflows (17 node types), multi-tenancy, caching, real-time, plugin system.
 
 **Package:** `@baasix/baasix` (v0.1.0-alpha.2) — Node.js 18+, PostgreSQL 14+, Redis 6+ (for caching).
 

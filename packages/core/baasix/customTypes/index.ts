@@ -35,6 +35,13 @@ export {
   arrayOf,
 } from './arrays.js';
 
+// pgvector Types
+export {
+  vector,
+  halfvec,
+  sparsevec,
+} from './vector.js';
+
 // PostgreSQL Range Types
 export {
   type Range,

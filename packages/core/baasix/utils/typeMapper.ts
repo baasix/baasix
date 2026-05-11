@@ -272,6 +272,19 @@ export function mapJsonTypeToDrizzle(fieldName: string, fieldSchema: FieldSchema
       column = customTypes.geography(fieldName, 'Point', fieldSchema.values?.srid || 4326);
       break;
 
+    // pgvector types
+    case 'Vector':
+      column = customTypes.vector(fieldName, fieldSchema.values?.dimensions || 1536);
+      break;
+
+    case 'HalfVec':
+      column = customTypes.halfvec(fieldName, fieldSchema.values?.dimensions || 1536);
+      break;
+
+    case 'SparseVec':
+      column = customTypes.sparsevec(fieldName, fieldSchema.values?.dimensions || 1536);
+      break;
+
     default:
       // Default to varchar
       console.warn(`Unknown field type: ${fieldSchema.type} for field '${fieldName}'${collectionName ? ` in collection '${collectionName}'` : ''}, defaulting to varchar`);

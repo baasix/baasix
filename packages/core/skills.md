@@ -8,7 +8,7 @@
 Baasix is an open-source Backend-as-a-Service (BaaS) that generates REST APIs from data models. Key differentiators:
 
 - **Dynamic Schemas**: Create/modify tables via API at runtime
-- **PostgreSQL + PostGIS**: Full SQL power with geospatial support
+- **PostgreSQL + PostGIS + pgvector**: Full SQL power with geospatial and vector embedding support
 - **Drizzle ORM**: Modern TypeScript ORM under the hood
 - **50+ Filter Operators**: Most comprehensive query system
 - **Visual Workflows**: 17 node types for automation
@@ -638,6 +638,31 @@ GET /items/products?limit=-1
 }}}
 ```
 
+### Vector Similarity Operators (pgvector)
+
+Requires `DATABASE_VECTOR=true` and a field of type `Vector`, `HalfVec`, or `SparseVec`.
+
+| Operator | SQL Operator | Description |
+|----------|-------------|-------------|
+| vectorL2 | `<->` | L2 (Euclidean) distance |
+| vectorCosine | `<=>` | Cosine distance |
+| vectorInnerProduct | `<#>` | Inner product (negated, max inner product search) |
+| vectorL1 | `<+>` | L1 (Manhattan) distance (pgvector >= 0.7) |
+
+```javascript
+// Nearest by L2 (Euclidean) distance
+{"embedding": {"vectorL2": {"vector": [0.1, 0.2, 0.3], "threshold": 0.5}}}
+
+// Cosine similarity search
+{"embedding": {"vectorCosine": {"vector": [0.1, 0.2, 0.3], "threshold": 0.2}}}
+
+// Maximum inner product
+{"embedding": {"vectorInnerProduct": {"vector": [0.1, 0.2, 0.3], "threshold": 0.8}}}
+
+// L1 (Manhattan) distance
+{"embedding": {"vectorL1": {"vector": [0.1, 0.2, 0.3], "threshold": 1.0}}}
+```
+
 ### Logical Operators
 
 ```javascript
@@ -859,6 +884,10 @@ POST /schemas
 | MultiPolygon | MULTIPOLYGON | Multiple polygons |
 | GeometryCollection | GEOMETRYCOLLECTION | Collection of geometries |
 | Geography | GEOGRAPHY | Geographic coordinates |
+| **pgvector (Vector Embeddings)** | | |
+| Vector | vector(n) | float32 vector (requires DATABASE_VECTOR=true) |
+| HalfVec | halfvec(n) | float16 vector (pgvector >= 0.7) |
+| SparseVec | sparsevec(n) | sparse vector (pgvector >= 0.7) |
 
 ### Field Properties
 
@@ -1070,11 +1099,15 @@ Validation rules apply to both lower and upper bounds. Also ensures lower bound 
   "location": {
     "type": "Point",
     "allowNull": true
+  },
+
+  // Vector embedding (pgvector — requires DATABASE_VECTOR=true)
+  "embedding": {
+    "type": "Vector",
+    "allowNull": true,
+    "values": { "dimensions": 1536 }
   }
 }
-```
-
-### Relationship Types
 
 #### M2O (Many-to-One / BelongsTo)
 ```javascript
@@ -2189,6 +2222,32 @@ GET /items/stores?sort={
     "target": [-73.9857, 40.7484],
     "column": "location",
     "direction": "ASC"
+  }
+}
+```
+
+### Pattern: Vector Similarity Queries (pgvector)
+
+Requires `DATABASE_VECTOR=true` and a `Vector`/`HalfVec`/`SparseVec` field.
+
+```javascript
+// Semantic search (cosine similarity)
+GET /items/documents?filter={
+  "embedding": {
+    "vectorCosine": {
+      "vector": [0.021, -0.012, 0.034, ...],
+      "threshold": 0.2
+    }
+  }
+}
+
+// Nearest neighbors (L2 / Euclidean)
+GET /items/products?filter={
+  "embedding": {
+    "vectorL2": {
+      "vector": [0.021, -0.012, 0.034, ...],
+      "threshold": 0.5
+    }
   }
 }
 ```

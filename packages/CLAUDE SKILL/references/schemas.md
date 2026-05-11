@@ -106,6 +106,10 @@ Sending only new fields will DELETE all other field definitions.
 | MultiPolygon | MULTIPOLYGON | |
 | GeometryCollection | GEOMETRYCOLLECTION | |
 | Geography | GEOGRAPHY | Geographic coordinates |
+| **pgvector (Vector Embeddings)** | | |
+| Vector | vector(n) | float32 vector (requires DATABASE_VECTOR=true) |
+| HalfVec | halfvec(n) | float16 vector (pgvector >= 0.7) |
+| SparseVec | sparsevec(n) | sparse vector (pgvector >= 0.7) |
 
 ---
 
@@ -145,6 +149,9 @@ Sending only new fields will DELETE all other field definitions.
 
 // PostGIS Point
 "location": { "type": "Point", "allowNull": true }
+
+// Vector embedding (pgvector — requires DATABASE_VECTOR=true)
+"embedding": { "type": "Vector", "allowNull": true, "values": { "dimensions": 1536 } }
 ```
 
 ---

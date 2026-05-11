@@ -33,6 +33,8 @@ const VALID_DATA_TYPES = [
   'uuid',
   // Geometric (PostGIS)
   'geometry', 'geography', 'point', 'line', 'polygon',
+  // Vector (pgvector)
+  'vector', 'halfvec', 'sparsevec',
   // Arrays
   'array',
   // Other

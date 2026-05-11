@@ -40,6 +40,9 @@ sudo apt install postgresql postgresql-contrib -y
 # Install PostGIS
 sudo apt install postgis postgresql-14-postgis-3 -y
 
+# Install pgvector (optional - for vector embeddings and similarity search)
+sudo apt install postgresql-14-pgvector -y
+
 # Start PostgreSQL
 sudo systemctl start postgresql
 sudo systemctl enable postgresql

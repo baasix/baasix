@@ -39,6 +39,7 @@
 - **📁 File Storage & Processing** — Upload, manage, and transform files with image optimization
 - **📝 Pino Logger** — High-performance structured logging with configurable transports (Datadog, Loki, etc.)
 - **🌍 PostGIS Geospatial Support** — Advanced spatial data operations
+- **🧠 pgvector Embeddings Support** — Store and query vector embeddings for AI/semantic search
 - **📊 Reporting & Analytics** — Generate complex reports with grouping and aggregation
 - **🪝 Hooks System** — Extend functionality with custom hooks on CRUD operations
 - **🏢 Multi-tenant Architecture** — Host multiple isolated organizations in a single instance with schema-level tenant scoping
@@ -361,7 +362,7 @@ Visit `http://localhost:8056/` to verify the server is running.
 ## 📋 Requirements
 
 - **Node.js** 18+
-- **PostgreSQL** 14+ with PostGIS extension
+- **PostgreSQL** 14+ (PostGIS optional for geospatial; pgvector optional for vector embeddings)
 - **Redis** 6+
 
 ---
@@ -409,7 +410,7 @@ Baasix includes Model Context Protocol (MCP) support for AI assistants like Clau
 - **52 MCP Tools** for comprehensive Baasix operations
 - **Schema Management** — Create, update, delete collections and relationships
 - **CRUD Operations** — Full item management with powerful query capabilities
-- **50+ Filter Operators** — From basic comparison to geospatial and JSONB queries
+- **50+ Filter Operators** — From basic comparison to geospatial, vector similarity, and JSONB queries
 - **Permissions** — Role-based access control management
 - **Authentication** — Login, register, magic links, invitations
 

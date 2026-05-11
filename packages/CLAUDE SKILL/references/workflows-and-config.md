@@ -328,6 +328,12 @@ const products = await baasix.items<Products>("products").list();
 | DATABASE_URL | PostgreSQL connection string |
 | SECRET_KEY | JWT/encryption secret (32+ chars) |
 
+### Database Extensions (Optional)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| DATABASE_POSTGIS | false | Enable PostGIS extension for geospatial queries |
+| DATABASE_VECTOR | false | Enable pgvector extension for vector embeddings |
+
 ### Server
 | Variable | Default | Description |
 |----------|---------|-------------|
