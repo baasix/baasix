@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.75
+
+### Patch Changes
+
+- Added vector auto index creation and sorting
+
 ## 0.1.74
 
 ### Patch Changes

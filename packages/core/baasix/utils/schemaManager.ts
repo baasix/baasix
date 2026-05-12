@@ -731,6 +731,10 @@ export class SchemaManager {
             // Use IF NOT EXISTS for safety in case of race conditions or schema query issues
             await sql.unsafe(`ALTER TABLE "${collectionName}" ADD COLUMN IF NOT EXISTS ${columnDef}`);
             console.log(`Added missing column ${fieldName} to ${collectionName}`);
+            // Auto-create HNSW index for vector columns
+            if (fs.type === 'Vector' || fs.type === 'HalfVec' || fs.type === 'SparseVec') {
+              await this.createVectorIndex(collectionName, fieldName, fs.type);
+            }
           } catch (error) {
             console.error(`Failed to add column ${fieldName} to ${collectionName}:`, error);
           }
@@ -950,6 +954,14 @@ export class SchemaManager {
           await this.createIndex(collectionName, index);
         }
       }
+
+      // Auto-create HNSW indexes for vector columns
+      for (const [fieldName, fieldDef] of Object.entries(schema.fields || {})) {
+        const fd = fieldDef as any;
+        if (fd.type === 'Vector' || fd.type === 'HalfVec' || fd.type === 'SparseVec') {
+          await this.createVectorIndex(collectionName, fieldName, fd.type);
+        }
+      }
     } catch (error) {
       console.error(`Failed to create table ${collectionName}:`, error);
     }
@@ -1104,6 +1116,32 @@ export class SchemaManager {
   /**
    * Create an index on a table
    */
+  /**
+   * Auto-create an HNSW index for a pgvector column.
+   * Uses cosine distance (vector_cosine_ops) by default — best for normalized embeddings.
+   * halfvec and sparsevec use their respective operator classes.
+   */
+  private async createVectorIndex(
+    tableName: string,
+    fieldName: string,
+    fieldType: 'Vector' | 'HalfVec' | 'SparseVec'
+  ): Promise<void> {
+    const sqlClient = getSqlClient();
+    const opClass =
+      fieldType === 'HalfVec' ? 'halfvec_cosine_ops' :
+      fieldType === 'SparseVec' ? 'sparsevec_cosine_ops' :
+      'vector_cosine_ops';
+    const indexName = `${tableName}_${fieldName}_hnsw_idx`;
+    try {
+      await sqlClient.unsafe(
+        `CREATE INDEX IF NOT EXISTS "${indexName}" ON "${tableName}" USING hnsw ("${fieldName}" ${opClass})`
+      );
+      console.log(`Created HNSW index: ${indexName} on ${tableName}`);
+    } catch (error) {
+      console.warn(`Failed to create HNSW index ${indexName} on ${tableName}:`, error);
+    }
+  }
+
   private async createIndex(tableName: string, indexDef: any): Promise<void> {
     const sql = getSqlClient();
     

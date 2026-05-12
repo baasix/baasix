@@ -139,8 +139,12 @@ export function drizzleOrder(
       const cfg = direction as any;
       const { vector: queryVector, column: colName, operator = 'cosine', direction: sortDir = 'ASC' } = cfg;
 
-      // Resolve the PgColumn from the table schema
-      const pgColumn = ctx.schema && ctx.schema[colName];
+      // Resolve the PgColumn from the table schema. ItemsService.buildQuery
+      // passes the Drizzle table as `ctx.table` (not `ctx.schema`) — accept
+      // either so callers don't have to adapt and any code path that sets
+      // either property continues to work.
+      const tableLike: any = (ctx && ((ctx as any).table || (ctx as any).schema)) || null;
+      const pgColumn = tableLike && tableLike[colName];
       if (!pgColumn) {
         throw new Error(`_vectorDistance: column '${colName}' not found in schema`);
       }
