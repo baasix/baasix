@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.76
+
+### Patch Changes
+
+- Optimised permission import.
+
 ## 0.1.75
 
 ### Patch Changes

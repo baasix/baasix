@@ -2115,11 +2115,14 @@ const registerEndpoint = (app: Express, context?: any) => {
                     permissionItemsService.readByQuery({ limit: -1 }, true),
                 ]);
                 const currentRoleMap = new Map(allRolesResult.data.map((r: any) => [r.name, r]));
-                const permsByRoleId: Map<string, string[]> = new Map();
+                const permsByRoleId: Map<string, any[]> = new Map();
                 for (const perm of allPermsResult.data) {
                     if (!permsByRoleId.has(perm.role_Id)) permsByRoleId.set(perm.role_Id, []);
-                    permsByRoleId.get(perm.role_Id)!.push(perm.id);
+                    permsByRoleId.get(perm.role_Id)!.push(perm);
                 }
+
+                let rolesChanged = false;
+                let permissionsChanged = false;
 
                 // Process each role and its permissions
                 for (const roleData of importData.roles) {
@@ -2132,30 +2135,86 @@ const registerEndpoint = (app: Express, context?: any) => {
                                 name: roleData.name,
                                 description: roleData.description
                             });
+                            rolesChanged = true;
                             changes.created.push(`Role: ${roleData.name}`);
+
+                            const permissions = (roleData.permissions || []).map((perm: any) => ({
+                                ...perm,
+                                role_Id: roleId,
+                            }));
+                            if (permissions.length > 0) {
+                                await permissionItemsService.createMany(permissions);
+                                permissionsChanged = true;
+                            }
+                            changes.created.push(`Permissions for ${roleData.name}: ${permissions.length}`);
                         } else {
-                            await roleService.updateOne(existingRole.id, {
-                                description: roleData.description
-                            });
                             roleId = existingRole.id;
-                            changes.updated.push(`Role: ${roleData.name}`);
-                        }
+                            if (existingRole.description !== roleData.description) {
+                                await roleService.updateOne(existingRole.id, {
+                                    description: roleData.description
+                                });
+                                rolesChanged = true;
+                                changes.updated.push(`Role: ${roleData.name}`);
+                            }
 
-                        // Delete all existing permissions for this role in one call
-                        const existingPermIds = permsByRoleId.get(roleId) ?? [];
-                        if (existingPermIds.length > 0) {
-                            await permissionItemsService.deleteMany(existingPermIds);
-                        }
+                            const existingPerms = permsByRoleId.get(roleId) ?? [];
+                            const existingPermMap = new Map<string, any>(existingPerms.map((perm: any) => [getPermissionKey(perm), perm]));
+                            const importPermMap = new Map<string, any>((roleData.permissions || []).map((perm: any) => [getPermissionKey(perm), perm]));
 
-                        // Create all new permissions in one bulk call
-                        const permissions = roleData.permissions.map((perm: any) => ({
-                            ...perm,
-                            role_Id: roleId,
-                        }));
-                        if (permissions.length > 0) {
-                            await permissionItemsService.createMany(permissions);
+                            const permissionIdsToDelete: (string | number)[] = [];
+                            const permissionsToCreate: any[] = [];
+                            const permissionsToUpdate: { id: string | number; data: Record<string, any> }[] = [];
+
+                            for (const [key, importPerm] of importPermMap) {
+                                const existingPerm = existingPermMap.get(key);
+                                if (!existingPerm) {
+                                    permissionsToCreate.push({
+                                        ...importPerm,
+                                        role_Id: roleId,
+                                    });
+                                    continue;
+                                }
+
+                                if (!deepEqual(normalizePermissionForComparison(existingPerm), normalizePermissionForComparison(importPerm))) {
+                                    permissionsToUpdate.push({
+                                        id: existingPerm.id,
+                                        data: {
+                                            collection: importPerm.collection,
+                                            action: importPerm.action,
+                                            fields: importPerm.fields,
+                                            conditions: importPerm.conditions,
+                                            defaultValues: importPerm.defaultValues,
+                                            relConditions: importPerm.relConditions,
+                                            role_Id: roleId,
+                                        },
+                                    });
+                                }
+                            }
+
+                            for (const [key, existingPerm] of existingPermMap) {
+                                if (!importPermMap.has(key)) {
+                                    permissionIdsToDelete.push(existingPerm.id);
+                                }
+                            }
+
+                            if (permissionIdsToDelete.length > 0) {
+                                await permissionItemsService.deleteMany(permissionIdsToDelete);
+                            }
+                            if (permissionsToUpdate.length > 0) {
+                                await permissionItemsService.updateMany(permissionsToUpdate);
+                            }
+                            if (permissionsToCreate.length > 0) {
+                                await permissionItemsService.createMany(permissionsToCreate);
+                            }
+
+                            const permissionChangeCount = permissionIdsToDelete.length + permissionsToUpdate.length + permissionsToCreate.length;
+                            if (permissionChangeCount > 0) {
+                                permissionsChanged = true;
+                                changes.updated.push(
+                                    `Permissions for ${roleData.name}: +${permissionsToCreate.length}, ~${permissionsToUpdate.length}, -${permissionIdsToDelete.length}`
+                                );
+                            }
                         }
-                        changes.created.push(`Permissions for ${roleData.name}: ${permissions.length}`);
                     } catch (error: any) {
                         changes.errors.push({
                             role: roleData.name,
@@ -2164,9 +2223,14 @@ const registerEndpoint = (app: Express, context?: any) => {
                     }
                 }
 
-                await invalidateEntireCache();
-                await permissionService.invalidateRoles(); // Reload roles cache
-                await permissionService.loadPermissions(); // Reload permission cache (using imported singleton)
+                if (rolesChanged) {
+                    await invalidateEntireCache('baasix_Role');
+                    await permissionService.invalidateRoles();
+                }
+                if (permissionsChanged) {
+                    await invalidateEntireCache('baasix_Permission');
+                    await permissionService.loadPermissions();
+                }
 
                 res.status(200).json({
                     message: "Roles and permissions import completed",
@@ -2177,6 +2241,21 @@ const registerEndpoint = (app: Express, context?: any) => {
             }
         }
     );
+
+    function getPermissionKey(permission: any): string {
+        return `${permission.collection}:${permission.action}`;
+    }
+
+    function normalizePermissionForComparison(permission: any): any {
+        return {
+            collection: permission.collection,
+            action: permission.action,
+            fields: permission.fields,
+            conditions: permission.conditions,
+            defaultValues: permission.defaultValues,
+            relConditions: permission.relConditions,
+        };
+    }
 
     // Helper function to compare roles and their permissions
     function compareRoleAndPermissions(currentRole, importRole) {
