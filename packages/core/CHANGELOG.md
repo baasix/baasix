@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.77
+
+### Patch Changes
+
+- Fixed permission edit sheet UI stuck in loop.
+
 ## 0.1.76
 
 ### Patch Changes
