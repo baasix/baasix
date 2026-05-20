@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.78
+
+### Patch Changes
+
+- Added fix for permission routes missing query support
+
 ## 0.1.77
 
 ### Patch Changes

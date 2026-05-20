@@ -4,17 +4,21 @@ import ItemsService from "../services/ItemsService.js";
 import { adminOnly } from "../utils/auth.js";
 import { APIError } from "../utils/errorHandler.js";
 import { invalidateAuthCache, invalidateCollectionCache } from "../utils/common.js";
+import { parseQueryParams } from "../utils/router.js";
 
 const registerEndpoint = (app: Express) => {
   // Get all permissions
   app.get("/permissions", async (req, res, next) => {
     try {
+      const query = parseQueryParams(req.query);
+
       const itemsService = new ItemsService("baasix_Permission", {
         accountability: req.accountability as any,
       });
 
       const result = await itemsService.readByQuery({
-        limit: -1,
+        ...query,
+        limit: query.limit ?? -1,
       });
 
       res.json(result);
