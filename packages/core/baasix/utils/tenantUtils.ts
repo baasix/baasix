@@ -1,5 +1,6 @@
 import { APIError } from "./errorHandler.js";
 import { schemaManager } from "./schemaManager.js";
+import env from "./env.js";
 
 // List of system collections that are tenant-specific (Set for O(1) lookups)
 const tenantSpecificSystemCollections = new Set([
@@ -40,17 +41,31 @@ export async function shouldEnforceTenantContext(service: any): Promise<boolean>
     return false;
   }
 
-  // If the role is explicitly non-tenant-specific, don't enforce tenant context
-  // (isTenantSpecific: false means the role operates globally without tenant constraints)
-  if (service.accountability.role?.isTenantSpecific === false) {
-    return false;
+  const role = service.accountability.role;
+  const isGlobalRole = role?.isTenantSpecific === false;
+  const isAdmin = role?.name === "administrator";
+
+  // A non-tenant-specific role operates globally (cross-tenant). By default we
+  // restrict that global bypass to the administrator role — a *non-admin* role
+  // marked isTenantSpecific:false is almost always a misconfiguration that would
+  // silently expose other tenants' data, so we still tenant-scope it when a tenant
+  // context exists. Set STRICT_TENANT_ISOLATION=false to restore the old behavior
+  // (any isTenantSpecific:false role bypasses tenant scoping).
+  if (isGlobalRole) {
+    const strict = env.get("STRICT_TENANT_ISOLATION") !== "false";
+    if (!strict || isAdmin) {
+      // Trusted global role (or strict mode disabled) → no tenant filter.
+      return false;
+    }
+    // Strict mode + non-admin global role: scope to the tenant if one is present;
+    // if there is genuinely no tenant context, fall through to the default below.
   }
 
   // Enforce tenant context if:
   // 1. The role is tenant-specific (isTenantSpecific: true)
-  // 2. OR there's an explicit tenant context set AND the role's tenant-specificity is not defined
-  return service.accountability.role?.isTenantSpecific === true || 
-         (service.tenant && service.accountability.role?.isTenantSpecific !== false);
+  // 2. OR there's an explicit tenant context set (covers strict-mode non-admin
+  //    global roles, and roles whose tenant-specificity is undefined)
+  return role?.isTenantSpecific === true || !!service.tenant || !!service.accountability.tenant;
 }
 
 /**

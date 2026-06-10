@@ -340,31 +340,51 @@ class SettingsService {
   }
 
   /**
-   * Sanitize settings by removing sensitive SMTP credentials
+   * Public/client-safe settings fields. The public settings endpoints return ONLY
+   * these (an allow-list, not a deny-list) so a newly-added setting — a secret API
+   * key, an internal flag, etc. — is never accidentally exposed. This covers
+   * branding, identity, localization, logos, and the public session-limit hints.
+   */
+  private static readonly PUBLIC_SETTINGS_FIELDS = new Set<string>([
+    "id", "tenant_Id",
+    // Branding & identity
+    "project_name", "title", "project_url", "app_url", "project_color", "secondary_color",
+    "description", "keywords",
+    // Logos / icons (file ids + expanded relations are safe references)
+    "project_logo_light_Id", "project_logo_dark_Id", "project_logo_full_Id",
+    "project_logo_transparent_Id", "project_favicon_Id", "project_icon_Id", "email_icon_Id",
+    "project_logo_light", "project_logo_dark", "project_logo_full",
+    "project_logo_transparent", "project_favicon", "project_icon", "email_icon",
+    // Email presentation (NOT credentials). smtp_enabled is a non-sensitive flag
+    // indicating whether email is configured; the credentials themselves are excluded.
+    "email_signature", "from_email_name", "smtp_enabled",
+    // Localization
+    "timezone", "language", "date_format", "currency",
+    // Public session hints
+    "mobile_session_limit", "web_session_limit",
+    "createdAt", "updatedAt",
+  ]);
+
+  /**
+   * Sanitize settings for public exposure.
+   *
+   * Allow-list: return only known client-safe fields. This is strictly safer than
+   * the previous deny-list (which removed only SMTP fields and leaked everything
+   * else, including `metadata`, `modules`, `session_limit_roles`, and any future
+   * secret-bearing key).
    */
   sanitizeSettings(settings: TenantSettings | null): TenantSettings | null {
     if (!settings) {
       return settings;
     }
 
-    // Create a copy to avoid mutating the original
-    const sanitized = { ...settings };
-
-    // Remove sensitive SMTP fields
-    const sensitiveFields = [
-      "smtp_user",
-      "smtp_pass",
-      "smtp_host",
-      "smtp_port",
-      "smtp_secure",
-      "smtp_from_address",
-    ];
-
-    sensitiveFields.forEach((field) => {
-      delete sanitized[field];
-    });
-
-    return sanitized;
+    const sanitized: Record<string, any> = {};
+    for (const key of Object.keys(settings)) {
+      if (SettingsService.PUBLIC_SETTINGS_FIELDS.has(key)) {
+        sanitized[key] = (settings as any)[key];
+      }
+    }
+    return sanitized as TenantSettings;
   }
 
   /**

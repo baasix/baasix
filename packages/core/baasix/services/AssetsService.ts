@@ -7,6 +7,7 @@ import FilesService from "./FilesService.js";
 import ItemsService from "./ItemsService.js";
 import type { AssetQuery, AssetResult, ProcessedImage } from '../types/index.js';
 import { getProjectPath } from "../utils/dirname.js";
+import { resolveStorageKey } from "./StorageService.js";
 
 /**
  * Returns the set of shared asset tenant IDs and the access mode.
@@ -169,7 +170,7 @@ class AssetsService extends FilesService {
       
       // For video/audio files with local storage, provide file path for range requests
       if ((fileContentType.startsWith("video/") || fileContentType.startsWith("audio/")) && !isS3) {
-        filePath = path.join(provider.basePath, file.filename);
+        filePath = resolveStorageKey(provider.basePath, file.filename);
       }
       
       return {
@@ -195,7 +196,7 @@ class AssetsService extends FilesService {
       }
       return Buffer.concat(chunks);
     } else {
-      const filePath = path.join(provider.basePath, file.filename);
+      const filePath = resolveStorageKey(provider.basePath, file.filename);
       return fs.promises.readFile(filePath);
     }
   }
@@ -234,7 +235,7 @@ class AssetsService extends FilesService {
         }
         return Buffer.concat(chunks);
       } else {
-        const filePath = path.join(provider.basePath, filename);
+        const filePath = resolveStorageKey(provider.basePath, filename);
         return await fs.promises.readFile(filePath);
       }
     } catch (error: any) {
@@ -263,26 +264,57 @@ class AssetsService extends FilesService {
   }
 
   /**
-   * Process image from buffer instead of file path
+   * Process image from buffer instead of file path.
+   *
+   * DoS hardening (A13): output width/height are clamped to a max, the decoder is
+   * given a pixel limit (decompression-bomb defense), quality is clamped to 1–100,
+   * and fit/format are validated against allowlists. Caps are configurable:
+   *  - ASSET_MAX_DIMENSION  (default 5000)  — max output width/height in px
+   *  - ASSET_MAX_INPUT_PIXELS (default 100_000_000 = 100MP) — sharp limitInputPixels
    */
   async processImageBuffer(
     inputBuffer: Buffer,
     { width, height, fit, quality, withoutEnlargement, format }: AssetQuery
   ): Promise<ProcessedImage> {
-    let image = sharp(inputBuffer);
+    const maxDimension = parseInt(env.get("ASSET_MAX_DIMENSION") || "5000");
+    const maxInputPixels = parseInt(env.get("ASSET_MAX_INPUT_PIXELS") || "100000000");
 
-    if (width || height) {
+    // Bound the decoder up front so a tiny "pixel bomb" can't exhaust memory.
+    let image = sharp(inputBuffer, { limitInputPixels: maxInputPixels });
+
+    // Clamp a requested dimension to [1, maxDimension]; undefined stays undefined.
+    const clampDim = (v: string | number | undefined): number | undefined => {
+      if (v === undefined || v === null || v === "") return undefined;
+      const n = parseInt(v.toString(), 10);
+      if (!Number.isFinite(n) || n <= 0) return undefined;
+      return Math.min(n, maxDimension);
+    };
+
+    const ALLOWED_FIT = new Set(["cover", "contain", "fill", "inside", "outside"]);
+    const requestedFit = typeof fit === "string" && ALLOWED_FIT.has(fit) ? fit : "cover";
+
+    const w = clampDim(width);
+    const h = clampDim(height);
+    if (w !== undefined || h !== undefined) {
       const resizeOptions: any = {
-        width: width ? parseInt(width.toString()) : undefined,
-        height: height ? parseInt(height.toString()) : undefined,
-        fit: fit || "cover",
+        width: w,
+        height: h,
+        fit: requestedFit,
         withoutEnlargement: withoutEnlargement === "true" || withoutEnlargement === true,
       };
       image = image.resize(resizeOptions);
     }
 
-    const outputQuality = quality ? parseInt(quality.toString()) : 80;
-    const outputFormat = (format as string) || "jpeg";
+    // Clamp quality to the valid 1–100 range.
+    const parsedQuality = quality ? parseInt(quality.toString(), 10) : 80;
+    const outputQuality = Number.isFinite(parsedQuality)
+      ? Math.min(100, Math.max(1, parsedQuality))
+      : 80;
+
+    // Validate format against the supported set; anything else falls back to jpeg.
+    const ALLOWED_FORMATS = new Set(["jpeg", "jpg", "png", "webp", "avif"]);
+    const requestedFormat = typeof format === "string" ? format.toLowerCase() : "";
+    const outputFormat = ALLOWED_FORMATS.has(requestedFormat) ? requestedFormat : "jpeg";
 
     if (outputFormat === "webp") {
       image = image.webp({ quality: outputQuality });

@@ -40,6 +40,9 @@
 | groupBy | string[] | Group by fields | `["status","category"]` |
 | paranoid | boolean | Include soft-deleted | false |
 | relConditions | object | Filter array relations | `{"comments":{"approved":true}}` |
+| count | boolean | Compute `totalCount` (omit for server default) | false |
+
+**Total count:** List responses include `totalCount` by default. Pass `count=false` to skip the COUNT query for faster reads — the response returns `"totalCount": null`. The deployment default is set by the `COUNT_BY_DEFAULT` env var (default `true`); a per-request `count` always overrides it. When `limit=-1` with no offset, `totalCount` is taken from the result length (no extra query).
 
 ---
 

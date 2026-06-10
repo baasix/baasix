@@ -87,9 +87,9 @@ const registerEndpoint = (app: Express) => {
         );
       }
 
-      const sanitized = settingsService.sanitizeSettings(updatedSettings);
-
-      res.json({ data: sanitized });
+      // This endpoint is adminOnly — return the full updated settings (admins
+      // manage all fields). The public GET endpoints below remain allow-listed.
+      res.json({ data: updatedSettings });
     } catch (error) {
       next(error);
     }

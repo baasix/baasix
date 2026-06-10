@@ -8,6 +8,11 @@ import {
   createAuthorizationURL,
   parseOAuth2Tokens,
 } from "../oauth2/utils.js";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+// Apple's JWKS endpoint — keys are fetched/cached/rotated automatically.
+const APPLE_JWKS = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+const APPLE_ISSUER = "https://appleid.apple.com";
 
 export interface AppleProfile {
   sub: string;
@@ -214,28 +219,17 @@ export function apple(options: AppleOptions): OAuthProvider<AppleProfile, AppleO
       };
     },
 
-    async verifyIdToken(token, _nonce) {
+    async verifyIdToken(token, nonce) {
+      // Verify the JWT SIGNATURE against Apple's JWKS, plus issuer/audience/expiry.
+      // The previous decode-only check would accept a forged token.
       try {
-        const parts = token.split(".");
-        if (parts.length !== 3) return false;
-        
-        const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-        
-        // Check expiration
-        if (payload.exp && payload.exp < Date.now() / 1000) {
+        const { payload } = await jwtVerify(token, APPLE_JWKS, {
+          issuer: APPLE_ISSUER,
+          audience: options.clientId,
+        });
+        if (nonce && payload.nonce !== nonce) {
           return false;
         }
-        
-        // Check issuer
-        if (payload.iss !== "https://appleid.apple.com") {
-          return false;
-        }
-        
-        // Check audience
-        if (payload.aud !== options.clientId) {
-          return false;
-        }
-        
         return true;
       } catch {
         return false;

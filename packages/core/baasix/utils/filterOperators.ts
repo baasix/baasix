@@ -153,35 +153,48 @@ function escapeSqlValue(value: any): string {
 }
 
 /**
+ * Validate that a value is a finite number and return it as a SQL-safe numeric
+ * literal. The JSONB numeric operators interpolate their operand via sql.raw, so a
+ * non-numeric value (e.g. the string "0 OR 1=1") would be a SQL-injection vector.
+ * Throws on anything that isn't a real number.
+ */
+function toSqlNumber(value: any): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error(`Expected a numeric value, got: ${JSON.stringify(value)}`);
+  }
+  return String(n);
+}
+
+/**
+ * Coerce a value to a SQL-safe boolean literal ('true'/'false'). Used for JSONB
+ * boolean operators that interpolate via sql.raw.
+ */
+function toSqlBoolean(value: any): string {
+  return value === true || value === 'true' || value === 1 ? 'true' : 'false';
+}
+
+/**
  * Convert a value to a raw SQL string literal for use in filter operations
  * Handles dates, strings, and numbers appropriately
  */
 function valueToRawSQL(value: any): string {
-  console.log(`[valueToRawSQL] Input value:`, value, `Type:`, typeof value);
   if (typeof value === 'string') {
     // Check if it's a date-like string (YYYY-MM-DD or ISO format)
     const datePattern = /^\d{4}-\d{2}-\d{2}/;
     if (datePattern.test(value)) {
       const dateObj = new Date(value);
       if (!isNaN(dateObj.getTime())) {
-        const result = `'${dateObj.toISOString()}'`;
-        console.log(`[valueToRawSQL] Date string converted:`, result);
-        return result;
+        return `'${dateObj.toISOString()}'`;
       }
     }
     // Regular string - escape and quote
-    const result = `'${value.replace(/'/g, "''")}'`;
-    console.log(`[valueToRawSQL] String escaped:`, result);
-    return result;
+    return `'${value.replace(/'/g, "''")}'`;
   } else if (value instanceof Date) {
-    const result = `'${value.toISOString()}'`;
-    console.log(`[valueToRawSQL] Date object converted:`, result);
-    return result;
+    return `'${value.toISOString()}'`;
   } else {
     // Numbers and other types - no quotes
-    const result = String(value);
-    console.log(`[valueToRawSQL] Number/other:`, result);
-    return result;
+    return String(value);
   }
 }
 
@@ -919,11 +932,11 @@ export function jsonbKeyEqualsOperator(ctx: OperatorContext, value: { key: strin
   }
   
   if (typeof value.value === 'number') {
-    return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric = ${value.value}`);
+    return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric = ${toSqlNumber(value.value)}`);
   }
   
   if (typeof value.value === 'boolean') {
-    return sql.raw(`(${fieldRef}->>'${escapedKey}')::boolean = ${value.value}`);
+    return sql.raw(`(${fieldRef}->>'${escapedKey}')::boolean = ${toSqlBoolean(value.value)}`);
   }
   
   const escapedValue = String(value.value).replace(/'/g, "''");
@@ -945,11 +958,11 @@ export function jsonbKeyNotEqualsOperator(ctx: OperatorContext, value: { key: st
   }
   
   if (typeof value.value === 'number') {
-    return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric != ${value.value} OR ${fieldRef}->>'${escapedKey}' IS NULL`);
+    return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric != ${toSqlNumber(value.value)} OR ${fieldRef}->>'${escapedKey}' IS NULL`);
   }
   
   if (typeof value.value === 'boolean') {
-    return sql.raw(`(${fieldRef}->>'${escapedKey}')::boolean != ${value.value} OR ${fieldRef}->>'${escapedKey}' IS NULL`);
+    return sql.raw(`(${fieldRef}->>'${escapedKey}')::boolean != ${toSqlBoolean(value.value)} OR ${fieldRef}->>'${escapedKey}' IS NULL`);
   }
   
   const escapedValue = String(value.value).replace(/'/g, "''");
@@ -965,7 +978,7 @@ export function jsonbKeyNotEqualsOperator(ctx: OperatorContext, value: { key: st
 export function jsonbKeyGtOperator(ctx: OperatorContext, value: { key: string; value: number }): SQL {
   const fieldRef = buildFieldRef(ctx.fieldName);
   const escapedKey = String(value.key).replace(/'/g, "''");
-  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric > ${value.value}`);
+  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric > ${toSqlNumber(value.value)}`);
 }
 
 /**
@@ -975,7 +988,7 @@ export function jsonbKeyGtOperator(ctx: OperatorContext, value: { key: string; v
 export function jsonbKeyGteOperator(ctx: OperatorContext, value: { key: string; value: number }): SQL {
   const fieldRef = buildFieldRef(ctx.fieldName);
   const escapedKey = String(value.key).replace(/'/g, "''");
-  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric >= ${value.value}`);
+  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric >= ${toSqlNumber(value.value)}`);
 }
 
 /**
@@ -985,7 +998,7 @@ export function jsonbKeyGteOperator(ctx: OperatorContext, value: { key: string; 
 export function jsonbKeyLtOperator(ctx: OperatorContext, value: { key: string; value: number }): SQL {
   const fieldRef = buildFieldRef(ctx.fieldName);
   const escapedKey = String(value.key).replace(/'/g, "''");
-  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric < ${value.value}`);
+  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric < ${toSqlNumber(value.value)}`);
 }
 
 /**
@@ -995,7 +1008,7 @@ export function jsonbKeyLtOperator(ctx: OperatorContext, value: { key: string; v
 export function jsonbKeyLteOperator(ctx: OperatorContext, value: { key: string; value: number }): SQL {
   const fieldRef = buildFieldRef(ctx.fieldName);
   const escapedKey = String(value.key).replace(/'/g, "''");
-  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric <= ${value.value}`);
+  return sql.raw(`(${fieldRef}->>'${escapedKey}')::numeric <= ${toSqlNumber(value.value)}`);
 }
 
 /**
@@ -1093,11 +1106,11 @@ export function jsonbArrayLengthOperator(ctx: OperatorContext, value: { path?: s
   
   if (value.path) {
     const escapedPath = String(value.path).replace(/'/g, "''");
-    return sql.raw(`jsonb_array_length(${fieldRef}->'${escapedPath}') ${sqlOp} ${value.value}`);
+    return sql.raw(`jsonb_array_length(${fieldRef}->'${escapedPath}') ${sqlOp} ${toSqlNumber(value.value)}`);
   }
   
   // If no path, assume the column itself is the array
-  return sql.raw(`jsonb_array_length(${fieldRef}) ${sqlOp} ${value.value}`);
+  return sql.raw(`jsonb_array_length(${fieldRef}) ${sqlOp} ${toSqlNumber(value.value)}`);
 }
 
 /**
@@ -1159,7 +1172,7 @@ export function jsonbDeepValueOperator(ctx: OperatorContext, value: { path: stri
   }
   
   if (typeof value.value === 'number' && !['like', 'ilike'].includes(op)) {
-    return sql.raw(`(${fieldRef} #>> '{${escapedPath}}')::numeric ${sqlOp} ${value.value}`);
+    return sql.raw(`(${fieldRef} #>> '{${escapedPath}}')::numeric ${sqlOp} ${toSqlNumber(value.value)}`);
   }
   
   const escapedValue = String(value.value).replace(/'/g, "''");

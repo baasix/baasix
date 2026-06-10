@@ -765,6 +765,11 @@ FILTER EXAMPLES:
                                     description:
                                         'Filter conditions for related records: {"reviews": {"approved": {"eq": true}}}',
                                 },
+                                count: {
+                                    type: "boolean",
+                                    description:
+                                        "Whether to compute the total record count. Pass false to skip the COUNT query for faster reads (response totalCount will be null). Omit to use the server default (COUNT_BY_DEFAULT).",
+                                },
                             },
                             required: ["collection"],
                         },
@@ -1267,26 +1272,45 @@ AVAILABLE VARIABLES:
 
 ACTIONS: create, read, update, delete
 
-FIELDS:
-- ["*"] for all fields
-- ["name", "price"] for specific fields
+FIELDS — which COLUMNS the role may access. IMPORTANT, this is the #1 mistake:
+- "*" means the collection's OWN/DIRECT columns ONLY. It does NOT include any
+  related/nested data. A relation that is not listed here is stripped from the
+  response entirely (even if relConditions targets it).
+- To allow a relation you must list it explicitly. Each "*" segment = ONE level;
+  add another ".*" to go one level deeper (there is NO "**" syntax):
+  - "author.*"   → author's direct fields (one level deep)
+  - "author.*.*" → author's fields + author's relations one level deeper
+  - "*.*"         → own columns + all first-level relations
+- ["*"]                       → own columns, NO relations
+- ["*", "author.*"]           → own columns + author's direct fields
+- ["*", "author.*.*"]         → own columns + author + author's nested relations
+- ["name", "price"]           → only these two own columns
 
-CONDITIONS (Row-level security):
-- Uses same filter operators as queries
-- {"published": {"eq": true}} - only published records
-- {"author_Id": {"eq": "$CURRENT_USER"}} - only own records
-- {"tenant_Id": {"eq": "$CURRENT_TENANT"}} - tenant isolation
+CONDITIONS vs RELCONDITIONS — these are DIFFERENT. Do not confuse them:
+- conditions = a ROW FILTER on THIS collection. Decides WHICH RECORDS of the
+  permissioned collection the role can see/act on. Merged into the main query's
+  WHERE clause. Keys are columns of THIS collection.
+    {"published": {"eq": true}}                  → only published records
+    {"author_Id": {"eq": "$CURRENT_USER"}}       → only the user's own records
+    {"tenant_Id": {"eq": "$CURRENT_TENANT"}}     → tenant isolation
+- relConditions = a filter on RELATED records returned alongside. Decides WHICH
+  RELATED ROWS appear inside array relations (HasMany / M2M). Keyed by RELATION
+  NAME, then the related collection's columns. Does NOT restrict the main records.
+  Only takes effect if that relation is also granted in FIELDS.
+    {"reviews": {"approved": {"eq": true}}}      → only approved reviews in response
+    {"orders": {"items": {"status": {"eq": "shipped"}}}}  → nested relation filter
 
-RELCONDITIONS (Filter related data):
-- {"reviews": {"approved": {"eq": true}}} - only approved reviews in response
+Rule of thumb: "which rows of THIS collection?" → conditions.
+               "which related rows inside the response?" → relConditions.
 
-EXAMPLE:
+EXAMPLE (read own published products, with only approved reviews, author name visible):
 {
   "role_Id": "uuid",
   "collection": "products",
   "action": "read",
-  "fields": ["*"],
-  "conditions": {"published": {"eq": true}}
+  "fields": ["*", "author.firstName", "reviews.*"],
+  "conditions": {"published": {"eq": true}, "author_Id": {"eq": "$CURRENT_USER"}},
+  "relConditions": {"reviews": {"approved": {"eq": true}}}
 }`,
                         inputSchema: {
                             type: "object",
@@ -1307,20 +1331,23 @@ EXAMPLE:
                                 fields: {
                                     type: "array",
                                     items: { type: "string" },
-                                    description: 'Allowed fields (["*"] for all)',
+                                    description:
+                                        'Allowed COLUMNS. "*" = own/direct columns ONLY (no relations). List relations explicitly: "author.*" (one level), "author.*.*" (one level deeper). Each "*" segment is one level — there is NO "**" syntax. A relation not listed here is omitted from the response.',
                                 },
                                 conditions: {
                                     type: "object",
-                                    description: "Row-level security conditions using filter operators",
+                                    description:
+                                        'ROW FILTER on THIS collection — which RECORDS the role can access. Keys are this collection\'s columns. E.g. {"author_Id": {"eq": "$CURRENT_USER"}}. NOT for filtering related data (use relConditions for that).',
                                 },
                                 defaultValues: {
                                     type: "object",
                                     description:
-                                        'Default values auto-set on creation (e.g., {"author_Id": "$CURRENT_USER"})',
+                                        'Default values auto-set on create/update (e.g., {"author_Id": "$CURRENT_USER"})',
                                 },
                                 relConditions: {
                                     type: "object",
-                                    description: "Filter conditions for related records in response",
+                                    description:
+                                        'Filter on RELATED records returned in array relations — which related ROWS appear in the response. Keyed by RELATION NAME. E.g. {"reviews": {"approved": {"eq": true}}}. Only applies to relations also granted in fields. Does NOT restrict the main records (use conditions for that).',
                                 },
                             },
                             required: ["role_Id", "collection", "action"],
@@ -1352,19 +1379,22 @@ EXAMPLE:
                                 fields: {
                                     type: "array",
                                     items: { type: "string" },
-                                    description: "Allowed fields",
+                                    description:
+                                        'Allowed COLUMNS. "*" = own/direct columns ONLY (no relations). List relations explicitly: "author.*" (one level), "author.*.*" (one level deeper). Each "*" segment is one level — there is NO "**" syntax. A relation not listed is omitted from the response.',
                                 },
                                 conditions: {
                                     type: "object",
-                                    description: "Permission conditions",
+                                    description:
+                                        'ROW FILTER on THIS collection — which RECORDS the role can access (keys are this collection\'s columns). NOT for filtering related data.',
                                 },
                                 defaultValues: {
                                     type: "object",
-                                    description: "Default values for creation",
+                                    description: "Default values auto-set on create/update",
                                 },
                                 relConditions: {
                                     type: "object",
-                                    description: "Relationship conditions",
+                                    description:
+                                        'Filter on RELATED records in array relations — which related ROWS appear in the response (keyed by RELATION NAME). Does NOT restrict the main records.',
                                 },
                             },
                             required: ["id"],
@@ -1405,7 +1435,8 @@ EXAMPLE:
                                 },
                                 permissions: {
                                     type: "object",
-                                    description: "Permissions object",
+                                    description:
+                                        'Permissions keyed by collection then action, e.g. {"products": {"read": {"fields": ["*"], "conditions": {...}, "relConditions": {...}}}}. Same field semantics as baasix_create_permission: fields "*" = own columns only (relations need "rel.*", "rel.*.*" for deeper — no "**" syntax); conditions = row filter on THIS collection; relConditions = filter on related rows keyed by relation name.',
                                 },
                             },
                             required: ["role", "permissions"],
@@ -2140,6 +2171,7 @@ The realtime config is stored in the schema definition and can include specific 
             aggregate,
             groupBy,
             relConditions,
+            count,
         } = args;
 
         const params = new URLSearchParams();
@@ -2153,6 +2185,7 @@ The realtime config is stored in the schema definition and can include specific 
         if (aggregate) params.append("aggregate", JSON.stringify(aggregate));
         if (groupBy) params.append("groupBy", JSON.stringify(groupBy));
         if (relConditions) params.append("relConditions", JSON.stringify(relConditions));
+        if (count !== undefined) params.append("count", count.toString());
 
         const items = await baasixRequest(`/items/${collection}?${params}`);
         return {

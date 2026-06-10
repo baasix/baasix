@@ -5,6 +5,15 @@
 
 import type { AuthAdapter, User, Account, AuthOptions } from "../types.js";
 
+/**
+ * A real argon2id hash (of a random throwaway value) used to equalize timing when
+ * an account doesn't exist — verifyPassword runs the full KDF against it so a
+ * "no such user" response takes the same time as a "wrong password" one. The
+ * password it encodes is irrelevant and never matches a real login.
+ */
+const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=65536,t=3,p=4$PObFC4GloMVb0wNoefG0kg$Wg9/cMLFttZHh4txCaa0QwiaCjZ1p2Ayf4SniY5/Ni0";
+
 export interface CredentialProviderOptions {
   /**
    * Password hashing function
@@ -157,6 +166,10 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
       // Find user
       const user = await adapter.findUserByEmail(email.toLowerCase());
       if (!user) {
+        // Anti-enumeration: run a dummy password verification so the response time
+        // for a non-existent account matches that of a wrong-password attempt
+        // (otherwise the missing argon2 call is a timing oracle for valid emails).
+        await this.verifyPassword(password, DUMMY_PASSWORD_HASH).catch(() => false);
         return null;
       }
 

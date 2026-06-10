@@ -7,6 +7,32 @@ import { existsSync, mkdirSync } from "fs";
 import type { StorageProvider } from '../types/index.js';
 import { getProjectPath } from "../utils/dirname.js";
 
+/**
+ * Resolve a storage key/filename to an absolute path confined within `basePath`.
+ * Defense-in-depth against path traversal: rejects null bytes and any key that
+ * resolves outside the storage root (e.g. "../../etc/passwd"). Use this for EVERY
+ * local-disk operation that joins a (potentially client-influenced) filename.
+ * @throws Error if the key is invalid or escapes basePath.
+ */
+export function resolveStorageKey(basePath: string, key: string): string {
+  if (typeof key !== "string" || key.length === 0) {
+    throw new Error("Invalid storage path");
+  }
+  // Null bytes are always rejected — never a valid filename, no reason to allow.
+  if (key.includes("\0")) {
+    throw new Error("Invalid storage path: null byte");
+  }
+  const resolvedBase = path.resolve(basePath);
+  const fullPath = path.resolve(resolvedBase, key);
+  // Path-traversal confinement. Configurable: STORAGE_PATH_CONFINEMENT=false
+  // relaxes the "must stay within storage root" check (NOT recommended).
+  const confine = env.get("STORAGE_PATH_CONFINEMENT") !== "false";
+  if (confine && fullPath !== resolvedBase && !fullPath.startsWith(resolvedBase + path.sep)) {
+    throw new Error("Invalid storage path: escapes storage root");
+  }
+  return fullPath;
+}
+
 class StorageService {
   private providers: Record<string, StorageProvider> = {};
 
@@ -64,17 +90,17 @@ class StorageService {
       driver: "LOCAL",
       basePath,
       async saveFile(filePath: string, fileContent: Buffer | Uint8Array) {
-        const fullPath = path.join(basePath, filePath);
+        const fullPath = resolveStorageKey(basePath, filePath);
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
         await fs.writeFile(fullPath, fileContent);
         return filePath;
       },
       async getFile(filePath: string) {
-        const fullPath = path.join(basePath, filePath);
+        const fullPath = resolveStorageKey(basePath, filePath);
         return fs.readFile(fullPath);
       },
       async deleteFile(filePath: string) {
-        const fullPath = path.join(basePath, filePath);
+        const fullPath = resolveStorageKey(basePath, filePath);
         await fs.unlink(fullPath);
       },
       async listFiles(prefix: string) {

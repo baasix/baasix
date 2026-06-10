@@ -452,18 +452,10 @@ const fieldUtils = {
    * @returns Array of hidden field names
    */
   getHiddenFields(collectionName: string): string[] {
-    const schema = schemaManager.getSchema(collectionName);
-    if (!schema || !schema.columns) {
-      return [];
-    }
-
-    const hiddenFields: string[] = [];
-    for (const [fieldName, fieldDef] of Object.entries(schema.columns)) {
-      if ((fieldDef as any).hidden === true) {
-        hiddenFields.push(fieldName);
-      }
-    }
-    return hiddenFields;
+    // The `hidden` flag lives on the JSON schema DEFINITION, not the runtime
+    // Drizzle table — so delegate to schemaManager, which reads the definition.
+    // (Reading schema.columns here previously returned [] and leaked hidden fields.)
+    return schemaManager.getHiddenFieldNames(collectionName);
   },
 
   /**

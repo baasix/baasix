@@ -317,6 +317,9 @@ POST /items/products/bulk
 | groupBy | string[] | Group by fields | `["status","category"]` |
 | paranoid | boolean | Include soft-deleted | false |
 | relConditions | object | Filter array relations | `{"comments":{"approved":true}}` |
+| count | boolean | Compute `totalCount` (omit for server default) | false |
+
+**Total count:** List responses include `totalCount` by default. Pass `count=false` to skip the COUNT query for faster reads — the response returns `"totalCount": null`. The deployment default is controlled by the `COUNT_BY_DEFAULT` env var (default `true`); a per-request `count` always overrides it. When `limit=-1` with no offset, `totalCount` is taken from the result length (no extra query).
 
 ### Field Selection Patterns
 
@@ -336,13 +339,15 @@ fields: ["*", "author.firstName", "author.email"]
 // Deep nesting
 fields: ["*", "posts.*", "posts.comments.*"]
 
-// Recursive expansion
-fields: ["*.*"]      // All direct + first level relations
-fields: ["*.*.*"]    // Full tree expansion
+// Depth via repeated wildcards (each "*" segment = one level; no "**" syntax)
+fields: ["*.*"]      // direct columns + first-level relations
+fields: ["*.*.*"]    // + second-level (relations of relations)
 
 // Exclude fields
 fields: ["*", "-password", "-secretKey"]
 ```
+
+> The same wildcard rule applies to permission `fields`: `"*"` = own columns only, `"rel.*"` = that relation one level deep, `"rel.*.*"` = one level deeper. See [Permissions](#permissions).
 
 ### Query with Filters
 
@@ -2076,12 +2081,38 @@ export default (hooksService, context) => {
   "role_Id": "user-role-uuid",
   "collection": "products",
   "action": "read",              // read, create, update, delete
-  "fields": ["*"],               // or ["name", "price", "description"]
-  "conditions": {                // Row-level filtering
+  "fields": ["*", "reviews.*"],  // see "fields" rules below
+  "conditions": {                // ROW filter on THIS collection (which records)
     "published": {"eq": true}
+  },
+  "relConditions": {             // filter on RELATED rows in the response
+    "reviews": {"approved": {"eq": true}}
   }
 }
 ```
+
+#### `fields` — which COLUMNS the role may access
+
+> **Critical:** `"*"` grants only the collection's OWN/DIRECT columns. It does **not** include any related/nested data. A relation that is not named in `fields` is stripped from the response entirely (even if `relConditions` targets it).
+
+Each `*` segment is **one level** deep — add another `.*` to go one level deeper. There is **no** `**` syntax.
+
+| Pattern | Grants |
+|---------|--------|
+| `["*"]` | Own/direct columns only — **no relations** |
+| `["name", "price"]` | Only those two own columns |
+| `["*", "author.*"]` | Own columns + author's direct fields (one level) |
+| `["*", "author.*.*"]` | Own columns + author + author's relations one level deeper |
+| `["*.*"]` | Own columns + all first-level relations |
+
+#### `conditions` vs `relConditions` — they are different
+
+- **`conditions`** = a **row filter on THIS collection**. Decides **which records** of the permissioned collection the role can see/act on (merged into the main query's WHERE). Keys are this collection's columns.
+  - `{"author_Id": {"eq": "$CURRENT_USER"}}` → only the user's own records
+- **`relConditions`** = a filter on **related rows returned alongside** (HasMany / M2M arrays). Decides **which related rows** appear in the response. Keyed by **relation name**. Does **not** restrict the main records, and only takes effect if that relation is also granted in `fields`.
+  - `{"reviews": {"approved": {"eq": true}}}` → only approved reviews in each product's `reviews` array
+
+> Rule of thumb: *"which rows of THIS collection?"* → `conditions`. *"which related rows inside the response?"* → `relConditions`.
 
 ### Built-in Roles
 
@@ -2109,15 +2140,26 @@ export default (hooksService, context) => {
   "collection": "posts",
   "action": "update",
   "fields": ["title", "content"],
-  "conditions": {"author_Id": {"eq": "$CURRENT_USER"}}
+  "conditions": {"author_Id": {"eq": "$CURRENT_USER"}}  // which posts (row filter)
+}
+
+// Read products with their author + only approved reviews
+{
+  "role_Id": "user-role-uuid",
+  "collection": "products",
+  "action": "read",
+  // "*" alone would EXCLUDE author/reviews — name them explicitly:
+  "fields": ["*", "author.firstName", "reviews.*"],
+  "conditions": {"published": {"eq": true}},            // which products (row filter)
+  "relConditions": {"reviews": {"approved": {"eq": true}}}  // which reviews appear
 }
 
 // Admin full access (no conditions)
 {
   "role_Id": "admin-role-uuid",
-  "collection": "*",  // All collections
+  "collection": "*",     // All collections
   "action": "read",
-  "fields": ["*"]
+  "fields": ["*"]        // "*" = own columns only; add "rel.*" per relation as needed
 }
 ```
 
@@ -2498,9 +2540,13 @@ export async function down(baasix) {
 | LOG_LEVEL | No | info | Log level (fatal/error/warn/info/debug/trace) |
 | MULTI_TENANT | No | false | Enable multi-tenancy |
 | SOCKET_ENABLED | No | false | Enable Socket.IO |
+| REALTIME_ROW_LEVEL_SCOPING | No | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
 | PUBLIC_REGISTRATION | No | true | Allow public registration |
 | RATE_LIMIT | No | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | No | 5000 | Rate limit interval (ms) |
+| AUTH_RATE_LIMIT | No | 10 | Brute-force limit for login/magic-link/password-reset, per (IP+email) pair (each account has its own budget per IP; does not cap total attempts across accounts) |
+| AUTH_RATE_LIMIT_INTERVAL | No | 900000 | Window (ms) for the auth limiter (15 min) |
+| AUTH_RATE_LIMIT_DISABLED | No | (off) | Disable the auth limiter (auto-disabled in TEST_MODE) |
 | SYSTEM_CACHE_ADAPTER | No | memory | System cache adapter (memory/redis/upstash) |
 | SYSTEM_CACHE_REDIS_URL | No | - | Redis URL for system cache |
 | SYSTEM_CACHE_SYNC_INTERVAL | No | 5 | L1↔L2 sync interval in seconds |
@@ -2531,6 +2577,23 @@ export async function down(baasix) {
 | AUDIT_LOG_RETENTION_DAYS | No | 90 | Audit log retention in days |
 | EMAIL_LOG_CLEANUP_ENABLED | No | false | Enable automatic email log cleanup |
 | EMAIL_LOG_RETENTION_DAYS | No | 30 | Email log retention in days |
+| COUNT_BY_DEFAULT | No | true | Compute `totalCount` on list reads (per-request `?count=` overrides) |
+| PROTECT_PRIVILEGE_FIELDS | No | true | Privilege fields (role_Id, tenant_Id, emailVerified, hidden fields) excluded from `fields:["*"]` — must be named explicitly (admins exempt). Tri-state: `true` (password denied to non-admins even if explicitly granted), `allow-password` (non-admin may set password when explicitly granted — delegated reset; still hashed), `false` (off) |
+| PROTECT_IS_PUBLIC_FIELD | No | false | Make baasix_File isPublic opt-in (not settable via broad `*` grant); default off = backward compatible |
+| EXPOSE_ERROR_DETAILS | No | (prod: false) | Include raw DB error text in responses; off in production (leaks schema / injection oracle) |
+| STORAGE_PATH_CONFINEMENT | No | true | Confine local-disk file ops within storage root (blocks path traversal) |
+| ASSET_XSS_PROTECTION | No | true | Force executable upload types (html/svg/js/xml) to download, not render inline |
+| ASSET_NOSNIFF | No | true | Send `X-Content-Type-Options: nosniff` on asset responses |
+| STRICT_TENANT_ISOLATION | No | true | (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped |
+| OAUTH_ALLOW_UNVERIFIED_LINK | No | false | Auto-link OAuth to existing account on UNVERIFIED email (default off = secure; only link verified) |
+| OAUTH_ALLOW_DIRECT_IDTOKEN | No | false | Enable client-supplied direct idToken sign-in (default off; requires JWKS verification) |
+| OAUTH_STATE_COOKIE_BINDING | No | false | Bind OAuth state to browser via httpOnly cookie (CSRF; default off — may break cross-site callbacks) |
+| SSRF_ALLOW_PRIVATE_URL_FETCH | No | false | Allow server-side URL fetches to private/loopback/metadata addresses (default off = blocked) |
+| URL_FETCH_TIMEOUT_MS | No | 15000 | Response timeout per hop for upload-from-URL (time-to-first-response, not total download; size capped by MAX_UPLOAD_FILE_SIZE) |
+| ASSET_MAX_DIMENSION | No | 5000 | Max output width/height (px) for image transforms; larger requests clamped (DoS guard) |
+| ASSET_MAX_INPUT_PIXELS | No | 100000000 | Max input pixels the decoder accepts (sharp limitInputPixels; decompression-bomb defense) |
+
+> Security note: identifier allowlisting on filter/sort/aggregate fields and JSONB numeric-operand validation (SQL-injection protection) is always on and not configurable.
 
 ---
 

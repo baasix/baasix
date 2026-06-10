@@ -15,6 +15,14 @@
 
 import { SQL, sql, count } from 'drizzle-orm';
 import { PgColumn } from 'drizzle-orm/pg-core';
+import { isSafeFieldPath } from './relationPathResolver.js';
+
+/** Valid PostgreSQL date/time parts for EXTRACT — allowlist to block injection. */
+const VALID_DATE_PARTS = new Set([
+  'CENTURY', 'DAY', 'DECADE', 'DOW', 'DOY', 'EPOCH', 'HOUR', 'ISODOW', 'ISOYEAR',
+  'MICROSECONDS', 'MILLENNIUM', 'MILLISECONDS', 'MINUTE', 'MONTH', 'QUARTER',
+  'SECOND', 'TIMEZONE', 'TIMEZONE_HOUR', 'TIMEZONE_MINUTE', 'WEEK', 'YEAR',
+]);
 import type {
   AggregateFunction,
   AggregateConfig,
@@ -105,13 +113,21 @@ export function processDateExtraction(
     const dateFunction = parts[1];
     const datePart = dateFunction.toUpperCase();
 
-    // If column is provided, use it directly 
+    // Allowlist the EXTRACT part — it is interpolated via sql.raw.
+    if (!VALID_DATE_PARTS.has(datePart)) {
+      throw new Error(`Invalid date part: ${dateFunction}`);
+    }
+
+    // If column is provided, use it directly
     let extractExpression: SQL<number>;
     if (column) {
       extractExpression = sql<number>`extract(${sql.raw(datePart)} from ${column})`.mapWith(Number);
     } else {
-      // Quote the column name to preserve case sensitivity
+      // Quote the column name to preserve case sensitivity — validate it first.
       const columnName = parts[2];
+      if (!isSafeFieldPath(columnName || '')) {
+        throw new Error(`Invalid date extraction column: ${columnName}`);
+      }
       const quotedColumn = sql.raw(`"${columnName}"`);
       extractExpression = sql<number>`extract(${sql.raw(datePart)} from ${quotedColumn})`.mapWith(Number);
     }
@@ -165,6 +181,12 @@ export function buildAggregateAttributes(
   // Add aggregate functions
   for (const [alias, aggregateInfo] of Object.entries(aggregate)) {
     const { function: func, field } = aggregateInfo;
+
+    // Reject any aggregate field whose identifier(s) aren't safe before it can be
+    // interpolated into raw SQL. "*" (COUNT(*)) is the only allowed non-identifier.
+    if (field !== '*' && !isSafeFieldPath(field)) {
+      throw new Error(`Invalid aggregate field: ${field}`);
+    }
 
     // Convert field string to SQL reference
     let fieldRef: SQL;
@@ -276,11 +298,16 @@ export function buildGroupByExpressions(
   tableName?: string
 ): SQL[] {
   return groupBy.map(field => {
-    // Check for date extractions
+    // Check for date extractions (validates its own date:part:column syntax)
     const dateExtraction = processDateExtraction(field, columns?.[field]);
 
     if (dateExtraction) {
       return dateExtraction.expression;
+    }
+
+    // Reject any group-by field whose identifier(s) aren't safe before raw interpolation.
+    if (!isSafeFieldPath(field)) {
+      throw new Error(`Invalid groupBy field: ${field}`);
     }
 
     // If we have a column object, use it directly 

@@ -1951,6 +1951,28 @@ export class SchemaManager {
   }
 
   /**
+   * Get the names of fields marked `hidden` in the JSON schema definition.
+   *
+   * IMPORTANT: the `hidden` flag lives on the schema DEFINITION (schemaDefinitions
+   * map), NOT on the runtime Drizzle table (`getSchema().columns`). Reading it from
+   * the Drizzle table returns nothing, which previously let hidden fields like
+   * `password` leak into API responses. Always source hidden fields from here.
+   */
+  getHiddenFieldNames(collectionName: string): string[] {
+    const schemaDef = this.schemaDefinitions.get(collectionName);
+    const fields = schemaDef?.schema?.fields;
+    if (!fields) return [];
+
+    const hidden: string[] = [];
+    for (const [fieldName, fieldSchema] of Object.entries(fields)) {
+      if ((fieldSchema as any)?.hidden === true) {
+        hidden.push(fieldName);
+      }
+    }
+    return hidden;
+  }
+
+  /**
    * Check if a collection has paranoid mode enabled (soft delete)
    */
   isParanoid(collectionName: string): boolean {

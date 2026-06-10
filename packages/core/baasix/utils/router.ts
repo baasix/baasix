@@ -80,7 +80,7 @@ export const loadSystemRoutes = async (app: Express, context: RouteContext): Pro
 
 // Helper function to parse query parameters
 export const parseQueryParams = (query: Record<string, any>): Record<string, any> => {
-  const { fields, sort, filter, limit, page, search, sortByRelevance, searchFields, aggregate, groupBy, relConditions } =
+  const { fields, sort, filter, limit, page, search, sortByRelevance, searchFields, aggregate, groupBy, relConditions, count } =
     query;
 
   return {
@@ -105,5 +105,8 @@ export const parseQueryParams = (query: Record<string, any>): Record<string, any
       : undefined,
     aggregate: aggregate ? JSON.parse(aggregate) : undefined,
     groupBy: groupBy ? (Array.isArray(groupBy) ? groupBy : groupBy.split(",")) : undefined,
+    // Tri-state: undefined → fall back to env default; "false"/false → skip count; "true"/true → force count.
+    // Query-string values arrive as strings, so compare against the literal strings.
+    count: count === undefined ? undefined : (count === "false" || count === false ? false : true),
   };
 };

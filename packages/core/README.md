@@ -324,6 +324,7 @@ SECRET_KEY=your-secret-key-min-32-chars
 
 # Real-time (optional)
 # SOCKET_ENABLED=true
+# REALTIME_ROW_LEVEL_SCOPING=false  # per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast
 # SOCKET_REDIS_ENABLED=true        # For multi-instance
 # SOCKET_REDIS_URL=redis://localhost:6379
 
@@ -345,6 +346,33 @@ SECRET_KEY=your-secret-key-min-32-chars
 # AUDIT_LOG_RETENTION_DAYS=90      # Retention period in days
 # EMAIL_LOG_CLEANUP_ENABLED=true   # Enable automatic email log cleanup
 # EMAIL_LOG_RETENTION_DAYS=30      # Retention period in days
+
+# Query behavior (optional)
+# COUNT_BY_DEFAULT=true            # Compute totalCount on list reads (per-request ?count= overrides)
+
+# Security hardening (optional - all default to true/secure; set false to relax)
+# PROTECT_PRIVILEGE_FIELDS=true    # role_Id/tenant_Id/emailVerified/hidden fields excluded from fields:["*"] (admins exempt). Tri-state: true | allow-password (non-admin may set password when explicitly granted; still hashed) | false
+# PROTECT_IS_PUBLIC_FIELD=false    # make baasix_File isPublic opt-in (not settable via broad "*" grant); default off = backward compatible
+# EXPOSE_ERROR_DETAILS=false       # include raw DB error text in responses; off in production (leaks schema / SQLi oracle)
+# STORAGE_PATH_CONFINEMENT=true    # Confine local-disk file ops within storage root (blocks path traversal)
+# ASSET_XSS_PROTECTION=true        # Force executable upload types (html/svg/js/xml) to download, not render inline
+# ASSET_NOSNIFF=true               # Send X-Content-Type-Options: nosniff on asset responses
+# STRICT_TENANT_ISOLATION=true     # (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped
+# OAuth hardening (default off = secure restriction):
+# OAUTH_ALLOW_UNVERIFIED_LINK=false # auto-link OAuth to existing account on unverified email (off = only verified; prevents takeover)
+# OAUTH_ALLOW_DIRECT_IDTOKEN=false  # enable client-supplied direct idToken sign-in (off; requires JWKS verification)
+# OAUTH_STATE_COOKIE_BINDING=false  # bind OAuth state to browser cookie for CSRF (off; may break cross-site callbacks)
+# SSRF hardening:
+# SSRF_ALLOW_PRIVATE_URL_FETCH=false # allow upload-from-URL/workflow HTTP to reach private/loopback/metadata IPs (off = blocked)
+# URL_FETCH_TIMEOUT_MS=15000        # response timeout per hop for upload-from-URL (time-to-first-response, not total download; size capped by MAX_UPLOAD_FILE_SIZE)
+# Image transform DoS limits:
+# ASSET_MAX_DIMENSION=5000          # max output width/height (px) for image transforms; larger clamped
+# ASSET_MAX_INPUT_PIXELS=100000000  # max input pixels the decoder accepts (decompression-bomb defense)
+# Auth brute-force limiter (login/magic-link/password-reset; stricter than global RATE_LIMIT):
+# AUTH_RATE_LIMIT=10                # max attempts per window, per (IP+email) pair (per-account budget per IP; does not cap total across accounts)
+# AUTH_RATE_LIMIT_INTERVAL=900000   # window in ms (15 min)
+# AUTH_RATE_LIMIT_DISABLED=false    # disable the auth limiter (auto-disabled in TEST_MODE)
+# Note: SQL-injection protection (identifier allowlisting + JSONB numeric validation) is always on.
 ```
 
 > **Multi-Instance Deployments:** When running multiple instances (PM2 cluster, Kubernetes, etc.), enable Redis for Socket.IO and Tasks to ensure proper coordination. See the [Deployment Guide](https://baasix.com/docs/deploy#multi-instance-deployment-scaling) for details.

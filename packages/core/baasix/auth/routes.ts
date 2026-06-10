@@ -9,6 +9,25 @@ import type { AuthOptions } from "./types.js";
 import { createAuth } from "./core.js";
 import { getCache } from "../utils/cache.js";
 import { isAdmin, getPublicRole } from "../utils/auth.js";
+import { rateLimit } from "express-rate-limit";
+import crypto from "crypto";
+
+/**
+ * Generate a human-typeable one-time code from a CSPRNG. Uses an unambiguous
+ * alphabet (no 0/O/1/I/L). 8 chars over a 30-symbol alphabet ≈ 39 bits of entropy
+ * — strong enough to resist guessing under the auth rate limiter, while remaining
+ * short enough to type. Independent of the link token (the previous code was the
+ * token's first 12 hex chars, which leaked token material).
+ */
+function generateOtpCode(length = 8): string {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // 30 symbols, no 0/O/1/I/L
+  const bytes = crypto.randomBytes(length);
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += alphabet[bytes[i] % alphabet.length];
+  }
+  return code;
+}
 
 // Store OAuth state in cache for validation
 const OAUTH_STATE_PREFIX = "oauth_state:";
@@ -90,7 +109,34 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   const basePath = options.basePath || "/auth";
   const auth = createAuth(options);
   const cache = getCache();
-  
+
+  // Dedicated brute-force limiter for credential/secret-sensitive auth endpoints
+  // (login, magic-link, password reset). Much stricter than the global API limiter.
+  // Keyed by IP + the target email (when present) so one IP can't grind many
+  // accounts, and one account can't be ground from many requests behind a single IP.
+  // Configurable: AUTH_RATE_LIMIT (default 10), AUTH_RATE_LIMIT_INTERVAL ms
+  // (default 900000 = 15 min). Disabled when AUTH_RATE_LIMIT_DISABLED=true; also
+  // auto-disabled under TEST_MODE so the test suite (many logins) isn't throttled
+  // — unless a test explicitly opts in with AUTH_RATE_LIMIT_DISABLED=false.
+  const explicitDisable = options.env?.get("AUTH_RATE_LIMIT_DISABLED");
+  const authRateLimiterDisabled =
+    explicitDisable === "true" ||
+    (explicitDisable !== "false" && options.env?.get("TEST_MODE") === "true");
+  const authLimiter = authRateLimiterDisabled
+    ? (_req: Request, _res: Response, next: NextFunction) => next()
+    : rateLimit({
+        windowMs: parseInt(options.env?.get("AUTH_RATE_LIMIT_INTERVAL") || "900000"),
+        max: parseInt(options.env?.get("AUTH_RATE_LIMIT") || "10"),
+        standardHeaders: true,
+        legacyHeaders: false,
+        keyGenerator: (req: Request) => {
+          const email = (req.body?.email || "").toString().toLowerCase().trim();
+          const ip = req.ip || "unknown";
+          return email ? `auth:${ip}:${email}` : `auth:${ip}`;
+        },
+        message: { message: "Too many attempts. Please try again later." },
+      });
+
   // Helper to get allowed app URLs
   async function getAllowedAppUrls(): Promise<string[]> {
     try {
@@ -124,6 +170,32 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       await cache.delete(`${OAUTH_STATE_PREFIX}${state}`);
     }
     return data;
+  }
+
+  // OAuth CSRF: bind the `state` to the initiating browser via an httpOnly cookie.
+  // OFF by default (OAUTH_STATE_COOKIE_BINDING=true to enable) because it can break
+  // flows where the provider callback lands cross-site (some SPA / mobile-webview
+  // setups), where the cookie may not accompany the callback request.
+  const STATE_COOKIE = "oauth_state";
+  function stateCookieBindingEnabled(): boolean {
+    return options.env?.get("OAUTH_STATE_COOKIE_BINDING") === "true";
+  }
+  function setStateCookie(res: Response, state: string): void {
+    if (!stateCookieBindingEnabled()) return;
+    res.cookie(STATE_COOKIE, state, {
+      httpOnly: true,
+      secure: options.env?.get("NODE_ENV") === "production",
+      sameSite: (options.env?.get("AUTH_COOKIE_SAME_SITE") as any) || "lax",
+      maxAge: OAUTH_STATE_TTL * 1000,
+      path: "/",
+    });
+  }
+  /** Returns true if the callback's state matches the cookie (or binding is off). */
+  function verifyStateCookie(req: Request, res: Response, state: string): boolean {
+    if (!stateCookieBindingEnabled()) return true;
+    const cookieState = req.cookies?.[STATE_COOKIE];
+    res.clearCookie(STATE_COOKIE, { path: "/" });
+    return typeof cookieState === "string" && cookieState.length > 0 && cookieState === state;
   }
   
   // ==================== Registration ====================
@@ -209,7 +281,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   // ==================== Login ====================
   
-  app.post(`${basePath}/login`, async (req: Request, res: Response, next: NextFunction) => {
+  app.post(`${basePath}/login`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, password, tenant_Id, authType, authMode = "jwt" } = req.body;
 
@@ -383,19 +455,29 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         return res.status(400).json({ message: "Provider is required" });
       }
       
-      // If ID token is provided, handle direct sign-in
+      // If ID token is provided, handle direct sign-in.
+      // This client-supplied-idToken path is OFF by default: it requires real
+      // signature verification, and only providers with a verifyIdToken
+      // implementation (Google, Apple) can use it. Enable with
+      // OAUTH_ALLOW_DIRECT_IDTOKEN=true once you've confirmed your provider verifies
+      // signatures. (The standard code-exchange callback flow is unaffected.)
       if (idToken?.token) {
+        if (options.env?.get("OAUTH_ALLOW_DIRECT_IDTOKEN") !== "true") {
+          return res.status(400).json({ message: "Direct ID-token sign-in is disabled. Use the OAuth redirect flow." });
+        }
+
         const providerInstance = auth.providers.get(provider);
         if (!providerInstance) {
           return res.status(400).json({ message: `Provider '${provider}' not found` });
         }
-        
-        // Verify ID token if provider supports it
-        if (providerInstance.verifyIdToken) {
-          const isValid = await providerInstance.verifyIdToken(idToken.token, idToken.nonce);
-          if (!isValid) {
-            return res.status(400).json({ message: "Invalid ID token" });
-          }
+
+        // Require signature verification — never accept an unverifiable idToken.
+        if (!providerInstance.verifyIdToken) {
+          return res.status(400).json({ message: `Provider '${provider}' does not support verified ID-token sign-in` });
+        }
+        const isValid = await providerInstance.verifyIdToken(idToken.token, idToken.nonce);
+        if (!isValid) {
+          return res.status(400).json({ message: "Invalid ID token" });
         }
         
         // Get user info from ID token
@@ -434,10 +516,12 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       const redirectURI = callbackURL || `${options.baseURL || ""}${basePath}/callback/${provider}`;
       
       const { url, state, codeVerifier } = await auth.getOAuthUrl(provider, redirectURI, scopes);
-      
+
       // Store state for verification (including authMode for callback)
       await storeOAuthState(state, { codeVerifier, redirectURI, authMode });
-      
+      // Bind the state to this browser (no-op unless OAUTH_STATE_COOKIE_BINDING=true).
+      setStateCookie(res, state);
+
       res.json({
         redirect: true,
         url,
@@ -473,9 +557,14 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (!stateData) {
         return res.status(400).json({ message: "Invalid or expired state" });
       }
-      
+
+      // CSRF: the returned state must match the browser-bound cookie (when enabled).
+      if (!verifyStateCookie(req, res, state as string)) {
+        return res.status(400).json({ message: "State does not match the initiating session" });
+      }
+
       const { codeVerifier, redirectURI, authMode = "jwt" } = stateData;
-      
+
       const result = await auth.handleOAuthCallback(
         provider,
         code as string,
@@ -523,9 +612,15 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (!stateData) {
         return res.status(400).json({ message: "Invalid or expired state" });
       }
-      
+
+      // CSRF: state must match the browser-bound cookie (when enabled). Note: Apple
+      // POSTs cross-site, so enabling cookie binding requires AUTH_COOKIE_SAME_SITE=none.
+      if (!verifyStateCookie(req, res, state)) {
+        return res.status(400).json({ message: "State does not match the initiating session" });
+      }
+
       const { codeVerifier, redirectURI, authMode = "jwt" } = stateData;
-      
+
       const result = await auth.handleOAuthCallback(
         "apple",
         code,
@@ -556,7 +651,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   // ==================== Magic Link ====================
   
-  app.post(`${basePath}/magiclink`, async (req: Request, res: Response, next: NextFunction) => {
+  app.post(`${basePath}/magiclink`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, link, mode = "link" } = req.body;
       
@@ -568,20 +663,15 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         return res.status(400).json({ message: "Invalid link" });
       }
       
-      // Check if user exists
+      // Anti-enumeration: do NOT reveal whether the email maps to an account.
+      // If the user exists, create + send the magic link; if not, do nothing. Either
+      // way return the SAME generic response so an attacker can't enumerate accounts.
       const user = await auth.getUserByEmail(email);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      
-      // Create magic link token
-      const { token, expiresAt } = await auth.createMagicLink(email);
-      
-      // Send email
-      if (options.mailService) {
+      if (user && options.mailService) {
+        const { token } = await auth.createMagicLink(email);
+
         if (mode === "link") {
           const magicLinkUrl = `${link}/auth/magiclink/${token}`;
-          
           await options.mailService.sendMail({
             to: email,
             subject: "Sign in to Your App",
@@ -592,11 +682,12 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
             },
           });
         } else if (mode === "code") {
-          // For code mode, generate a short code and store it separately
-          const code = token.substring(0, 12).toUpperCase();
-          // Update the verification to store the code as the value
+          // Generate a fresh CSPRNG one-time code, independent of the link token
+          // (the old code = token.substring(0,12) leaked token material and was
+          // brute-forceable). Stored as the verification value; rate-limited above.
+          const code = generateOtpCode();
           await auth.updateMagicLinkToken(email, code);
-          
+
           await options.mailService.sendMail({
             to: email,
             subject: "Sign in to Your App",
@@ -608,8 +699,8 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
           });
         }
       }
-      
-      res.json({ message: "Instruction sent to your email" });
+
+      res.json({ message: "If an account exists for this email, a sign-in link has been sent." });
     } catch (error) {
       next(error);
     }
@@ -644,7 +735,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   // ==================== Password Reset ====================
   
-  app.post(`${basePath}/password/reset`, async (req: Request, res: Response, next: NextFunction) => {
+  app.post(`${basePath}/password/reset`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, link } = req.body;
       
@@ -688,7 +779,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     }
   });
   
-  app.post(`${basePath}/password/reset/:token`, async (req: Request, res: Response, next: NextFunction) => {
+  app.post(`${basePath}/password/reset/:token`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { token } = req.params;
       const { password } = req.body;

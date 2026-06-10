@@ -509,6 +509,14 @@ class WorkflowService {
         const processedHeaders = this.replaceTemplateVariables(headers, context);
         const processedBody = body ? this.replaceTemplateVariables(body, context) : undefined;
 
+        // SSRF defense-in-depth: validate the target before fetching. Workflows are
+        // admin-authored, but this still blocks an HTTP node from reaching internal/
+        // metadata addresses. (Redirects are not re-validated here; native fetch
+        // follows them — acceptable given the admin-only authoring gate. Set
+        // SSRF_ALLOW_PRIVATE_URL_FETCH=true to allow internal targets.)
+        const { assertSafeFetchUrl } = await import("../utils/ssrfGuard.js");
+        await assertSafeFetchUrl(processedUrl);
+
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeout);

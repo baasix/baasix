@@ -479,6 +479,12 @@ export class PermissionService {
     canAccess: boolean;
     filter: PermissionFilter;
     allowedFields: string[] | null;
+    /**
+     * The raw, UNEXPANDED permission fields (e.g. ["*", "role_Id"]). Used to
+     * distinguish a field granted explicitly by name from one merely swept in by
+     * a "*" wildcard — privilege fields are writable only when explicitly named.
+     */
+    rawFields: string[] | null;
   }> {
     const permissions = await this.getPermissions(role_Id);
     const collectionPermissions = permissions[collection];
@@ -488,6 +494,7 @@ export class PermissionService {
         canAccess: false,
         filter: { conditions: {}, relConditions: {} },
         allowedFields: null,
+        rawFields: null,
       };
     }
 
@@ -506,13 +513,14 @@ export class PermissionService {
       relConditions: resolvedRelConditions,
     };
 
-    // allowedFields
+    // allowedFields (expanded) + rawFields (unexpanded, for explicit-grant checks)
     let allowedFields: string[] | null = null;
+    const rawFields: string[] | null = permData.fields || null;
     if (permData.fields) {
       allowedFields = FieldExpansionUtil.expandFields(permData.fields, collection);
     }
 
-    return { canAccess, filter, allowedFields };
+    return { canAccess, filter, allowedFields, rawFields };
   }
 }
 

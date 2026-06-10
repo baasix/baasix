@@ -12,7 +12,12 @@
  */
 export interface PaginatedResponse<T> {
   data: T[];
-  totalCount?: number;
+  /**
+   * Total number of records matching the query.
+   * `null` when the count was intentionally skipped via `count: false`
+   * (or the deployment default `COUNT_BY_DEFAULT=false`).
+   */
+  totalCount?: number | null;
   page?: number;
   limit?: number;
   totalPages?: number;
@@ -55,7 +60,11 @@ export interface BulkResponse<T = string[]> {
  */
 export interface ReadResult<T = any> {
   data: T[];
-  totalCount: number;
+  /**
+   * Total number of records matching the query.
+   * `null` when the count was intentionally skipped (see `QueryParams.count`).
+   */
+  totalCount: number | null;
   page?: number;
   limit?: number;
 }

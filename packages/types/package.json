@@ -1,6 +1,6 @@
 {
   "name": "@baasix/types",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Shared TypeScript types for Baasix packages",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

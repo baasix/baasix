@@ -6,6 +6,9 @@
 import jwt from "jsonwebtoken";
 import type { JWTPayload, User, Role, Tenant, Session } from "../types.js";
 
+/** Pinned JWT algorithm — prevents algorithm-confusion / alg:none attacks. */
+const JWT_ALGORITHM = "HS256" as const;
+
 export interface TokenConfig {
   /**
    * Secret key for JWT signing
@@ -47,14 +50,22 @@ export interface TokenService {
 export function createTokenService(config: TokenConfig): TokenService {
   const expiresIn = config.expiresIn ?? "7d";
 
+  // Fail closed only on a MISSING secret. Secret strength is a recommendation
+  // surfaced once at startup (validateAuthSecretAtStartup) — we don't hard-fail a
+  // short secret here, so an existing deployment keeps running and can rotate on
+  // its own schedule.
+  if (!config.secret) {
+    throw new Error("SECRET_KEY is not configured for the auth token service.");
+  }
+
   return {
     generateToken(payload) {
-      return jwt.sign(payload, config.secret, { expiresIn } as any);
+      return jwt.sign(payload, config.secret, { expiresIn, algorithm: JWT_ALGORITHM } as any);
     },
 
     verifyToken(token) {
       try {
-        const decoded = jwt.verify(token, config.secret) as JWTPayload;
+        const decoded = jwt.verify(token, config.secret, { algorithms: [JWT_ALGORITHM] }) as JWTPayload;
         return decoded;
       } catch (error) {
         return null;

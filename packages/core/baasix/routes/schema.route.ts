@@ -139,7 +139,6 @@ const registerEndpoint = (app: Express, context?: any) => {
     // Admins always have access via ItemsService
     app.get("/schemas", async (req, res, next) => {
         try {
-            console.log('[schema.route] GET /schemas called');
             const { search, page, limit, sort = "collectionName:asc" } = req.query as any;
 
             // Default to public access (backwards compatible), set SCHEMAS_PUBLIC=false for production

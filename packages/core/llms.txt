@@ -64,6 +64,7 @@ MULTI_TENANT=false                 # Enable multi-tenant mode
 
 # Real-time
 SOCKET_ENABLED=false               # Enable Socket.IO
+REALTIME_ROW_LEVEL_SCOPING=false   # per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (subscriber may see other rows in tenant). On = evaluate each subscriber's read perm per change (bucketed by role)
 
 # Registration
 PUBLIC_REGISTRATION=true           # Allow public user registration
@@ -71,6 +72,9 @@ PUBLIC_REGISTRATION=true           # Allow public user registration
 # Rate Limiting
 RATE_LIMIT=100                     # Requests per interval
 RATE_LIMIT_INTERVAL=5000           # Interval in ms
+AUTH_RATE_LIMIT=10                 # brute-force limit for login/magic-link/password-reset, per (IP+email) pair (per-account budget per IP; does NOT cap total attempts across accounts — use a WAF for spraying)
+AUTH_RATE_LIMIT_INTERVAL=900000    # window (ms) for the auth limiter (15 min)
+# AUTH_RATE_LIMIT_DISABLED=false   # disable the auth limiter (auto-disabled in TEST_MODE)
 
 # File Storage
 STORAGE_SERVICES_ENABLED=LOCAL     # Comma-separated list (LOCAL,S3)
@@ -96,6 +100,29 @@ AUDIT_LOG_CLEANUP_ENABLED=false    # Enable automatic audit log cleanup
 AUDIT_LOG_RETENTION_DAYS=90        # Audit log retention in days
 EMAIL_LOG_CLEANUP_ENABLED=false    # Enable automatic email log cleanup
 EMAIL_LOG_RETENTION_DAYS=30        # Email log retention in days
+
+# Query behavior
+COUNT_BY_DEFAULT=true              # Compute totalCount on list reads (per-request ?count= overrides)
+
+# Security hardening (all default true/secure; set false to relax)
+PROTECT_PRIVILEGE_FIELDS=true      # role_Id/tenant_Id/emailVerified/hidden fields excluded from fields:["*"], must be named explicitly (admins exempt). Tri-state: true | allow-password (non-admin may set password when explicitly granted; still hashed) | false
+PROTECT_IS_PUBLIC_FIELD=false      # make baasix_File isPublic opt-in (not settable via broad "*" grant); default off = backward compatible
+EXPOSE_ERROR_DETAILS=false         # include raw DB error text in responses; off in production (leaks schema / SQLi oracle), generic msg + correlation id instead
+STORAGE_PATH_CONFINEMENT=true      # Confine local-disk file ops within storage root (blocks path traversal)
+ASSET_XSS_PROTECTION=true          # Force executable upload types (html/svg/js/xml) to download, not render inline
+ASSET_NOSNIFF=true                 # Send X-Content-Type-Options: nosniff on asset responses
+STRICT_TENANT_ISOLATION=true       # (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped
+# OAuth hardening (default off = secure restriction)
+OAUTH_ALLOW_UNVERIFIED_LINK=false   # auto-link OAuth to existing account on unverified email (off = only link verified; prevents takeover)
+OAUTH_ALLOW_DIRECT_IDTOKEN=false    # enable client-supplied direct idToken sign-in (off by default; requires JWKS verification)
+OAUTH_STATE_COOKIE_BINDING=false    # bind OAuth state to browser cookie for CSRF (off by default; may break cross-site callbacks)
+# Outbound URL fetch / SSRF
+SSRF_ALLOW_PRIVATE_URL_FETCH=false  # allow upload-from-URL / workflow HTTP to reach private/loopback/metadata IPs (off = blocked, resolved-IP + per-redirect checked)
+URL_FETCH_TIMEOUT_MS=15000          # response timeout per hop for upload-from-URL (time-to-first-response, not total download; size capped by MAX_UPLOAD_FILE_SIZE)
+# Image transform DoS limits
+ASSET_MAX_DIMENSION=5000            # max output width/height (px) for image transforms; larger clamped
+ASSET_MAX_INPUT_PIXELS=100000000   # max input pixels the decoder accepts (decompression-bomb defense)
+# Note: SQL-injection protection (identifier allowlisting + JSONB numeric validation) is always on, no toggle.
 ```
 
 ---
@@ -251,6 +278,9 @@ GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80
 | groupBy | string[] | Group by fields | `["status","category"]` |
 | paranoid | boolean | Include soft-deleted | false |
 | relConditions | object | Filter array relations | `{"comments":{"approved":true}}` |
+| count | boolean | Compute `totalCount` (omit for server default) | false |
+
+**Total count:** List responses include `totalCount` by default. Pass `count=false` to skip the COUNT query for faster reads — the response returns `"totalCount": null`. The deployment default is controlled by the `COUNT_BY_DEFAULT` env var (default `true`); a per-request `count` always overrides it. When `limit=-1` with no offset, `totalCount` is taken from the result length (no extra query).
 
 ## Field Selection Patterns
 
@@ -270,13 +300,15 @@ fields: ["*", "author.firstName", "author.email"]
 // Deep nesting
 fields: ["*", "posts.*", "posts.comments.*"]
 
-// Recursive expansion
-fields: ["*.*"]      // All direct + first level relations
-fields: ["*.*.*"]    // Full tree expansion
+// Depth via repeated wildcards (each "*" segment = one level; no "**" syntax)
+fields: ["*.*"]      // direct columns + first-level relations
+fields: ["*.*.*"]    // + second-level (relations of relations)
 
 // Exclude fields
 fields: ["*", "-password", "-secretKey"]
 ```
+
+Note: the same wildcard rule applies to permission `fields` — `"*"` = own columns only, `"rel.*"` = that relation one level deep, `"rel.*.*"` = one level deeper. See SECTION 10: PERMISSIONS.
 
 ---
 
@@ -1462,13 +1494,37 @@ POST /permissions
 {
   "role_Id": "role-uuid",
   "collection": "posts",
-  "action": "read",              // read, create, update, delete
-  "fields": ["*"],               // or specific fields
-  "conditions": {                // optional filter
+  "action": "read",                 // read, create, update, delete
+  "fields": ["*", "comments.*"],    // see fields rules below
+  "conditions": {                   // ROW filter on THIS collection (which records)
     "status": {"eq": "published"}
+  },
+  "relConditions": {                // filter on RELATED rows in the response
+    "comments": {"approved": {"eq": true}}
   }
 }
 ```
+
+### `fields` — which COLUMNS the role may access
+
+`"*"` grants only the collection's OWN/DIRECT columns. It does NOT include any
+related/nested data — a relation not named in `fields` is stripped from the
+response entirely (even if `relConditions` targets it). Each `*` segment is one
+level deep; add another `.*` to go deeper. There is no `**` syntax.
+
+| Pattern | Grants |
+|---------|--------|
+| `["*"]` | Own/direct columns only — no relations |
+| `["*", "author.*"]` | Own columns + author's direct fields (one level) |
+| `["*", "author.*.*"]` | Own columns + author + author's relations one level deeper |
+| `["*.*"]` | Own columns + all first-level relations |
+
+### `conditions` vs `relConditions`
+
+- `conditions` = ROW filter on THIS collection — which RECORDS the role can access. Keys are this collection's columns. E.g. `{"author_Id": {"eq": "$CURRENT_USER"}}`.
+- `relConditions` = filter on RELATED rows returned in array relations (HasMany/M2M) — which related ROWS appear in the response. Keyed by RELATION NAME. Does NOT restrict the main records, and only applies if that relation is also granted in `fields`. E.g. `{"comments": {"approved": {"eq": true}}}`.
+
+Rule of thumb: "which rows of THIS collection?" → `conditions`. "which related rows in the response?" → `relConditions`.
 
 ## Built-in Roles
 

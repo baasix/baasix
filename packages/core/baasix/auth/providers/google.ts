@@ -9,6 +9,11 @@ import {
   refreshAccessToken,
   parseOAuth2Tokens,
 } from "../oauth2/utils.js";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+// Google's JWKS endpoint — cached/rotated automatically by createRemoteJWKSet.
+const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 export interface GoogleProfile {
   sub: string;
@@ -163,33 +168,20 @@ export function google(options: GoogleOptions): OAuthProvider<GoogleProfile, Goo
       };
     },
 
-    async verifyIdToken(token, _nonce) {
-      // For now, just do basic validation
-      // In production, you'd want to verify the JWT signature using Google's public keys
+    async verifyIdToken(token, nonce) {
+      // Verify the JWT SIGNATURE against Google's published keys (JWKS), plus
+      // issuer/audience/expiry. A decode-only check (the previous behavior) would
+      // accept a forged token with the right claims, so we now cryptographically
+      // verify it. `jwtVerify` enforces signature + exp; we check iss/aud/nonce.
       try {
-        const parts = token.split(".");
-        if (parts.length !== 3) return false;
-        
-        const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-        
-        // Check expiration
-        if (payload.exp && payload.exp < Date.now() / 1000) {
+        const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
+          issuer: GOOGLE_ISSUERS,
+          audience: options.clientId,
+        });
+        // Optional replay protection: if a nonce was supplied, it must match.
+        if (nonce && payload.nonce !== nonce) {
           return false;
         }
-        
-        // Check issuer
-        if (
-          payload.iss !== "https://accounts.google.com" &&
-          payload.iss !== "accounts.google.com"
-        ) {
-          return false;
-        }
-        
-        // Check audience
-        if (payload.aud !== options.clientId) {
-          return false;
-        }
-        
         return true;
       } catch {
         return false;

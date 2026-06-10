@@ -3,13 +3,38 @@ import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
-import { getUserRolesPermissionsAndTenant } from "../utils/auth.js";
+import { getUserRolesPermissionsAndTenant, getJwtSecret, JWT_ALGORITHM } from "../utils/auth.js";
+import fieldUtils from "../utils/fieldUtils.js";
 import { permissionService } from "./PermissionService.js";
 import settingsService from "./SettingsService.js";
 import { APIError } from "../utils/errorHandler.js";
 import type { Server as HTTPServer } from "http";
 import type { Socket } from "socket.io";
 import type { UserInfo, SocketWithAuth } from '../types/index.js';
+
+// --- A12 row-level scoping: pure decision helpers (exported for testing) ---
+
+/**
+ * True if a read permission filter imposes any row restriction (flat `conditions`
+ * or nested `relConditions`). When false, the role can read the whole collection,
+ * so a broadcast can be delivered without a per-record DB check (fast path).
+ */
+export function hasReadRestrictions(filter: { conditions?: any; relConditions?: any } | null | undefined): boolean {
+  const hasConditions = !!filter?.conditions && Object.keys(filter.conditions).length > 0;
+  const hasRelConditions = !!filter?.relConditions && Object.keys(filter.relConditions).length > 0;
+  return hasConditions || hasRelConditions;
+}
+
+/**
+ * True only if EVERY changed id is present in the set of ids the subscriber may
+ * actually read (the result of a permission-scoped existence query). Fails closed:
+ * an empty visible set with non-empty ids → false.
+ */
+export function allIdsVisible(changedIds: any[], visibleIds: any[]): boolean {
+  if (changedIds.length === 0) return true;
+  const visible = new Set(visibleIds.map((v) => String(v)));
+  return changedIds.every((id) => visible.has(String(id)));
+}
 
 // Type for custom message handler callback
 export type CustomMessageHandler = (
@@ -294,7 +319,7 @@ class SocketService {
         throw new APIError("No authentication token provided", 401);
       }
 
-      const decoded: any = jwt.verify(token as string, env.get("SECRET_KEY")!);
+      const decoded: any = jwt.verify(token as string, getJwtSecret(), { algorithms: [JWT_ALGORITHM] });
       const { user, role, permissions, tenant } = await this.authenticateUser(decoded);
 
       // Attach user info to socket
@@ -357,10 +382,21 @@ class SocketService {
         }
       });
 
-      // Handle workflow execution room joins
-      socket.on("workflow:execution:join", ({ executionId }: { executionId: string | number }) => {
-        socket.join(`execution:${executionId}`);
-        console.log(`User ${socket.userId} joined execution room: ${executionId}`);
+      // Handle workflow execution room joins — gated by ownership/tenant.
+      // Previously any authenticated socket could join any execution:<id> room and
+      // receive another user's (or tenant's) execution outputs.
+      socket.on("workflow:execution:join", async ({ executionId }: { executionId: string | number }) => {
+        try {
+          const allowed = await this.canJoinExecutionRoom(socket, executionId);
+          if (!allowed) {
+            socket.emit("workflow:execution:error", { executionId, message: "Not authorized for this execution" });
+            return;
+          }
+          socket.join(`execution:${executionId}`);
+          console.log(`User ${socket.userId} joined execution room: ${executionId}`);
+        } catch (error: any) {
+          socket.emit("workflow:execution:error", { executionId, message: "Failed to join execution room" });
+        }
       });
 
       // Handle custom room join
@@ -989,6 +1025,36 @@ class SocketService {
     return await permissionService.canAccess(socket.userRole.id, collection, "read");
   }
 
+  /**
+   * Whether this socket may join a workflow execution room. Allowed when the user
+   * is an administrator, or triggered the execution, within the same tenant.
+   */
+  async canJoinExecutionRoom(socket: SocketWithAuth, executionId: string | number): Promise<boolean> {
+    if (socket.userRole?.name === "administrator") return true;
+    if (!socket.userId) return false;
+
+    try {
+      // Lazy import to avoid a circular dependency at module load.
+      const { default: ItemsService } = await import("./ItemsService.js");
+      const service = new ItemsService("baasix_WorkflowExecution", { accountability: undefined });
+      const execution = await service.readOne(executionId, {
+        fields: ["id", "triggered_by_Id", "tenant_Id"],
+      });
+      if (!execution) return false;
+
+      // Must be the triggering user.
+      if (execution.triggered_by_Id !== socket.userId) return false;
+
+      // And, in multi-tenant mode, the same tenant.
+      const userTenant = socket.userTenant?.id ?? null;
+      if (execution.tenant_Id && userTenant && execution.tenant_Id !== userTenant) return false;
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   getCollectionRoom(collection: string, tenantId?: string | number): string {
     return `collection:${collection}${tenantId ? `:tenant:${tenantId}` : ""}`;
   }
@@ -1002,19 +1068,33 @@ class SocketService {
     const excludeUserId = accountability?.user?.id;
     const tenantId = accountability?.tenant;
 
+    // Strip hidden fields (password hashes, tokens, secrets) from the broadcast
+    // payload so they never leak over the realtime channel (A12, field-level).
+    const safeData = this.stripHiddenFromBroadcast(collection, data);
+
     // Prepare the event name and data
     const event = `${collection}:${action}`;
     const payload = {
       action,
       collection,
-      data,
+      data: safeData,
       timestamp: new Date().toISOString(),
     };
 
     // Broadcast to the collection room
     const roomName = this.getCollectionRoom(collection, tenantId);
 
-    console.log(`Broadcasting ${event} to ${roomName}`);
+    // A12 row-level scoping (opt-in). When REALTIME_ROW_LEVEL_SCOPING=true, evaluate
+    // each subscriber's read permission against the changed row and emit only to
+    // those allowed to see it. Default off = the fast O(1) room broadcast below.
+    if (env.get("REALTIME_ROW_LEVEL_SCOPING") === "true") {
+      // Async; fire-and-forget (broadcastChange is sync). Errors are contained so a
+      // scoping failure never throws into the caller's write path.
+      this.broadcastChangeScoped(collection, event, payload, roomName, tenantId).catch((err) => {
+        console.error("Row-level realtime scoping failed:", err);
+      });
+      return;
+    }
 
     if (tenantId) {
       // In multi-tenant mode, only broadcast to the specific tenant
@@ -1023,6 +1103,135 @@ class SocketService {
       // Broadcast to all subscribers
       this.io.to(roomName).emit(event, payload);
     }
+  }
+
+  /**
+   * A12 hybrid row-level scoping. For each subscriber in the room, decide whether
+   * they may receive the changed row(s) based on their read permission:
+   *  - admin, or a role with NO read conditions/relConditions → allowed (in-memory
+   *    fast path, no DB).
+   *  - otherwise → authoritative DB existence check via ItemsService.readByQuery
+   *    with that subscriber's accountability (covers flat conditions, nested
+   *    relConditions, tenant scoping, and field perms exactly like a normal read).
+   * Subscribers are BUCKETED by role so each distinct role does at most one
+   * existence query per changed id, not one per subscriber.
+   */
+  private async broadcastChangeScoped(
+    collection: string,
+    event: string,
+    payload: any,
+    roomName: string,
+    tenantId: any
+  ): Promise<void> {
+    if (!this.io) return;
+
+    // Collect the LOCAL sockets currently in this room (these carry our auth data).
+    const targetRoom = tenantId ? `${roomName}:tenant:${tenantId}` : roomName;
+    const sockets: SocketWithAuth[] = [];
+    for (const s of this.io.sockets.sockets.values()) {
+      const sock = s as unknown as SocketWithAuth;
+      if (sock.rooms?.has(targetRoom)) sockets.push(sock);
+    }
+    if (sockets.length === 0) return;
+
+    // Determine the changed row ids (single record or array).
+    const records = Array.isArray(payload.data) ? payload.data : [payload.data];
+    const { default: ItemsService } = await import("./ItemsService.js");
+    const { schemaManager } = await import("../utils/schemaManager.js");
+    const pk = schemaManager.getPrimaryKey(collection) || "id";
+    const ids = records
+      .map((r: any) => (r && typeof r === "object" ? r[pk] : undefined))
+      .filter((v: any) => v !== undefined && v !== null);
+
+    // Bucket sockets by role so identical roles share one decision.
+    const buckets = new Map<string, { sockets: SocketWithAuth[]; sample: SocketWithAuth }>();
+    for (const sock of sockets) {
+      const roleKey = `${sock.userRole?.id ?? sock.userRole?.name ?? "none"}:${sock.userTenant?.id ?? ""}`;
+      if (!buckets.has(roleKey)) buckets.set(roleKey, { sockets: [], sample: sock });
+      buckets.get(roleKey)!.sockets.push(sock);
+    }
+
+    for (const { sockets: bucketSockets, sample } of buckets.values()) {
+      const allowed = await this.canRoleSeeRecords(collection, sample, ids, pk, ItemsService);
+      if (allowed) {
+        for (const sock of bucketSockets) sock.emit(event, payload);
+      }
+    }
+  }
+
+  /**
+   * Whether a subscriber's role may read the given record ids. Returns true if no
+   * read restrictions apply (fast path), otherwise confirms via a permission-scoped
+   * existence query. If there are multiple ids and they don't all pass, this returns
+   * true (the bucket gets the event) — per-record splitting is a future refinement;
+   * the common realtime case is a single changed record.
+   */
+  private async canRoleSeeRecords(
+    collection: string,
+    sample: SocketWithAuth,
+    ids: any[],
+    pk: string,
+    ItemsService: any
+  ): Promise<boolean> {
+    // Admins see everything.
+    if (sample.userRole?.name === "administrator") return true;
+    if (ids.length === 0) return true; // nothing to scope (e.g. delete with no id)
+
+    try {
+      const roleId = sample.userRole?.id;
+      const accountability = {
+        user: { id: sample.userId },
+        role: sample.userRole,
+        tenant: sample.userTenant?.id,
+      };
+
+      // Fast path: role with NO read conditions and NO relConditions → allowed.
+      const { canAccess, filter } = await permissionService.getFullPermissionData(
+        roleId,
+        collection,
+        "read",
+        accountability
+      );
+      if (!canAccess) return false;
+      // Fast path: no row restrictions → allowed without a DB hit.
+      if (!hasReadRestrictions(filter)) return true;
+
+      // Authoritative check: can this accountability actually read these ids?
+      const service = new ItemsService(collection, { accountability });
+      const result = await service.readByQuery({
+        filter: { [pk]: { in: ids } },
+        fields: [pk],
+        limit: ids.length,
+      });
+      const rows = (result?.data ?? result) as any[];
+      const visibleIds = (Array.isArray(rows) ? rows : []).map((r) => r[pk]);
+      // Allow the bucket if EVERY changed id is visible to this role.
+      return allIdsVisible(ids, visibleIds);
+    } catch (err) {
+      // Fail CLOSED on error — do not leak a row we couldn't verify.
+      console.error(`Row-level scoping check failed for ${collection}:`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Remove hidden schema fields (password, tokens, secrets) from a broadcast
+   * payload. Handles a single record or an array of records; non-objects pass
+   * through unchanged.
+   */
+  private stripHiddenFromBroadcast(collection: string, data: any): any {
+    try {
+      if (Array.isArray(data)) {
+        return fieldUtils.stripHiddenFieldsFromRecords(collection, data);
+      }
+      if (data && typeof data === "object") {
+        return fieldUtils.stripHiddenFields(collection, data);
+      }
+    } catch {
+      // On any error, fail safe by dropping the data rather than leaking it raw.
+      return undefined;
+    }
+    return data;
   }
 
   /**

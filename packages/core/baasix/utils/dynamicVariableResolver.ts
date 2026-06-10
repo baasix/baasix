@@ -17,6 +17,7 @@
  */
 import ItemsService from "../services/ItemsService.js";
 import { permissionService } from "../services/PermissionService.js";
+import { getUserResolveCache } from "./requestContext.js";
 
 import type { Accountability } from '../types/index.js';
 
@@ -202,14 +203,57 @@ async function resolveCollectedVariables(
   }
 
   if (variablesToResolve.CURRENT_USER.size > 0) {
-    const userItemsService = new ItemsService("baasix_User", { accountability: undefined });
     const fields = Array.from(variablesToResolve.CURRENT_USER);
-    try {
-      resolved.CURRENT_USER = await userItemsService.readOne(accountability.user.id, {
-        fields: fields
-      });
-    } catch (error: any) {
-      console.error(`Error resolving user data: ${error.message}`);
+    const accUser = accountability.user as Record<string, any> | undefined;
+
+    // Fast path: the full (non-hidden) user row is already loaded onto
+    // accountability.user by the auth middleware. Resolve FLAT fields from it
+    // in-memory and only fall back to a DB query for fields that genuinely
+    // need one — relational paths (contain '.') or flat fields not present on
+    // the in-memory user (e.g. hidden columns stripped from accountability).
+    const inMemory: Record<string, any> = {};
+    const fieldsNeedingDb: string[] = [];
+
+    for (const field of fields) {
+      const isRelational = field.includes('.');
+      if (!isRelational && accUser && field in accUser) {
+        inMemory[field] = accUser[field];
+      } else {
+        fieldsNeedingDb.push(field);
+      }
+    }
+
+    resolved.CURRENT_USER = inMemory;
+
+    if (fieldsNeedingDb.length > 0) {
+      const queryFields = fieldsNeedingDb.includes('id') ? fieldsNeedingDb : ['id', ...fieldsNeedingDb];
+
+      // Request-scoped memo: the resolver runs several times per read (permission
+      // conditions, relConditions, merged filter), so cache the DB result by
+      // (userId, sorted field-set). The field-set is part of the key so a call
+      // requesting a different set of user fields never gets a partial cached
+      // object. Outside an HTTP request (workflows/tasks) the cache is absent and
+      // we resolve directly.
+      const userCache = getUserResolveCache();
+      const cacheKey = `${accountability.user.id}|${[...queryFields].sort().join(',')}`;
+
+      try {
+        let dbUser: any;
+        if (userCache && userCache.has(cacheKey)) {
+          dbUser = userCache.get(cacheKey);
+        } else {
+          const userItemsService = new ItemsService("baasix_User", { accountability: undefined });
+          dbUser = await userItemsService.readOne(accountability.user.id, { fields: queryFields });
+          if (userCache) {
+            userCache.set(cacheKey, dbUser);
+          }
+        }
+        // Merge DB-resolved fields over the in-memory ones into a FRESH object so
+        // the cached value is never shared/mutated by reference.
+        resolved.CURRENT_USER = { ...inMemory, ...(dbUser || {}) };
+      } catch (error: any) {
+        console.error(`Error resolving user data: ${error.message}`);
+      }
     }
   }
 

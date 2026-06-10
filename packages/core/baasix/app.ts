@@ -15,6 +15,7 @@ import mailService from "./services/MailService.js";
 import permissionService from "./services/PermissionService.js";
 import storageService from "./services/StorageService.js";
 import { authMiddleware } from "./utils/auth.js";
+import { validateSecurityPostureAtStartup } from "./utils/securityPosture.js";
 import { requestContextMiddleware } from "./utils/requestContext.js";
 import { hooksManager } from "./services/HooksManager.js";
 import { db, initializeDatabaseWithCache } from "./utils/db.js";
@@ -205,6 +206,14 @@ let server: any = null;
  */
 async function initializeApp() {
   try {
+    // Single startup security entry point:
+    //  1. Hard-fail if SECRET_KEY is missing (nothing can authenticate safely).
+    //  2. Print one grouped advisory banner for every security/integrity setting in
+    //     a less-safe state (short SECRET_KEY, SCHEMAS_PUBLIC, SSRF/OAuth/rate-limit
+    //     overrides, etc.) — helps a new operator who inherited an .env.
+    // Advisory banner is skipped under TEST_MODE; the fatal check always runs.
+    validateSecurityPostureAtStartup();
+
     console.info("Initializing system cache...");
     // System cache (permissions, roles, settings) uses SYSTEM_CACHE_* env vars
     const systemCacheAdapter = env.get("SYSTEM_CACHE_ADAPTER") || "memory";

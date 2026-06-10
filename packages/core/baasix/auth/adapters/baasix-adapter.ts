@@ -44,13 +44,15 @@ export function createBaasixAdapter(): AuthAdapter {
     async createUser(user) {
       const service = await getService("baasix_User");
       const id = await service.createOne(user);
-      return service.readOne(id);
+      // includeHidden: this is the trusted auth layer — it needs the full user
+      // record (incl. the hidden password hash) for credential verification.
+      return service.readOne(id, {}, false, undefined, { includeHidden: true });
     },
 
     async findUserById(userId) {
       const service = await getService("baasix_User");
       try {
-        const user = await service.readOne(userId);
+        const user = await service.readOne(userId, {}, false, undefined, { includeHidden: true });
         return user || null;
       } catch {
         return null;
@@ -62,14 +64,14 @@ export function createBaasixAdapter(): AuthAdapter {
       const result = await service.readByQuery({
         filter: { email: { eq: email.toLowerCase() } },
         limit: 1,
-      });
+      }, false, undefined, { includeHidden: true });
       return result.data?.[0] || null;
     },
 
     async updateUser(userId, data) {
       const service = await getService("baasix_User");
       await service.updateOne(userId, data);
-      return service.readOne(userId);
+      return service.readOne(userId, {}, false, undefined, { includeHidden: true });
     },
 
     async deleteUser(userId) {
@@ -82,7 +84,8 @@ export function createBaasixAdapter(): AuthAdapter {
     async createAccount(account) {
       const service = await getService("baasix_Account");
       const id = await service.createOne(account);
-      return service.readOne(id);
+      // includeHidden: accounts hold hidden OAuth tokens/secrets the auth layer needs.
+      return service.readOne(id, {}, false, undefined, { includeHidden: true });
     },
 
     async findAccountByProvider(providerId, accountId) {
@@ -93,7 +96,7 @@ export function createBaasixAdapter(): AuthAdapter {
           accountId: { eq: accountId },
         },
         limit: 1,
-      });
+      }, false, undefined, { includeHidden: true });
       return result.data?.[0] || null;
     },
 
@@ -101,14 +104,14 @@ export function createBaasixAdapter(): AuthAdapter {
       const service = await getService("baasix_Account");
       const result = await service.readByQuery({
         filter: { user_Id: { eq: userId } },
-      });
+      }, false, undefined, { includeHidden: true });
       return result.data || [];
     },
 
     async updateAccount(accountId, data) {
       const service = await getService("baasix_Account");
       await service.updateOne(accountId, data);
-      return service.readOne(accountId);
+      return service.readOne(accountId, {}, false, undefined, { includeHidden: true });
     },
 
     async deleteAccount(accountId) {
@@ -133,7 +136,8 @@ export function createBaasixAdapter(): AuthAdapter {
     async createSession(session) {
       const service = await getService("baasix_Sessions");
       const id = await service.createOne(session);
-      return service.readOne(id);
+      // includeHidden: sessions carry a hidden `token` the auth layer needs.
+      return service.readOne(id, {}, false, undefined, { includeHidden: true });
     },
 
     async findSessionByToken(token) {
@@ -142,22 +146,22 @@ export function createBaasixAdapter(): AuthAdapter {
         filter: { token: { eq: token } },
         fields: ["*", "user.*"],
         limit: 1,
-      });
-      
+      }, false, undefined, { includeHidden: true });
+
       if (!result.data?.[0]) {
         return null;
       }
-      
+
       const session = result.data[0];
-      
+
       // If user wasn't populated, fetch it
       if (!session.user || typeof session.user === "string") {
         const userService = await getService("baasix_User");
-        const user = await userService.readOne(session.user_Id);
+        const user = await userService.readOne(session.user_Id, {}, false, undefined, { includeHidden: true });
         if (!user) return null;
         return { session, user };
       }
-      
+
       return { session, user: session.user };
     },
 
@@ -165,7 +169,7 @@ export function createBaasixAdapter(): AuthAdapter {
       const service = await getService("baasix_Sessions");
       const result = await service.readByQuery({
         filter: { user_Id: { eq: userId } },
-      });
+      }, false, undefined, { includeHidden: true });
       return result.data || [];
     },
 

@@ -9,6 +9,32 @@ import env from "../utils/env.js";
 import fs from "fs";
 import axios from "axios";
 
+/**
+ * Content types that must NEVER be served inline from the app origin, because a
+ * browser would execute scripts in them → stored XSS. The file `type` is set from
+ * the client's upload, so it cannot be trusted to be a safe media type.
+ * These are forced to download (attachment) with a neutral content-type.
+ */
+const UNSAFE_INLINE_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "text/xml",
+  "application/xml",
+  "text/javascript",
+  "application/javascript",
+  "application/x-javascript",
+  "application/ecmascript",
+  "text/ecmascript",
+]);
+
+function isUnsafeInlineType(contentType: string | undefined): boolean {
+  if (!contentType) return false;
+  // Strip any charset/parameters: "text/html; charset=utf-8" → "text/html"
+  const base = contentType.split(";")[0].trim().toLowerCase();
+  return UNSAFE_INLINE_TYPES.has(base);
+}
+
 const registerEndpoint = (app: Express) => {
   // Maximum file upload size in MB (default: 50MB)
   const maxFileSizeMB = parseInt(env.get("MAX_UPLOAD_FILE_SIZE") || "50");
@@ -178,12 +204,17 @@ const registerEndpoint = (app: Express) => {
             });
 
             if (requiresSecureProxy) {
-              // Server proxy with header validation for secure file types
+              // Require an authenticated user AND a custom request header. The header
+              // is an ANTI-HOTLINKING control, not an auth check: browsers cannot
+              // set custom headers on passive embeds (<img>/<video>/<audio> src), so
+              // requiring `x-baasix-user-auth` forces the request to come from an
+              // SDK / fetch caller rather than a direct in-page embed. (Auth itself
+              // comes from req.accountability via the verified session.)
+              if (!req.accountability?.user?.id) {
+                return res.status(401).json({ error: "Authentication required" });
+              }
               const userId = req.accountability.user.id.toString();
-              const requiredHeader = "x-baasix-user-auth";
-              const providedAuth = req.headers[requiredHeader];
-
-              // Validate user ID in header
+              const providedAuth = req.headers["x-baasix-user-auth"];
               if (providedAuth !== userId) {
                 return res.status(403).json({ error: "Invalid or missing authentication header" });
               }
@@ -290,6 +321,7 @@ const registerEndpoint = (app: Express) => {
             "Accept-Ranges": "bytes",
             "Content-Length": chunksize,
             "Content-Type": contentType,
+            "X-Content-Type-Options": "nosniff",
           });
 
           stream.pipe(res);
@@ -300,13 +332,30 @@ const registerEndpoint = (app: Express) => {
         res.setHeader("Accept-Ranges", "bytes");
       }
 
-      res.contentType(contentType);
+      // Never let the browser sniff a different (executable) type than declared.
+      // Configurable: set ASSET_NOSNIFF=false to omit the header.
+      if (env.get("ASSET_NOSNIFF") !== "false") {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+      }
 
-      if (isDownload) {
+      // Stored-XSS guard for executable types. Configurable: ASSET_XSS_PROTECTION=false
+      // disables forcing html/svg/js to download (NOT recommended).
+      const xssProtectionEnabled = env.get("ASSET_XSS_PROTECTION") !== "false";
+      const unsafeInline = xssProtectionEnabled && isUnsafeInlineType(contentType);
+
+      if (unsafeInline) {
+        // Stored-XSS guard: types the browser would execute (html/svg/js/xml) are
+        // forced to download with a neutral type, never rendered in the app origin.
+        res.contentType("application/octet-stream");
         res.setHeader("Content-Disposition", getDownloadHeaders(file));
       } else {
-        // Explicitly set inline disposition for viewing in browser
-        res.setHeader("Content-Disposition", "inline");
+        res.contentType(contentType);
+        if (isDownload) {
+          res.setHeader("Content-Disposition", getDownloadHeaders(file));
+        } else {
+          // Explicitly set inline disposition for viewing in browser
+          res.setHeader("Content-Disposition", "inline");
+        }
       }
 
       res.send(buffer);

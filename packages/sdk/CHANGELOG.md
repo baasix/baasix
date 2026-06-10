@@ -1,5 +1,13 @@
 # @baasix/sdk
 
+## 0.1.18
+
+### Patch Changes
+
+- Security audit and found issues fixed.
+- Updated dependencies
+  - @baasix/types@1.0.8
+
 ## 0.1.17
 
 ### Patch Changes

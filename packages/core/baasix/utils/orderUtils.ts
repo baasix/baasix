@@ -15,6 +15,7 @@
 import { SQL, sql, asc, desc, l2Distance, cosineDistance, innerProduct, l1Distance } from 'drizzle-orm';
 import { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 import type { SortDirection, SortObject, SortContext } from '../types/index.js';
+import { isSafeFieldPath } from './relationPathResolver.js';
 
 // Re-export types for backward compatibility
 export type { SortDirection, SortObject, SortContext };
@@ -29,6 +30,13 @@ function processSortField(
   ctx: SortContext
 ): SQL {
   const normalizedDirection = direction.toUpperCase() as 'ASC' | 'DESC';
+
+  // Reject any sort field whose identifier(s) aren't safe before raw interpolation.
+  // ORDER BY is a classic blind-injection oracle, so unknown/crafted names must not
+  // fall through to sql.raw.
+  if (!isSafeFieldPath(fieldPath)) {
+    throw new Error(`Invalid sort field: ${fieldPath}`);
+  }
 
   // Handle nested relation paths
   if (fieldPath.includes('.')) {

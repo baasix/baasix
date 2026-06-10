@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.1.11
+
+### Patch Changes
+
+- Security audit and found issues fixed.
+
 ## 0.1.10
 
 ### Patch Changes

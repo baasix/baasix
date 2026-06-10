@@ -168,6 +168,26 @@ export class QueryBuilder<T extends BaseItem = BaseItem> {
   }
 
   /**
+   * Control whether the total record count is computed for this query.
+   *
+   * Pass `false` to skip the COUNT query (the response `totalCount` will be
+   * `null`) — useful for read-heavy or infinite-scroll lists where the total
+   * isn't needed. Pass `true` to force the count even when the deployment
+   * default (env `COUNT_BY_DEFAULT`) is off. When omitted, the server default
+   * applies.
+   *
+   * @example
+   * ```typescript
+   * // Skip the count for a faster list query
+   * const { data } = await items.filter({ status: { eq: 'active' } }).withCount(false).get();
+   * ```
+   */
+  withCount(enabled: boolean = true): this {
+    this.queryParams.count = enabled;
+    return this;
+  }
+
+  /**
    * Include soft-deleted items
    *
    * @example
@@ -298,6 +318,9 @@ export class QueryBuilder<T extends BaseItem = BaseItem> {
     }
     if (this.queryParams.groupBy) {
       params.groupBy = this.queryParams.groupBy;
+    }
+    if (this.queryParams.count !== undefined) {
+      params.count = this.queryParams.count;
     }
 
     return params;

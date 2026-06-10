@@ -15,12 +15,45 @@ import type { JoinDefinition, ResolvedPath } from '../types/index.js';
 export type { JoinDefinition, ResolvedPath };
 
 /**
+ * A valid SQL identifier segment: starts with a letter/underscore, then
+ * letters/digits/underscores only. This is the allowlist that prevents a crafted
+ * path segment (containing `"`, spaces, parentheses, etc.) from breaking out of
+ * identifier quoting when columnPath is later interpolated via sql.raw.
+ */
+const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function isSafeIdentifier(segment: string): boolean {
+  return typeof segment === 'string' && SAFE_IDENTIFIER.test(segment);
+}
+
+/**
+ * True when every dot-separated segment of a field path is a safe SQL identifier.
+ * Use to validate field/group-by names before they reach any sql.raw interpolation.
+ */
+export function isSafeFieldPath(fieldPath: string): boolean {
+  if (typeof fieldPath !== 'string' || fieldPath.length === 0) return false;
+  return fieldPath.split('.').every(isSafeIdentifier);
+}
+
+/** A resolution result that the caller will skip (no column, no raw path). */
+const UNRESOLVED: Omit<ResolvedPath, 'finalTable' | 'finalAlias'> = {
+  column: null,
+  columnPath: null as any,
+  joins: [],
+};
+
+/**
  * Resolve a relation path into joins and column reference
  *
  * Example: "userRoles.role.name" becomes:
  * - JOIN userRoles table
  * - JOIN roles table through userRoles
  * - Return roles.name column
+ *
+ * SECURITY: every path segment is validated against SAFE_IDENTIFIER and the final
+ * column must actually exist on the resolved table. An unsafe segment or an
+ * unresolvable column yields a null column/columnPath so the caller skips the
+ * condition — a crafted segment can never reach sql.raw.
  */
 export function resolveRelationPath(
   basePath: string,
@@ -32,14 +65,24 @@ export function resolveRelationPath(
   // Parse the path into segments
   const segments = basePath.split('.');
 
-  // If no dots, it's a direct column
+  // Reject any path with a non-identifier segment before it can reach sql.raw.
+  if (segments.some(seg => !isSafeIdentifier(seg))) {
+    console.warn(`[relationPathResolver] Rejected unsafe path segment in: ${basePath}`);
+    return { ...UNRESOLVED, finalTable: baseTable, finalAlias: baseAlias || baseTableName };
+  }
+
+  // If no dots, it's a direct column — require the column to actually exist.
   if (segments.length === 1) {
     const columnName = segments[0];
     const column = baseTable[columnName];
     const alias = baseAlias || baseTableName;
 
+    if (!column) {
+      return { ...UNRESOLVED, finalTable: baseTable, finalAlias: alias };
+    }
+
     return {
-      column: column || null,
+      column,
       columnPath: `${alias}.${columnName}`,
       joins: [],
       finalTable: baseTable,
@@ -69,13 +112,18 @@ function resolveSegments(
   accumulatedJoins: JoinDefinition[],
   forPermissionCheck?: boolean
 ): ResolvedPath {
-  // Base case: only one segment left
+  // Base case: only one segment left — require the column to actually exist so a
+  // crafted name can never be emitted as raw SQL.
   if (segments.length === 1) {
     const columnName = segments[0];
     const column = currentTable[columnName];
 
+    if (!column) {
+      return { ...UNRESOLVED, finalTable: currentTable, finalAlias: currentAlias };
+    }
+
     return {
-      column: column || null,
+      column,
       columnPath: `"${currentAlias}"."${columnName}"`,
       joins: accumulatedJoins,
       finalTable: currentTable,
@@ -91,16 +139,9 @@ function resolveSegments(
   const associations = relationBuilder.getAssociations(currentTableName);
   if (!associations || !associations[relationName]) {
     console.warn(`[relationPathResolver] Relation '${relationName}' not found in '${currentTableName}'`);
-
-    // Try to treat it as a direct column with dots (edge case)
-    const fullColumnName = segments.join('.');
-    return {
-      column: null,
-      columnPath: `"${currentAlias}"."${fullColumnName}"`,
-      joins: accumulatedJoins,
-      finalTable: currentTable,
-      finalAlias: currentAlias
-    };
+    // Unknown relation — do NOT fall back to interpolating the raw dotted name as
+    // a column (that was the injection vector). Skip the condition instead.
+    return { ...UNRESOLVED, finalTable: currentTable, finalAlias: currentAlias };
   }
 
   const relation = associations[relationName];
@@ -111,13 +152,7 @@ function resolveSegments(
   const targetTable = schemaManager.getTable(targetTableName);
   if (!targetTable) {
     console.warn(`[relationPathResolver] Target table '${targetTableName}' not found`);
-    return {
-      column: null,
-      columnPath: `"${currentAlias}"."${relationName}"`,
-      joins: accumulatedJoins,
-      finalTable: currentTable,
-      finalAlias: currentAlias
-    };
+    return { ...UNRESOLVED, finalTable: currentTable, finalAlias: currentAlias };
   }
 
   // Create a unique alias for the joined table
@@ -170,13 +205,7 @@ function resolveSegments(
     joinCondition = eq(aliasedTargetTable[foreignKey], currentTableRef[currentPK]);
   } else {
     console.warn(`[relationPathResolver] Unsupported relation type: ${relationType}`);
-    return {
-      column: null,
-      columnPath: `"${currentAlias}"."${relationName}"`,
-      joins: accumulatedJoins,
-      finalTable: currentTable,
-      finalAlias: currentAlias
-    };
+    return { ...UNRESOLVED, finalTable: currentTable, finalAlias: currentAlias };
   }
 
   // Add the join to the accumulated joins

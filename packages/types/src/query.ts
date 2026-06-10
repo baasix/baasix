@@ -354,6 +354,20 @@ export interface QueryParams<T = unknown> {
   relConditions?: Record<string, Filter>;
 
   /**
+   * Whether to compute the total record count for the result.
+   *
+   * When omitted (`undefined`), the server falls back to the deployment
+   * default (env `COUNT_BY_DEFAULT`, which itself defaults to `true`).
+   * Passing `false` skips the COUNT query even when the default is on;
+   * passing `true` forces it even when the default is off.
+   *
+   * When the count is skipped, `totalCount` is returned as `null`.
+   * When `limit` is `-1` (return all) with no offset, the count is taken
+   * from the result length instead of running a separate query.
+   */
+  count?: boolean;
+
+  /**
    * Additional metadata
    */
   meta?: T;

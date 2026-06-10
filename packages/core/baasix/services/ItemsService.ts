@@ -210,7 +210,7 @@ export class ItemsService {
   /**
    * Generate cache key from query parameters
    */
-  private generateCacheKey(query: QueryOptions, processedIncludes: ProcessedInclude[]): string {
+  private generateCacheKey(query: QueryOptions, processedIncludes: ProcessedInclude[], countMode?: string): string {
     const keyParts = [
       `collection:${this.collection}`,
       `filter:${JSON.stringify(query.filter || {})}`,
@@ -222,6 +222,10 @@ export class ItemsService {
       `search:${query.search || ''}`,
       `includes:${processedIncludes.map(i => i.relation).join(',')}`,
       `paranoid:${query.paranoid !== false}`,
+      // The cached payload bundles records + totalCount, so the count mode must
+      // be part of the key — otherwise a `count=false` request would return a
+      // cached numeric total (and vice versa).
+      `count:${countMode ?? 'on'}`,
     ];
 
     // Add tenant context if multi-tenant
@@ -332,37 +336,34 @@ export class ItemsService {
    * Check if user is administrator
    */
   private async isAdministrator(): Promise<boolean> {
-    console.log('[isAdministrator] accountability:', JSON.stringify(this.accountability, null, 2));
-
+    // INTENTIONAL: no accountability = trusted SYSTEM context with full access
+    // (Directus-style `accountability: null`). Used by internal callers — e.g. the
+    // auth adapter and dynamic-variable resolver — that construct
+    // `new ItemsService(coll, { accountability: undefined })` to deliberately bypass
+    // permissions. HTTP requests ALWAYS have accountability populated by
+    // authMiddleware, so this branch is never reached from a request.
     if (!this.accountability) {
-      console.log('[isAdministrator] No accountability - returning true');
       return true;
     }
     if (Object.keys(this.accountability).length === 0) {
-      console.log('[isAdministrator] Empty accountability - returning true');
       return true;
     }
     if (!this.accountability.role) {
-      console.log('[isAdministrator] No role - returning false');
       return false;
     }
 
     // Check user.isAdmin flag first
-    console.log('[isAdministrator] Checking user.isAdmin:', (this.accountability.user as any)?.isAdmin);
     if (this.accountability.user && (this.accountability.user as any).isAdmin === true) {
-      console.log('[isAdministrator] User has isAdmin=true - returning true');
       return true;
     }
 
     // If role is a string, check directly
     if (typeof this.accountability.role === 'string') {
-      console.log('[isAdministrator] Role is string:', this.accountability.role);
       return this.accountability.role === 'administrator';
     }
 
     // If role is an object with name, check the name
     if (typeof this.accountability.role === 'object' && (this.accountability.role as any).name) {
-      console.log('[isAdministrator] Role object name:', (this.accountability.role as any).name);
       return (this.accountability.role as any).name === 'administrator';
     }
 
@@ -972,13 +973,79 @@ export class ItemsService {
   }
 
   /**
+   * Privilege/security-sensitive fields. A non-admin may write these ONLY when the
+   * field is named EXPLICITLY in the permission's `fields` — never when it is merely
+   * swept in by a "*" wildcard. This kills accidental mass-assignment from a broad
+   * grant while still letting an admin deliberately delegate (e.g. a "user-manager"
+   * role with fields:["*","role_Id"]).
+   *  - role_Id / tenant_Id  : authorization scope — setting them is privilege escalation
+   *  - userCreated_Id / userUpdated_Id : ownership/audit trail
+   *  - emailVerified        : trust flag gating credential login
+   * `hidden` schema fields are added dynamically and follow the same opt-in rule.
+   * NOTE: filename/storage/isPublic are intentionally NOT here — legitimate file
+   * metadata; handled at the storage layer (path confinement) and asset-access layer.
+   */
+  private static readonly PROTECTED_WRITE_FIELDS: ReadonlySet<string> = new Set([
+    'role_Id',
+    'tenant_Id',
+    'userCreated_Id',
+    'userUpdated_Id',
+    'emailVerified',
+  ]);
+
+  /**
+   * Fields that are NEVER client-writable via the data API, even when explicitly
+   * named in a permission. `password` must go through the auth flow (hashing,
+   * validation, session revocation), so a raw write here is always wrong.
+   */
+  private static readonly NEVER_WRITABLE_FIELDS: ReadonlySet<string> = new Set([
+    'password',
+  ]);
+
+  /**
+   * The opt-in privilege fields for this collection: the static list plus every
+   * `hidden` schema field. Hidden flags live on the JSON schema *definition*, not
+   * the runtime Drizzle table, so read them from getSchemaDefinition() (fieldUtils
+   * inspects the Drizzle table and can't see `hidden`).
+   */
+  private async getProtectedWriteFields(): Promise<Set<string>> {
+    const protectedFields = new Set<string>(ItemsService.PROTECTED_WRITE_FIELDS);
+
+    // `isPublic` on baasix_File makes a file world-readable (cross-tenant, no auth).
+    // It is a legitimate user-set flag, so it is NOT protected by default (would
+    // break existing public-upload flows). Set PROTECT_IS_PUBLIC_FIELD=true to make
+    // it opt-in — writable only when the permission names it explicitly
+    // (fields:["*","isPublic"]) — so a broad fields:["*"] grant can't silently
+    // publish files. Kept as its own flag (not mixed into PROTECT_PRIVILEGE_FIELDS)
+    // because it's a file-publishing concern, not a privilege-field concern.
+    if (this.collection === "baasix_File" && env.get("PROTECT_IS_PUBLIC_FIELD") === "true") {
+      protectedFields.add("isPublic");
+    }
+
+    try {
+      const def = await schemaManager.getSchemaDefinition(this.collection);
+      const fields = def?.fields || {};
+      for (const [name, fieldDef] of Object.entries(fields)) {
+        if ((fieldDef as any)?.hidden === true && !ItemsService.NEVER_WRITABLE_FIELDS.has(name)) {
+          protectedFields.add(name);
+        }
+      }
+    } catch {
+      // Definition unavailable — the static deny-list still protects the
+      // privilege fields, so fail safe by returning what we have.
+    }
+    return protectedFields;
+  }
+
+  /**
    * Apply field-level permissions
    */
   private async applyFieldPermissions(
     data: Record<string, any>,
     action: 'create' | 'update',
     isAdmin: boolean,
-    prefetchedAllowedFields?: string[] | null
+    prefetchedAllowedFields?: string[] | null,
+    rawFields?: string[] | null
   ): Promise<void> {
     if (isAdmin) return;
 
@@ -996,7 +1063,49 @@ export class ItemsService {
     const dataFields = Object.keys(data);
     const relationNames = schemaManager.getRelationNames(this.collection);
 
+    // Privilege/sensitive fields: writable only when EXPLICITLY named in the
+    // permission's raw fields (not via "*"). This is checked before the regular
+    // allow-list so a broad "*" grant can't be used for mass-assignment.
+    //
+    // PROTECT_PRIVILEGE_FIELDS is a tri-state:
+    //   "true" (default) — full protection. `password` is hard-denied even when
+    //                      explicitly granted (admins can still set it — they skip
+    //                      this method entirely).
+    //   "allow-password" — protection ON, but `password` is demoted to the opt-in
+    //                      tier so a non-admin role can set it when EXPLICITLY
+    //                      granted (fields:["*","password"]) — e.g. a "user-manager"
+    //                      resetting subordinates' passwords. Still auto-hashed.
+    //   "false"          — protection OFF entirely ("*" grants everything). NOT recommended.
+    // (isPublic file-publishing protection is a SEPARATE flag, PROTECT_IS_PUBLIC_FIELD.)
+    const protectMode = (env.get("PROTECT_PRIVILEGE_FIELDS") || "true").toLowerCase();
+    const protectPrivilegeFields = protectMode !== "false";
+    const allowPasswordGrant = protectMode === "allow-password";
+
+    const neverWritable = new Set(ItemsService.NEVER_WRITABLE_FIELDS);
+    const protectedWriteFields = protectPrivilegeFields
+      ? await this.getProtectedWriteFields()
+      : new Set<string>();
+    if (allowPasswordGrant) {
+      neverWritable.delete('password');
+      // Demote to opt-in: still excluded from "*", allowed only when named explicitly.
+      protectedWriteFields.add('password');
+    }
+
+    const explicitlyGranted = new Set(rawFields || []);
+
     for (const field of dataFields) {
+      // Absolute hard-deny applies even when PROTECT_PRIVILEGE_FIELDS is off —
+      // these fields must never be set via the data API regardless.
+      if (neverWritable.has(field)) {
+        throw new APIError(`You don't have permission to ${action} field: ${field}`, 403);
+      }
+      if (protectPrivilegeFields) {
+        // Privilege field swept in by "*" but not explicitly named → deny.
+        if (protectedWriteFields.has(field) && !explicitlyGranted.has(field)) {
+          throw new APIError(`You don't have permission to ${action} field: ${field}`, 403);
+        }
+      }
+
       if (relationNames.includes(field)) {
         // Relation field — check if any allowed field references this relation
         // "*" only covers direct fields; relations need "*.*", "relation.*", or "relation.field"
@@ -1087,7 +1196,8 @@ export class ItemsService {
     isAdmin: boolean,
     bypassPermissions: boolean,
     filterJoins: any[] = [],
-    transaction?: Transaction
+    transaction?: Transaction,
+    includeHidden: boolean = false
   ): Promise<ReadResult> {
     const dbClient = transaction || db;
     console.log('[ItemsService] Using Drizzle query builder for HasMany sorting/filtering');
@@ -1299,47 +1409,62 @@ export class ItemsService {
     const recordMap = new Map(finalRecords.map(r => [r[this.primaryKey], r]));
     const orderedRecords = ids.map(id => recordMap.get(id)).filter(r => r != null);
 
-    // Get total count using Drizzle query builder (same joins as ID query)
-    let countQuery = dbClient
-      .select({ count: sql`COUNT(DISTINCT ${this.getPrimaryKeyColumn()})`.mapWith(Number) })
-      .from(this.table)
-      .$dynamic();
+    // Resolve count behavior. The ID query already deduplicated and paginated,
+    // so when returning all rows from offset 0 the unique-id set IS the full
+    // result and `ids.length` is the exact total — no COUNT query needed.
+    const computeCount = this.shouldComputeCount(query);
+    const countFromLength = limit === -1 && (offset === undefined || offset === 0);
 
-    // Apply same joins as ID query
-    for (const include of processedIncludes) {
-      if (include.separate) {
-        countQuery = countQuery.leftJoin(include.table, include.joinCondition);
-        if (include.nested.length > 0) {
-          countQuery = this.applyNestedJoins(countQuery, include.nested);
-        }
-      } else if (include.relationType === 'BelongsTo' || include.relationType === 'HasOne') {
-        countQuery = countQuery.leftJoin(include.table, include.joinCondition);
-        if (include.nested.length > 0) {
-          countQuery = this.applyNestedJoins(countQuery, include.nested);
+    let totalCount: number | null;
+    if (!computeCount) {
+      totalCount = null;
+    } else if (countFromLength) {
+      totalCount = ids.length;
+    } else {
+      // Get total count using Drizzle query builder (same joins as ID query)
+      let countQuery = dbClient
+        .select({ count: sql`COUNT(DISTINCT ${this.getPrimaryKeyColumn()})`.mapWith(Number) })
+        .from(this.table)
+        .$dynamic();
+
+      // Apply same joins as ID query
+      for (const include of processedIncludes) {
+        if (include.separate) {
+          countQuery = countQuery.leftJoin(include.table, include.joinCondition);
+          if (include.nested.length > 0) {
+            countQuery = this.applyNestedJoins(countQuery, include.nested);
+          }
+        } else if (include.relationType === 'BelongsTo' || include.relationType === 'HasOne') {
+          countQuery = countQuery.leftJoin(include.table, include.joinCondition);
+          if (include.nested.length > 0) {
+            countQuery = this.applyNestedJoins(countQuery, include.nested);
+          }
         }
       }
-    }
 
-    // Apply filterJoins
-    if (filterJoins.length > 0) {
-      for (const filterJoin of filterJoins) {
-        const aliasedTable = alias(filterJoin.table, filterJoin.alias);
-        const joinMethod = filterJoin.type === 'inner' ? 'innerJoin' :
-                         filterJoin.type === 'right' ? 'rightJoin' : 'leftJoin';
-        countQuery = countQuery[joinMethod](aliasedTable as any, filterJoin.condition);
+      // Apply filterJoins
+      if (filterJoins.length > 0) {
+        for (const filterJoin of filterJoins) {
+          const aliasedTable = alias(filterJoin.table, filterJoin.alias);
+          const joinMethod = filterJoin.type === 'inner' ? 'innerJoin' :
+                           filterJoin.type === 'right' ? 'rightJoin' : 'leftJoin';
+          countQuery = countQuery[joinMethod](aliasedTable as any, filterJoin.condition);
+        }
       }
+
+      // Apply WHERE clause
+      if (whereClause) {
+        countQuery = countQuery.where(whereClause);
+      }
+
+      const countResult = await countQuery;
+      totalCount = countResult[0]?.count || 0;
     }
 
-    // Apply WHERE clause
-    if (whereClause) {
-      countQuery = countQuery.where(whereClause);
-    }
-
-    const countResult = await countQuery;
-    const totalCount = countResult[0]?.count || 0;
-
-    // Strip hidden fields from records before returning
-    const strippedRecords = fieldUtils.stripHiddenFieldsFromRecords(this.collection, orderedRecords);
+    // Strip hidden fields from records before returning (unless system caller opted in)
+    const strippedRecords = includeHidden
+      ? orderedRecords
+      : fieldUtils.stripHiddenFieldsFromRecords(this.collection, orderedRecords);
 
     return {
       data: strippedRecords,
@@ -1391,14 +1516,36 @@ export class ItemsService {
   }
 
   /**
+   * Resolve whether the COUNT query should run for this request.
+   *
+   * Precedence:
+   *  1. Explicit `query.count` (true/false) always wins.
+   *  2. Otherwise fall back to env `COUNT_BY_DEFAULT` (defaults to `true`).
+   *
+   * Returns `false` only when the count is explicitly disabled or the
+   * deployment default is off — in which case `totalCount` will be `null`.
+   */
+  private shouldComputeCount(query: QueryOptions): boolean {
+    if (query.count === true) return true;
+    if (query.count === false) return false;
+    // Default on unless the deployment explicitly turns it off.
+    return env.get('COUNT_BY_DEFAULT') !== 'false';
+  }
+
+  /**
    * Read records by query
    */
   async readByQuery(
     query: QueryOptions = {},
     bypassPermissions: boolean = false,
-    transaction?: Transaction
+    transaction?: Transaction,
+    options: { includeHidden?: boolean } = {}
   ): Promise<ReadResult> {
     const dbClient = transaction || db;
+    // includeHidden lets trusted SYSTEM callers (e.g. the auth adapter verifying a
+    // password) receive `hidden` fields. It is an explicit method option, NOT part
+    // of the user-facing query, so it can never be set from an HTTP request.
+    const includeHidden = options.includeHidden === true;
     // Execute before-read hooks
     let hookData = await hooksManager.executeHooks(
       this.collection,
@@ -1474,7 +1621,8 @@ export class ItemsService {
           isAdmin,
           bypassPermissions,
           filterJoins,
-          transaction
+          transaction,
+          includeHidden
         );
       }
 
@@ -1540,8 +1688,16 @@ export class ItemsService {
         baseQuery = baseQuery.offset(offset);
       }
 
-      // Generate cache key and get involved tables
-      const cacheKey = this.generateCacheKey(modifiedQuery, processedIncludes);
+      // Resolve count behavior once for this request.
+      const computeCount = this.shouldComputeCount(modifiedQuery);
+      // When returning all rows from the start of the set, the page IS the full
+      // result, so its length is the exact total — no separate COUNT needed.
+      const countFromLength = limit === -1 && (offset === undefined || offset === 0);
+      const countMode = !computeCount ? 'off' : (countFromLength ? 'len' : 'on');
+
+      // Generate cache key and get involved tables.
+      // countMode is part of the key so on/off variants don't share a cache entry.
+      const cacheKey = this.generateCacheKey(modifiedQuery, processedIncludes, countMode);
       const involvedTables = this.getInvolvedTables(processedIncludes);
 
       // Execute main query with cache
@@ -1579,49 +1735,58 @@ export class ItemsService {
             processedRecords = nestJoinedRelations(records, processedIncludes);
           }
 
-          // Get total count
-          const primaryKeyColumn = this.getPrimaryKeyColumn();
-          if (!primaryKeyColumn) {
-            console.error(`[ItemsService.readByQuery] Primary key column is undefined for ${this.collection}!`);
-            console.error(`[ItemsService.readByQuery] Primary key name:`, this.primaryKey);
-            console.error(`[ItemsService.readByQuery] Available columns:`, Object.keys(this.table).filter(k => !k.startsWith('_')));
-          }
-          let countQuery: any = dbClient.select({ count: sql`COUNT(DISTINCT ${primaryKeyColumn})` }).from(this.table);
-
-          // Apply same joins and where for count
-          if (hasFilterJoins) {
-            // Use filterJoins for count query as well
-            for (const filterJoin of filterJoins) {
-              const aliasedTable = alias(filterJoin.table, filterJoin.alias);
-              countQuery = countQuery.leftJoin(aliasedTable as any, filterJoin.condition);
-            }
+          // Get total count.
+          // Fast paths that avoid a separate COUNT query:
+          //  - count disabled for this request → null
+          //  - returning all rows from offset 0 → the page length is the total
+          let count: number | null;
+          if (!computeCount) {
+            count = null;
+          } else if (countFromLength) {
+            count = processedRecords.length;
           } else {
-            for (const include of processedIncludes) {
-              if (include.separate) continue;
+            const primaryKeyColumn = this.getPrimaryKeyColumn();
+            if (!primaryKeyColumn) {
+              console.error(`[ItemsService.readByQuery] Primary key column is undefined for ${this.collection}!`);
+              console.error(`[ItemsService.readByQuery] Primary key name:`, this.primaryKey);
+              console.error(`[ItemsService.readByQuery] Available columns:`, Object.keys(this.table).filter(k => !k.startsWith('_')));
+            }
+            let countQuery: any = dbClient.select({ count: sql`COUNT(DISTINCT ${primaryKeyColumn})` }).from(this.table);
 
-              if (include.relationType === 'BelongsTo' || include.relationType === 'HasOne') {
-                countQuery = countQuery.leftJoin(include.table, include.joinCondition);
+            // Apply same joins and where for count
+            if (hasFilterJoins) {
+              // Use filterJoins for count query as well
+              for (const filterJoin of filterJoins) {
+                const aliasedTable = alias(filterJoin.table, filterJoin.alias);
+                countQuery = countQuery.leftJoin(aliasedTable as any, filterJoin.condition);
+              }
+            } else {
+              for (const include of processedIncludes) {
+                if (include.separate) continue;
 
-                if (include.nested.length > 0) {
-                  countQuery = this.applyNestedJoins(countQuery, include.nested);
+                if (include.relationType === 'BelongsTo' || include.relationType === 'HasOne') {
+                  countQuery = countQuery.leftJoin(include.table, include.joinCondition);
+
+                  if (include.nested.length > 0) {
+                    countQuery = this.applyNestedJoins(countQuery, include.nested);
+                  }
                 }
               }
             }
-          }
-          if (whereClause) {
-            countQuery = countQuery.where(whereClause);
-          }
+            if (whereClause) {
+              countQuery = countQuery.where(whereClause);
+            }
 
-          let countResult, count;
-          try {
-            countResult = await countQuery;
-            count = Number(countResult[0]?.count || 0);
-          } catch (countError) {
-            console.error(`[ItemsService.readByQuery] Count query execution failed for ${this.collection}`);
-            console.error(`[ItemsService.readByQuery] Count query error:`, countError.message);
-            console.error(`[ItemsService.readByQuery] HasFilterJoins:`, hasFilterJoins);
-            console.error(`[ItemsService.readByQuery] ProcessedIncludes count:`, processedIncludes.length);
-            throw countError;
+            try {
+              const countResult = await countQuery;
+              count = Number(countResult[0]?.count || 0);
+            } catch (countError) {
+              console.error(`[ItemsService.readByQuery] Count query execution failed for ${this.collection}`);
+              console.error(`[ItemsService.readByQuery] Count query error:`, countError.message);
+              console.error(`[ItemsService.readByQuery] HasFilterJoins:`, hasFilterJoins);
+              console.error(`[ItemsService.readByQuery] ProcessedIncludes count:`, processedIncludes.length);
+              throw countError;
+            }
           }
 
           // Return both records and count to be cached together
@@ -1632,8 +1797,10 @@ export class ItemsService {
         }
       );
 
-      // Strip hidden fields from records
-      const strippedRecords = fieldUtils.stripHiddenFieldsFromRecords(this.collection, finalRecords);
+      // Strip hidden fields from records (unless a trusted system caller opted in)
+      const strippedRecords = includeHidden
+        ? finalRecords
+        : fieldUtils.stripHiddenFieldsFromRecords(this.collection, finalRecords);
 
       // Sanitize auto-added fields (remove fields user didn't request)
       const sanitizedRecords = this.sanitizeAutoAddedFields(
@@ -1985,9 +2152,11 @@ export class ItemsService {
     id: string | number,
     query: QueryOptions = {},
     bypassPermissions: boolean = false,
-    transaction?: Transaction
+    transaction?: Transaction,
+    options: { includeHidden?: boolean } = {}
   ): Promise<any> {
     const dbClient = transaction || db;
+    const includeHidden = options.includeHidden === true;
     const parsedId = this.parseId(id);
 
     if (!parsedId) {
@@ -2073,8 +2242,10 @@ export class ItemsService {
 
       const document = finalRecords[0];
 
-      // Strip hidden fields from the document
-      const strippedDocument = fieldUtils.stripHiddenFields(this.collection, document);
+      // Strip hidden fields from the document (unless a system caller opted in)
+      const strippedDocument = includeHidden
+        ? document
+        : fieldUtils.stripHiddenFields(this.collection, document);
 
       // Execute after-read-one hooks
       hookData = await hooksManager.executeHooks(
@@ -2197,14 +2368,14 @@ export class ItemsService {
     // Check permission and apply field permissions (single cache lookup)
     if (!options.bypassPermissions && !isAdmin) {
       const roleId = this.getRoleId();
-      const { canAccess, allowedFields } =
+      const { canAccess, allowedFields, rawFields } =
         await permissionService.getFullPermissionData(roleId, this.collection, 'create', this.accountability);
 
       if (!canAccess) {
         throw new APIError("You don't have permission to create items in '" + this.collection + "'", 403);
       }
 
-      await this.applyFieldPermissions(modifiedData, 'create', isAdmin, allowedFields);
+      await this.applyFieldPermissions(modifiedData, 'create', isAdmin, allowedFields, rawFields);
       const defaultValues = await this.getDefaultValues('create');
       modifiedData = { ...defaultValues, ...modifiedData };
     } else if (!options.bypassPermissions) {
@@ -2493,14 +2664,14 @@ export class ItemsService {
     // Check permission and apply field permissions (single cache lookup)
     if (!options.bypassPermissions && !isAdmin) {
       const roleId = this.getRoleId();
-      const { canAccess, allowedFields } =
+      const { canAccess, allowedFields, rawFields } =
         await permissionService.getFullPermissionData(roleId, this.collection, 'update', this.accountability);
 
       if (!canAccess) {
         throw new APIError("You don't have permission to update items in '" + this.collection + "'", 403);
       }
 
-      await this.applyFieldPermissions(modifiedData, 'update', isAdmin, allowedFields);
+      await this.applyFieldPermissions(modifiedData, 'update', isAdmin, allowedFields, rawFields);
       const defaultValues = await this.getDefaultValues('update');
       modifiedData = { ...defaultValues, ...modifiedData };
     } else if (!options.bypassPermissions) {

@@ -74,6 +74,21 @@ POST /permissions
 }
 ```
 
+#### Field & condition rules (common mistakes)
+
+- **`fields` `"*"` = OWN columns only.** It does NOT include any relation. A relation
+  not named in `fields` is stripped from the response entirely (even if
+  `relConditions` targets it). Grant relations explicitly with dot notation:
+  `"items.*"` (one level), `"items.product.*"` (deeper). Each `*` segment is one
+  level — there is **no `**` syntax**; use `"*.*"` / `"rel.*.*"` to go deeper.
+- **`conditions` ≠ `relConditions`:**
+  - `conditions` = ROW filter on THIS collection — *which records* the role sees.
+    Keys are this collection's columns (relation paths like `customer.department`
+    are allowed to filter the main rows by related data).
+  - `relConditions` = filter on RELATED rows returned in array relations (O2M/M2M)
+    — *which related rows* appear in the response. Keyed by relation name. Does not
+    restrict the main records, and only applies to relations also granted in `fields`.
+
 ### Built-in Roles
 | Role | Description |
 |------|-------------|
@@ -342,9 +357,34 @@ const products = await baasix.items<Products>("products").list();
 | LOG_LEVEL | info | fatal/error/warn/info/debug/trace |
 | MULTI_TENANT | false | Multi-tenancy |
 | SOCKET_ENABLED | false | Socket.IO |
+| REALTIME_ROW_LEVEL_SCOPING | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
 | PUBLIC_REGISTRATION | true | Allow public registration |
 | RATE_LIMIT | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | 5000 | Rate limit interval (ms) |
+| AUTH_RATE_LIMIT | 10 | Brute-force limit for login/magic-link/password-reset, per (IP+email) pair (per-account budget per IP; does not cap total across accounts) |
+| AUTH_RATE_LIMIT_INTERVAL | 900000 | Window (ms) for the auth limiter (15 min) |
+| AUTH_RATE_LIMIT_DISABLED | (off) | Disable the auth limiter (auto-disabled in TEST_MODE) |
+| COUNT_BY_DEFAULT | true | Compute `totalCount` on list reads (per-request `?count=` overrides) |
+
+### Security Hardening (all default true/secure; set false to relax)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| PROTECT_PRIVILEGE_FIELDS | true | role_Id/tenant_Id/emailVerified/hidden fields excluded from `fields:["*"]` — must be named explicitly (admins exempt). Tri-state: `true` (password denied to non-admins even if explicitly granted), `allow-password` (non-admin may set password when explicitly granted — delegated reset; still hashed), `false` (off) |
+| PROTECT_IS_PUBLIC_FIELD | false | Make baasix_File isPublic opt-in (not settable via broad `*` grant); default off = backward compatible |
+| EXPOSE_ERROR_DETAILS | (prod: false) | Include raw DB error text in responses; off in production (leaks schema / injection oracle) |
+| STORAGE_PATH_CONFINEMENT | true | Confine local-disk file ops within storage root (blocks path traversal) |
+| ASSET_XSS_PROTECTION | true | Force executable upload types (html/svg/js/xml) to download, not render inline |
+| ASSET_NOSNIFF | true | Send `X-Content-Type-Options: nosniff` on asset responses |
+| STRICT_TENANT_ISOLATION | true | (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped |
+| OAUTH_ALLOW_UNVERIFIED_LINK | false | Auto-link OAuth to existing account on UNVERIFIED email (off = secure; only link verified) |
+| OAUTH_ALLOW_DIRECT_IDTOKEN | false | Enable client-supplied direct idToken sign-in (off; requires JWKS verification) |
+| OAUTH_STATE_COOKIE_BINDING | false | Bind OAuth state to browser cookie for CSRF (off; may break cross-site callbacks) |
+| SSRF_ALLOW_PRIVATE_URL_FETCH | false | Allow server-side URL fetches to private/loopback/metadata IPs (off = blocked, resolved-IP + per-redirect checked) |
+| URL_FETCH_TIMEOUT_MS | 15000 | Response timeout per hop for upload-from-URL (time-to-first-response, not total download; size capped by MAX_UPLOAD_FILE_SIZE) |
+| ASSET_MAX_DIMENSION | 5000 | Max output width/height (px) for image transforms; larger requests clamped (DoS guard) |
+| ASSET_MAX_INPUT_PIXELS | 100000000 | Max input pixels the decoder accepts (sharp limitInputPixels) |
+
+> SQL-injection protection (identifier allowlisting on filter/sort/aggregate fields + JSONB numeric-operand validation) is always on and not configurable.
 
 ### System Cache
 | Variable | Default | Description |

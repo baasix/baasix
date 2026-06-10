@@ -560,24 +560,41 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         });
       } else if (oauthUser.email) {
         // Check if user exists with this email
-        user = await adapter.findUserByEmail(oauthUser.email);
-        
-        if (user) {
-          // Link account to existing user
-          account = await adapter.createAccount({
-            user_Id: user.id,
-            accountId: oauthUser.id.toString(),
-            providerId: providerName,
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-            accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-            idToken: tokens.idToken,
-            scope: tokens.scopes?.join(" "),
-          });
-          
-          // Call hook if defined
-          if (options.hooks?.onOAuthAccountLinked) {
-            await options.hooks.onOAuthAccountLinked(user, account);
+        const existingUser = await adapter.findUserByEmail(oauthUser.email);
+
+        if (existingUser) {
+          // SECURITY: only auto-link an OAuth identity to an EXISTING local account
+          // when the provider asserts the email is VERIFIED. Otherwise an attacker
+          // who can present an unverified email matching a victim's account would
+          // take it over. Set OAUTH_ALLOW_UNVERIFIED_LINK=true to restore the old
+          // behavior (link regardless of verification — NOT recommended; only safe
+          // if every configured provider is trusted to verify emails).
+          const allowUnverifiedLink = env.get("OAUTH_ALLOW_UNVERIFIED_LINK") === "true";
+          if (oauthUser.emailVerified === true || allowUnverifiedLink) {
+            user = existingUser;
+            // Link account to existing user
+            account = await adapter.createAccount({
+              user_Id: user.id,
+              accountId: oauthUser.id.toString(),
+              providerId: providerName,
+              accessToken: tokens.accessToken,
+              refreshToken: tokens.refreshToken,
+              accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+              idToken: tokens.idToken,
+              scope: tokens.scopes?.join(" "),
+            });
+
+            // Call hook if defined
+            if (options.hooks?.onOAuthAccountLinked) {
+              await options.hooks.onOAuthAccountLinked(user, account);
+            }
+          } else {
+            // Email matches an existing account but is unverified — refuse to link
+            // (and refuse to silently create a duplicate, which would also be
+            // confusing). Surface a clear, non-enumerating error.
+            throw new Error(
+              "This email is already associated with an account. Sign in with your existing method, or verify your email with the provider before linking."
+            );
           }
         }
       }
@@ -700,21 +717,31 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     
     // Change Password
     async changePassword(userId, currentPassword, newPassword) {
-      return credentialProvider.changePassword({
+      const result = await credentialProvider.changePassword({
         adapter,
         userId,
         currentPassword,
         newPassword,
       });
+      // Revoke all existing sessions so a stolen/old session can't survive a
+      // password change. The user must re-authenticate with the new password.
+      if (result) {
+        await sessionService.invalidateAllSessions(userId);
+      }
+      return result;
     },
-    
+
     // Reset Password
     async resetPassword(userId, newPassword) {
-      return credentialProvider.resetPassword({
+      const result = await credentialProvider.resetPassword({
         adapter,
         userId,
         newPassword,
       });
+      if (result) {
+        await sessionService.invalidateAllSessions(userId);
+      }
+      return result;
     },
     
     // Create Email Verification
@@ -785,12 +812,18 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       if (!user) {
         return false;
       }
-      
-      return credentialProvider.resetPassword({
+
+      const result = await credentialProvider.resetPassword({
         adapter,
         userId: user.id,
         newPassword,
       });
+      // Revoke all sessions on a reset — a reset usually follows a compromise, so
+      // any pre-existing session must be killed.
+      if (result) {
+        await sessionService.invalidateAllSessions(user.id);
+      }
+      return result;
     },
     
     // Generate Token for User (for extensions)

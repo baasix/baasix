@@ -14,12 +14,55 @@ import { getCache } from "./cache.js";
 import { eq, and } from "drizzle-orm";
 import { schemaManager } from "./schemaManager.js";
 import { permissionService } from '../services/PermissionService.js';
+import { validateSecurityPostureAtStartup } from './securityPosture.js';
 import fieldUtils from "./fieldUtils.js";
 import type { JWTPayload, UserWithRolesAndPermissions } from '../types/index.js';
 import { setContextAccountability } from './requestContext.js';
 
 // Re-export types for backward compatibility
 export type { JWTPayload, UserWithRolesAndPermissions };
+
+/**
+ * The only JWT algorithm Baasix issues and accepts. Pinning this on every
+ * jwt.verify() prevents algorithm-confusion attacks (e.g. `alg:none`, or forging
+ * an HS256 token using a public key if the secret were ever asymmetric).
+ */
+export const JWT_ALGORITHM = 'HS256' as const;
+
+/** Recommended minimum length for the JWT signing secret. */
+export const MIN_SECRET_LENGTH = 32;
+
+/**
+ * Get the configured JWT secret.
+ *
+ * Hard requirement: the secret must be present. A missing/empty secret makes every
+ * token trivially forgeable, so we always refuse to sign/verify without one.
+ *
+ * Secret *strength* (length) is NOT enforced here — that is only a recommendation
+ * and is surfaced once at startup via validateAuthSecretAtStartup(). This keeps an
+ * existing deployment that runs a shorter key working (rather than crashing on the
+ * next restart), while still nudging operators to rotate to a stronger secret.
+ */
+export function getJwtSecret(): string {
+  const secret = env.get('SECRET_KEY');
+  if (!secret) {
+    throw new Error('SECRET_KEY is not configured. Refusing to sign/verify JWTs without a secret.');
+  }
+  return secret;
+}
+
+/**
+ * One-time startup validation of the JWT secret. Call this once during server
+ * boot (NOT per request). Logs a prominent warning when the secret is shorter than
+ * the recommended length so operators can plan a rotation, without breaking a
+ * running production system.
+ */
+export function validateAuthSecretAtStartup(): void {
+  // The SECRET_KEY checks (fatal if missing, advisory if short) are now part of the
+  // consolidated startup security posture. Delegated here so existing callers/imports
+  // keep working; new code can call validateSecurityPostureAtStartup directly.
+  validateSecurityPostureAtStartup();
+}
 
 /**
  * Lazy getter for ItemsService to avoid circular dependency
@@ -119,13 +162,10 @@ export async function getRolesAndPermissions(roleId: string | number): Promise<{
  * Verify JWT token and return decoded payload
  */
 export function verifyJWT(token: string): any {
-  const secret = env.get("SECRET_KEY");
-  if (!secret) {
-    throw new Error("SECRET_KEY not configured");
-  }
+  const secret = getJwtSecret();
 
   try {
-    return jwt.verify(token, secret);
+    return jwt.verify(token, secret, { algorithms: [JWT_ALGORITHM] });
   } catch (error: any) {
     throw new Error(`Invalid token: ${error.message}`);
   }
@@ -261,12 +301,8 @@ export async function getUserRolesPermissionsAndTenant(
  * Generate JWT token for user
  */
 export function generateJWT(payload: Record<string, any>, expiresIn: string | number = "7d"): string {
-  const secret = env.get("SECRET_KEY");
-  if (!secret) {
-    throw new Error("SECRET_KEY not configured");
-  }
-
-  return jwt.sign(payload, secret, { expiresIn } as any);
+  const secret = getJwtSecret();
+  return jwt.sign(payload, secret, { expiresIn, algorithm: JWT_ALGORITHM } as any);
 }
 
 /**
@@ -351,7 +387,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
     }
 
     // Verify JWT token
-    const payload = jwt.verify(token, env.get("SECRET_KEY") as string) as JWTPayload;
+    const payload = jwt.verify(token, getJwtSecret(), { algorithms: [JWT_ALGORITHM] }) as JWTPayload;
 
     // Validate session and get user in one query
     const sessionResult = await validateSession(payload.sessionToken, payload.tenant_Id?.toString() || null);
@@ -539,12 +575,14 @@ export async function validateSession(
   const ItemsService = await getItemsService();
   const sessionService = new ItemsService('baasix_Sessions');
 
-  // Fetch session with user relation to get all user fields in one query
+  // Fetch session with user relation to get all user fields in one query.
+  // includeHidden: this is the trusted session-validation path — the session's
+  // `token` field is hidden but needed here for cache/cleanup bookkeeping.
   const sessions = await sessionService.readByQuery({
     filter: { token: { eq: token } },
     fields: ['*', 'user.*'],
     limit: 1,
-  });
+  }, false, undefined, { includeHidden: true });
 
   if (!sessions.data || sessions.data.length === 0) {
     return null;

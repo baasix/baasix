@@ -1,5 +1,13 @@
 # @baasix/baasix
 
+## 0.1.79
+
+### Patch Changes
+
+- Security audit and found issues fixed.
+- Updated dependencies
+  - @baasix/types@1.0.8
+
 ## 0.1.78
 
 ### Patch Changes

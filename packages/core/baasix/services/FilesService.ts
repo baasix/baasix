@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { getProjectPath } from "../utils/dirname.js";
+import { assertSafeFetchUrl } from "../utils/ssrfGuard.js";
 import sharp from "sharp";
 // @ts-ignore - No type definitions available
 import ffprobe from "ffprobe";
@@ -11,7 +12,7 @@ import ffprobe from "ffprobe";
 import { path as ffprobePath } from "ffprobe-static";
 import { lookup } from "mime-types";
 import ItemsService from "./ItemsService.js";
-import storageService from "./StorageService.js";
+import storageService, { resolveStorageKey } from "./StorageService.js";
 import { APIError } from "../utils/errorHandler.js";
 import axios from "axios";
 import { db } from "../utils/db.js";
@@ -151,7 +152,7 @@ class FilesService {
     const fileContent = await fs.readFile(tempPath);
 
     if (provider.driver === "LOCAL") {
-      filePath = path.join(provider.basePath!, filename);
+      filePath = resolveStorageKey(provider.basePath!, filename);
       const destinationDir = path.dirname(filePath);
       await fs.mkdir(destinationDir, { recursive: true });
       await fs.writeFile(filePath, fileContent);
@@ -265,7 +266,7 @@ class FilesService {
     const provider = this.storageService.getProvider(file.storage);
 
     if (provider.driver === "LOCAL") {
-      const filePath = path.join(provider.basePath!, file.filename);
+      const filePath = resolveStorageKey(provider.basePath!, file.filename);
       if (
         await fs
           .access(filePath)
@@ -319,12 +320,47 @@ class FilesService {
   }
 
   async downloadFile(url: string, outputLocationPath: string): Promise<void> {
+    // SSRF guard: validate the URL (and every redirect hop) against private/
+    // loopback/link-local/metadata ranges before fetching. We disable axios's
+    // automatic redirects and follow them manually so each hop is re-validated —
+    // otherwise an allowlisted host could 302 to 169.254.169.254.
+    const maxHops = 5;
+    const maxBytes = parseInt(env.get("MAX_UPLOAD_FILE_SIZE") || "50") * 1024 * 1024;
+    // Response timeout per request/redirect hop (time-to-first-response, not total
+    // download time — with responseType:"stream" axios's timeout governs receiving
+    // the response, not the body transfer). Total bytes are bounded by maxBytes.
+    const timeoutMs = parseInt(env.get("URL_FETCH_TIMEOUT_MS") || "15000");
+
+    let currentUrl = url;
+    let response: any;
+    for (let hop = 0; ; hop++) {
+      await assertSafeFetchUrl(currentUrl);
+
+      response = await axios({
+        url: currentUrl,
+        method: "GET",
+        responseType: "stream",
+        maxRedirects: 0,            // we follow redirects ourselves to re-validate
+        timeout: timeoutMs,
+        maxContentLength: maxBytes,
+        maxBodyLength: maxBytes,
+        // Treat 3xx as a non-error so we can inspect Location.
+        validateStatus: (s: number) => (s >= 200 && s < 300) || (s >= 300 && s < 400),
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers?.location;
+        // Drain the redirect response body to free the socket.
+        response.data?.destroy?.();
+        if (!location) throw new APIError("Redirect without Location header", 400);
+        if (hop >= maxHops) throw new APIError("Too many redirects", 400);
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+      break; // 2xx — proceed to stream
+    }
+
     const writer = createWriteStream(outputLocationPath);
-    const response = await axios({
-      url,
-      method: "GET",
-      responseType: "stream",
-    });
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {

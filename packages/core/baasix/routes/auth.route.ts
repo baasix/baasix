@@ -21,9 +21,11 @@ const registerEndpoint = (app: Express) => {
   // Parse enabled auth services
   const enabledServices = (env.get("AUTH_SERVICES_ENABLED") || "LOCAL").split(",").map(s => s.trim().toUpperCase());
   
-  // Initialize the new auth module
+  // Initialize the new auth module.
+  // No "" fallback: a missing/weak SECRET_KEY must fail loudly, not silently sign
+  // tokens with an empty secret (createTokenService also enforces >= 32 chars).
   const authOptions: AuthRouteOptions = {
-    secret: env.get("SECRET_KEY") || "",
+    secret: env.get("SECRET_KEY") || "",  // validated downstream in createTokenService
     baseURL: env.get("BASE_URL"),
     session: {
       expiresIn: parseInt(env.get("ACCESS_TOKEN_EXPIRES_IN") || "604800"), // 7 days default

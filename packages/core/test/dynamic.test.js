@@ -1,6 +1,7 @@
 import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 import { beforeAll, test, expect, describe, beforeEach, afterAll } from "@jest/globals";
+import ItemsService from "../baasix/services/ItemsService";
 
 let app;
 let adminToken;
@@ -175,6 +176,85 @@ describe("Dynamic Variables in Filters Tests", () => {
         expect(response.status).toBe(200);
         expect(response.body.data).toHaveLength(1);
         expect(response.body.data[0]).toHaveProperty("authorId", testUserId);
+    });
+
+    test("Flat $CURRENT_USER field resolves from accountability — no baasix_User query", async () => {
+        // The full (non-hidden) user row is already on req.accountability.user, so a
+        // permission condition referencing a FLAT user field (here $CURRENT_USER.id)
+        // must resolve in-memory without an extra baasix_User read on each request.
+        const newPermission = await request(app)
+            .post("/permissions")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                role_Id: userRoleId,
+                collection: "posts",
+                action: "read",
+                fields: "*",
+                conditions: { authorId: { eq: "$CURRENT_USER.id" } },
+            });
+        permissionId = newPermission.body.id;
+
+        // Count baasix_User reads via ItemsService.readOne for the duration of the request
+        let userReadCount = 0;
+        const originalReadOne = ItemsService.prototype.readOne;
+        ItemsService.prototype.readOne = function (...args) {
+            if (this.collection === "baasix_User") userReadCount += 1;
+            return originalReadOne.apply(this, args);
+        };
+
+        try {
+            const response = await request(app).get("/items/posts").set("Authorization", `Bearer ${userToken}`);
+
+            expect(response.status).toBe(200);
+            // Condition still enforced (user sees only their own post)...
+            expect(response.body.data).toHaveLength(1);
+            expect(response.body.data[0]).toHaveProperty("authorId", testUserId);
+            // ...without resolving $CURRENT_USER.id through the database
+            expect(userReadCount).toBe(0);
+        } finally {
+            ItemsService.prototype.readOne = originalReadOne;
+        }
+    });
+
+    test("Relational $CURRENT_USER path is memoized — resolved via DB exactly once per request", async () => {
+        // $CURRENT_USER.userRoles.role_Id traverses a HasMany on the user, so it
+        // cannot use the in-memory fast path and must hit the DB. The resolver runs
+        // multiple times per read (permission conditions + relConditions + the merged
+        // filter), so without request-scoped memoization this would issue several
+        // baasix_User reads. Both conditions and relConditions reference the SAME
+        // relational path here; memoization must collapse them to a single DB read.
+        const newPermission = await request(app)
+            .post("/permissions")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                role_Id: userRoleId,
+                collection: "posts",
+                action: "read",
+                fields: "*,comments.*",
+                // role_Id won't equal authorId, so the user sees no posts — but the
+                // assertion is about HOW MANY times the user is read, not the result.
+                conditions: { authorId: { eq: "$CURRENT_USER.userRoles.role_Id" } },
+                relConditions: { comments: { authorId: { eq: "$CURRENT_USER.userRoles.role_Id" } } },
+            });
+        permissionId = newPermission.body.id;
+
+        let userReadCount = 0;
+        const originalReadOne = ItemsService.prototype.readOne;
+        ItemsService.prototype.readOne = function (...args) {
+            if (this.collection === "baasix_User") userReadCount += 1;
+            return originalReadOne.apply(this, args);
+        };
+
+        try {
+            const response = await request(app).get("/items/posts").set("Authorization", `Bearer ${userToken}`);
+
+            expect(response.status).toBe(200);
+            // The relational path forced a DB read, but memoization collapsed the
+            // repeated resolutions within this request into exactly one.
+            expect(userReadCount).toBe(1);
+        } finally {
+            ItemsService.prototype.readOne = originalReadOne;
+        }
     });
 
     test("User-provided filter with dynamic variable", async () => {
