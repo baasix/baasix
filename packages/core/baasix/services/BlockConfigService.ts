@@ -316,6 +316,15 @@ export function validatePageData(data: any, isCreate: boolean): void {
             );
         }
     }
+
+    if (data.roles !== undefined && data.roles !== null) {
+        if (
+            !Array.isArray(data.roles) ||
+            !data.roles.every((r: any) => typeof r === "string")
+        ) {
+            throw new APIError("roles must be an array of role ids", 400);
+        }
+    }
 }
 
 /**

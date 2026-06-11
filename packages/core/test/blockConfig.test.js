@@ -528,6 +528,34 @@ describe("validatePageData", () => {
     });
 });
 
+describe("validatePageData – roles field", () => {
+    test("roles undefined is ok (field not sent)", () => {
+        expect(() => validatePageData({ name: "My Page", slug: "my-page" }, true)).not.toThrow();
+    });
+
+    test("roles null is ok (visible to all)", () => {
+        expect(() => validatePageData({ name: "My Page", slug: "my-page", roles: null }, true)).not.toThrow();
+    });
+
+    test("roles as array of strings is ok", () => {
+        expect(() =>
+            validatePageData({ name: "My Page", slug: "my-page", roles: ["a", "b"] }, true)
+        ).not.toThrow();
+    });
+
+    test("roles as string throws mentioning roles", () => {
+        expect(() =>
+            validatePageData({ name: "My Page", slug: "my-page", roles: "x" }, true)
+        ).toThrow(/roles/);
+    });
+
+    test("roles as array with non-string element throws mentioning roles", () => {
+        expect(() =>
+            validatePageData({ name: "My Page", slug: "my-page", roles: [1] }, true)
+        ).toThrow(/roles/);
+    });
+});
+
 describe("mergeBlockForUpdate", () => {
     test("patch fields override existing fields", () => {
         const existing = { type: "table", collection: "posts", config: { columns: [] }, position: { row: 0, col: 0, span: 6 } };

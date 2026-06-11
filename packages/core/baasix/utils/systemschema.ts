@@ -1841,6 +1841,7 @@ export const systemSchemas = {
                     isPublic: { type: "Boolean", allowNull: false, defaultValue: false, SystemGenerated: "true" },
                     enabled: { type: "Boolean", allowNull: false, defaultValue: true, SystemGenerated: "true" },
                     options: { type: "JSON", allowNull: true, SystemGenerated: "true" },
+                    roles: { type: "JSON", allowNull: true, SystemGenerated: "true", description: "role ids allowed to see this page in menus; null = all" },
                     tenant_Id: { type: "UUID", allowNull: true, SystemGenerated: "true" },
                     tenant: {
                         relType: "BelongsTo",
