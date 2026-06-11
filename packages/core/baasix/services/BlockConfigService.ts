@@ -33,9 +33,16 @@ const COLLECTION_REQUIRED = new Set([
     "chart",
     "cardlist",
     "map",
+    "filter",
 ]);
 
 const FORM_MODES = new Set(["create", "edit"]);
+
+const CHART_TYPES = new Set(["bar", "line", "pie", "stat"]);
+
+const AGGREGATE_FUNCTIONS = new Set(["count", "sum", "avg", "min", "max"]);
+
+const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -60,6 +67,37 @@ function assertFieldExists(
             `Unknown field "${fieldPath}" in block ${context}: "${root}" does not exist on the target collection`,
             400
         );
+    }
+}
+
+/**
+ * Require config[key] to be present and reference an existing field.
+ * Used by Phase-2 types (kanban groupByField etc.): a block of these types
+ * created WITH a config that is missing the key must 400. A block created
+ * with NO config at all keeps the lenient Phase-1 behavior (config validation
+ * is skipped entirely) — renderers handle configless blocks defensively.
+ */
+function requireConfigField(config: any, key: string, fieldMap: Record<string, any>): void {
+    if (config[key] == null) {
+        throw new APIError(`Block config requires "${key}"`, 400);
+    }
+    assertFieldExists(config[key], fieldMap, `config.${key}`);
+}
+
+/**
+ * Validate an array of field entries. Entries may be `{field}` objects
+ * (ConfigFieldsPicker output, e.g. cardFields/fields/popupFields) or plain
+ * field-name strings (e.g. chart groupBy). Non-arrays are ignored.
+ */
+function assertFieldEntries(
+    entries: any,
+    fieldMap: Record<string, any>,
+    context: string
+): void {
+    if (!Array.isArray(entries)) return;
+    for (const entry of entries) {
+        const path = typeof entry === "string" ? entry : entry?.field;
+        assertFieldExists(path, fieldMap, context);
     }
 }
 
@@ -145,8 +183,111 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     assertFieldExists(entry?.field, fieldMap, "config.fields");
                 }
             }
+        } else if (type === "kanban") {
+            requireConfigField(config, "groupByField", fieldMap);
+            requireConfigField(config, "cardTitleField", fieldMap);
+            assertFieldEntries(config.cardFields, fieldMap, "config.cardFields");
+        } else if (type === "calendar") {
+            requireConfigField(config, "startField", fieldMap);
+            requireConfigField(config, "titleField", fieldMap);
+            if (config.endField != null) {
+                assertFieldExists(config.endField, fieldMap, "config.endField");
+            }
+            if (config.colorField != null) {
+                assertFieldExists(config.colorField, fieldMap, "config.colorField");
+            }
+            if (config.defaultView != null && !CALENDAR_VIEWS.has(config.defaultView)) {
+                throw new APIError(
+                    `Invalid defaultView "${config.defaultView}". Must be one of: month, week, day`,
+                    400
+                );
+            }
+        } else if (type === "chart") {
+            if (!CHART_TYPES.has(config.chartType)) {
+                throw new APIError(
+                    `Invalid chartType "${config.chartType}". Must be one of: bar, line, pie, stat`,
+                    400
+                );
+            }
+            const aggregate = config.aggregate;
+            if (
+                aggregate == null ||
+                typeof aggregate !== "object" ||
+                Array.isArray(aggregate) ||
+                Object.keys(aggregate).length === 0
+            ) {
+                throw new APIError(
+                    `Chart block config requires a non-empty "aggregate" object ({alias: {function, field}})`,
+                    400
+                );
+            }
+            for (const [alias, entry] of Object.entries<any>(aggregate)) {
+                if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                    throw new APIError(
+                        `Invalid aggregate "${alias}": must be an object {function, field}`,
+                        400
+                    );
+                }
+                if (!AGGREGATE_FUNCTIONS.has(entry.function)) {
+                    throw new APIError(
+                        `Invalid aggregate function "${entry.function}" for "${alias}". Must be one of: count, sum, avg, min, max`,
+                        400
+                    );
+                }
+                // "*" is allowed (count over all rows); otherwise the field must exist.
+                if (entry.field !== "*") {
+                    assertFieldExists(entry.field, fieldMap, `config.aggregate.${alias}`);
+                }
+            }
+            assertFieldEntries(config.groupBy, fieldMap, "config.groupBy");
+        } else if (type === "cardlist") {
+            requireConfigField(config, "titleField", fieldMap);
+            if (config.subtitleField != null) {
+                assertFieldExists(config.subtitleField, fieldMap, "config.subtitleField");
+            }
+            if (config.imageField != null) {
+                assertFieldExists(config.imageField, fieldMap, "config.imageField");
+            }
+            assertFieldEntries(config.fields, fieldMap, "config.fields");
+            if (config.columns != null) {
+                if (!Number.isInteger(config.columns) || config.columns < 1 || config.columns > 6) {
+                    throw new APIError(
+                        `Invalid columns "${config.columns}": must be an integer between 1 and 6`,
+                        400
+                    );
+                }
+            }
+        } else if (type === "map") {
+            requireConfigField(config, "geometryField", fieldMap);
+            if (config.titleField != null) {
+                assertFieldExists(config.titleField, fieldMap, "config.titleField");
+            }
+            assertFieldEntries(config.popupFields, fieldMap, "config.popupFields");
+        } else if (type === "filter") {
+            assertFieldEntries(config.fields, fieldMap, "config.fields");
+            if (config.targets != null && config.targets !== "all") {
+                const isStringArray =
+                    Array.isArray(config.targets) &&
+                    config.targets.every((t: any) => typeof t === "string");
+                if (!isStringArray) {
+                    throw new APIError(
+                        `Invalid targets: must be "all" or an array of block id strings`,
+                        400
+                    );
+                }
+            }
         }
-        // other types: no config validation in Phase 1
+    }
+
+    // markdown has no collection (and therefore no fieldMap) — validate its
+    // config independently of the fieldMap guard above.
+    if (config != null && type === "markdown") {
+        if (typeof config.content !== "string") {
+            throw new APIError(
+                `Markdown block config requires "content" to be a string`,
+                400
+            );
+        }
     }
 }
 
