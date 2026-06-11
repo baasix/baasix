@@ -33,6 +33,8 @@ export class ServerModule {
   /**
    * Get server information including project settings
    *
+   * @param tenantId - Optional tenant ID to fetch tenant-merged project settings
+   *
    * @example
    * ```typescript
    * const info = await baasix.server.info();
@@ -40,8 +42,11 @@ export class ServerModule {
    * console.log('Version:', info.version);
    * ```
    */
-  async info(): Promise<ServerInfo> {
-    return this.client.get<ServerInfo>("/");
+  async info(tenantId?: string): Promise<ServerInfo> {
+    return this.client.get<ServerInfo>(
+      "/",
+      tenantId ? { params: { tenant_id: tenantId } } : undefined
+    );
   }
 
   /**
