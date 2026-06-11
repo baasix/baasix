@@ -22,6 +22,8 @@ const BLOCK_TYPES = [
     "map",
     "markdown",
     "filter",
+    "buttons",
+    "media",
 ];
 
 const COLLECTION_REQUIRED = new Set([
@@ -34,6 +36,7 @@ const COLLECTION_REQUIRED = new Set([
     "cardlist",
     "map",
     "filter",
+    "media",
 ]);
 
 const FORM_MODES = new Set(["create", "edit"]);
@@ -43,6 +46,10 @@ const CHART_TYPES = new Set(["bar", "line", "pie", "stat"]);
 const AGGREGATE_FUNCTIONS = new Set(["count", "sum", "avg", "min", "max"]);
 
 const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
+
+const BUTTON_ACTION_TYPES = new Set(["link", "workflow"]);
+
+const MEDIA_VIEWERS = new Set(["image", "video", "audio", "auto"]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -263,6 +270,17 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                 assertFieldExists(config.titleField, fieldMap, "config.titleField");
             }
             assertFieldEntries(config.popupFields, fieldMap, "config.popupFields");
+        } else if (type === "media") {
+            requireConfigField(config, "fileField", fieldMap);
+            if (config.titleField != null) {
+                assertFieldExists(config.titleField, fieldMap, "config.titleField");
+            }
+            if (config.viewer != null && !MEDIA_VIEWERS.has(config.viewer)) {
+                throw new APIError(
+                    `Invalid viewer "${config.viewer}". Must be one of: image, video, audio, auto`,
+                    400
+                );
+            }
         } else if (type === "filter") {
             assertFieldEntries(config.fields, fieldMap, "config.fields");
             if (config.targets != null && config.targets !== "all") {
@@ -289,6 +307,68 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             );
         }
     }
+
+    // buttons also has no collection — when a config is present, "items" must
+    // be a non-empty array of valid button items. No config at all stays
+    // lenient (renderers handle configless blocks defensively).
+    if (config != null && type === "buttons") {
+        validateButtonsConfig(config);
+    }
+}
+
+/**
+ * Validate a buttons block config: `items` must be a non-empty array; each
+ * item needs a non-empty `label` and an `action` of type "link" (with a
+ * non-empty `url`) or "workflow" (with a non-empty `workflowId`). Extra keys
+ * (icon, style, newTab, confirm, …) pass through unvalidated.
+ */
+function validateButtonsConfig(config: any): void {
+    const { items } = config;
+    if (!Array.isArray(items) || items.length === 0) {
+        throw new APIError(
+            `Buttons block config requires "items" to be a non-empty array`,
+            400
+        );
+    }
+    items.forEach((item: any, index: number) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+            throw new APIError(`Invalid buttons item at index ${index}: must be an object`, 400);
+        }
+        if (typeof item.label !== "string" || item.label.length === 0) {
+            throw new APIError(
+                `Invalid buttons item at index ${index}: "label" must be a non-empty string`,
+                400
+            );
+        }
+        const action = item.action;
+        if (!action || typeof action !== "object" || Array.isArray(action)) {
+            throw new APIError(
+                `Invalid buttons item at index ${index}: "action" must be an object {type, ...}`,
+                400
+            );
+        }
+        if (!BUTTON_ACTION_TYPES.has(action.type)) {
+            throw new APIError(
+                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow`,
+                400
+            );
+        }
+        if (action.type === "link") {
+            if (typeof action.url !== "string" || action.url.length === 0) {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: link action requires "url" to be a non-empty string`,
+                    400
+                );
+            }
+        } else if (action.type === "workflow") {
+            if (typeof action.workflowId !== "string" || action.workflowId.length === 0) {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: workflow action requires "workflowId" to be a non-empty string`,
+                    400
+                );
+            }
+        }
+    });
 }
 
 /**

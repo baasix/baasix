@@ -442,6 +442,197 @@ describe("validateBlockData – phase 2 types", () => {
         });
     });
 
+    describe("buttons", () => {
+        test("valid buttons config does not throw (link + workflow items, extra keys pass through)", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: {
+                            items: [
+                                {
+                                    label: "Docs",
+                                    action: { type: "link", url: "https://example.com" },
+                                    icon: "book",
+                                    newTab: true,
+                                },
+                                {
+                                    label: "Run sync",
+                                    action: { type: "workflow", workflowId: "wf-1" },
+                                    confirm: "Are you sure?",
+                                },
+                            ],
+                        },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("buttons without collection does not throw (collection exempt)", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Go", action: { type: "link", url: "/x" } }] },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("buttons with no config at all does not throw (lenient)", () => {
+            expect(() => validateBlockData({ type: "buttons" }, nullFields)).not.toThrow();
+        });
+
+        test("buttons config without items throws mentioning items", () => {
+            expect(() => validateBlockData({ type: "buttons", config: {} }, nullFields)).toThrow(
+                /items/
+            );
+        });
+
+        test("buttons config with empty items array throws mentioning items", () => {
+            expect(() =>
+                validateBlockData({ type: "buttons", config: { items: [] } }, nullFields)
+            ).toThrow(/items/);
+        });
+
+        test("buttons item with empty label throws mentioning label", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "", action: { type: "link", url: "/x" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/label/);
+        });
+
+        test("buttons item missing action throws mentioning action", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "buttons", config: { items: [{ label: "Go" }] } },
+                    nullFields
+                )
+            ).toThrow(/action/);
+        });
+
+        test("buttons item with unknown action type throws mentioning action", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Go", action: { type: "magic" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/action/);
+        });
+
+        test("buttons link action without url throws mentioning url", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Go", action: { type: "link" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/url/);
+        });
+
+        test("buttons workflow action without workflowId throws mentioning workflowId", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Run", action: { type: "workflow" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/workflowId/);
+        });
+    });
+
+    describe("media", () => {
+        test("valid media config does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "media",
+                        collection: "docs",
+                        config: { fileField: "image", titleField: "title", viewer: "image" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("media without collection throws mentioning collection", () => {
+            expect(() => validateBlockData({ type: "media" }, phase2Fields)).toThrow(/collection/);
+        });
+
+        test("media with no config at all does not throw (lenient)", () => {
+            expect(() =>
+                validateBlockData({ type: "media", collection: "docs" }, phase2Fields)
+            ).not.toThrow();
+        });
+
+        test("media config missing fileField throws mentioning fileField", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "media", collection: "docs", config: { titleField: "title" } },
+                    phase2Fields
+                )
+            ).toThrow(/fileField/);
+        });
+
+        test("media unknown fileField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "media", collection: "docs", config: { fileField: "nope" } },
+                    phase2Fields
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("media dotted fileField validates first segment", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "media", collection: "docs", config: { fileField: "image.id" } },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("media unknown titleField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "media",
+                        collection: "docs",
+                        config: { fileField: "image", titleField: "bogus" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/bogus/);
+        });
+
+        test("media invalid viewer throws mentioning viewer", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "media",
+                        collection: "docs",
+                        config: { fileField: "image", viewer: "pdf" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/viewer/);
+        });
+    });
+
     describe("filter", () => {
         test("valid filter config does not throw", () => {
             expect(() =>
