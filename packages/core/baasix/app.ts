@@ -29,6 +29,7 @@ import realtimeService from "./services/RealtimeService.js";
 import tasksService from "./services/TasksService.js";
 import workflowService from "./services/WorkflowService.js";
 import migrationService from "./services/MigrationService.js";
+import { registerPageBuilderHooks } from "./services/BlockConfigService.js";
 import cors from "cors";
 import settingsService from "./services/SettingsService.js";
 import { sql } from "drizzle-orm";
@@ -240,6 +241,7 @@ async function initializeApp() {
       settingsService.loadSettings(),
       tasksService.init(),
       workflowService.init(),
+      registerPageBuilderHooks(),
       permissionService.loadPermissions(),
       mailService.initialize(),
       Promise.resolve(storageService.initialize()),
