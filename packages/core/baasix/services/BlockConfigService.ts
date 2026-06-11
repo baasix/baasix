@@ -309,6 +309,10 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             if (config.timestampField != null) {
                 assertFieldExists(config.timestampField, fieldMap, "config.timestampField");
             }
+            // fileField (attachments) is optional but must exist when present
+            if (config.fileField != null) {
+                assertFieldExists(config.fileField, fieldMap, "config.fileField");
+            }
             // order must be asc or desc when present
             if (config.order != null && config.order !== "asc" && config.order !== "desc") {
                 throw new APIError(

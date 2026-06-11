@@ -758,6 +758,40 @@ describe("validateBlockData – phase 2 types", () => {
             ).toThrow(/nope/);
         });
 
+        test("feed config with valid fileField does not throw", () => {
+            const fieldsWithFile = stubFields({
+                title: {},
+                content: {},
+                author: {},
+                createdAt: {},
+                file: {},
+                file_Id: {},
+            });
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title", fileField: "file_Id" },
+                    },
+                    fieldsWithFile
+                )
+            ).not.toThrow();
+        });
+
+        test("feed config unknown fileField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title", fileField: "nope" },
+                    },
+                    feedFields
+                )
+            ).toThrow(/nope/);
+        });
+
         test("feed config invalid order throws mentioning order", () => {
             expect(() =>
                 validateBlockData(
