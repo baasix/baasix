@@ -40,6 +40,9 @@ export class ServerModule {
    * const info = await baasix.server.info();
    * console.log('Project:', info.project?.name);
    * console.log('Version:', info.version);
+   *
+   * // Tenant-aware: settings merged for the given tenant
+   * const tenantInfo = await baasix.server.info("tenant-uuid");
    * ```
    */
   async info(tenantId?: string): Promise<ServerInfo> {
