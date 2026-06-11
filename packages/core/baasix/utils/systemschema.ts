@@ -1835,6 +1835,7 @@ export const systemSchemas = {
                         onDelete: "SET NULL",
                         SystemGenerated: "true",
                         description: "M2O self",
+                        showAs: ["name"],
                     },
                     sort: { type: "Integer", allowNull: false, defaultValue: 0, SystemGenerated: "true" },
                     isPublic: { type: "Boolean", allowNull: false, defaultValue: false, SystemGenerated: "true" },
@@ -1849,6 +1850,7 @@ export const systemSchemas = {
                         onDelete: "CASCADE",
                         SystemGenerated: "true",
                         description: "M2O",
+                        showAs: ["name"],
                     },
                     blocks: {
                         relType: "HasMany",
@@ -1893,6 +1895,7 @@ export const systemSchemas = {
                         onDelete: "CASCADE",
                         SystemGenerated: "true",
                         description: "M2O",
+                        showAs: ["name"],
                     },
                     type: {
                         type: "ENUM",
