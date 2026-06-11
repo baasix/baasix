@@ -1,5 +1,5 @@
 import { test, expect, describe } from "@jest/globals";
-import { validateBlockData, validatePageData } from "../baasix/services/BlockConfigService.js";
+import { validateBlockData, validatePageData, mergeBlockForUpdate } from "../baasix/services/BlockConfigService.js";
 
 // Stub field maps — no DB, no schemaManager
 const stubFields = (map) => (collection) => map;
@@ -118,5 +118,51 @@ describe("validatePageData", () => {
 
     test("update without slug passes", () => {
         expect(() => validatePageData({ name: "Renamed" }, false)).not.toThrow();
+    });
+});
+
+describe("mergeBlockForUpdate", () => {
+    test("patch fields override existing fields", () => {
+        const existing = { type: "table", collection: "posts", config: { columns: [] }, position: { row: 0, col: 0, span: 6 } };
+        const patch = { config: { columns: [{ field: "title" }] } };
+        const merged = mergeBlockForUpdate(existing, patch);
+        expect(merged.config).toEqual({ columns: [{ field: "title" }] });
+    });
+
+    test("existing fields fill gaps not present in patch", () => {
+        const existing = { type: "table", collection: "posts", config: { columns: [] }, position: { row: 0, col: 0, span: 6 } };
+        const patch = { config: { columns: [{ field: "title" }] } };
+        const merged = mergeBlockForUpdate(existing, patch);
+        expect(merged.type).toBe("table");
+        expect(merged.collection).toBe("posts");
+        expect(merged.position).toEqual({ row: 0, col: 0, span: 6 });
+    });
+
+    test("merged result passes validateBlockData when valid", () => {
+        const existing = { type: "table", collection: "posts", config: { columns: [] }, position: null };
+        const patch = { config: { columns: [{ field: "name" }] } };
+        const merged = mergeBlockForUpdate(existing, patch);
+        expect(() => validateBlockData(merged, userLikeFields)).not.toThrow();
+    });
+
+    test("merged result fails validateBlockData when patch introduces bad column", () => {
+        const existing = { type: "table", collection: "posts", config: { columns: [{ field: "name" }] }, position: null };
+        const patch = { config: { columns: [{ field: "notReal" }] } };
+        const merged = mergeBlockForUpdate(existing, patch);
+        expect(() => validateBlockData(merged, userLikeFields)).toThrow(/notReal/);
+    });
+
+    test("config-only patch on a collection-requiring type is validated against existing type/collection", () => {
+        const existing = { type: "table", collection: "posts", config: {}, position: null };
+        const patch = { config: { columns: [{ field: "badField" }] } };
+        const merged = mergeBlockForUpdate(existing, patch);
+        expect(() => validateBlockData(merged, userLikeFields)).toThrow(/badField/);
+    });
+
+    test("does not mutate the existing object", () => {
+        const existing = { type: "table", collection: "posts", config: { columns: [] }, position: null };
+        const patch = { config: { columns: [{ field: "name" }] } };
+        mergeBlockForUpdate(existing, patch);
+        expect(existing.config).toEqual({ columns: [] });
     });
 });

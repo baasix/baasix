@@ -178,6 +178,19 @@ export function validatePageData(data: any, isCreate: boolean): void {
 }
 
 /**
+ * Merge an existing block row with an incoming patch to produce a full object
+ * that can be passed to validateBlockData.
+ *
+ * The patch wins on every key it provides; existing fills gaps.
+ */
+export function mergeBlockForUpdate(
+    existing: Record<string, any>,
+    patch: Record<string, any>
+): Record<string, any> {
+    return { ...existing, ...patch };
+}
+
+/**
  * Register lifecycle hooks for baasix_Page and baasix_Block.
  *
  * Uses dynamic imports for hooksManager/schemaManager/ItemsService so this
@@ -207,9 +220,10 @@ export async function registerPageBuilderHooks(): Promise<void> {
     };
 
     /**
-     * Duplicate-slug compensation: the unique index on (tenant_Id, slug) cannot
-     * enforce NULLS NOT DISTINCT through the schema manager, so global pages
-     * (tenant_Id = null) would not be deduplicated by the database.
+     * Duplicate-slug check: the schema manager emits NULLS NOT DISTINCT on PG15+
+     * (see schemaManager.ts:1153-1157), but this hook provides a friendly 400
+     * error message and ensures uniqueness on pre-PG15 databases where
+     * NULLS NOT DISTINCT is not supported.
      */
     const assertSlugUnique = async (
         slug: string,
@@ -249,29 +263,76 @@ export async function registerPageBuilderHooks(): Promise<void> {
         const data = ctx.data;
         if (!data) return ctx;
 
-        if (data.type !== undefined) {
-            // type (and therefore collection/config rules) changed: validate fully
-            validateBlockData(data, getFields);
-        } else if (data.position !== undefined && data.position !== null) {
-            // only position changed: validate the bounds (collection-less type)
-            validateBlockData({ type: "markdown", position: data.position }, getFields);
+        // If any of the fields that affect validation are present in the patch,
+        // fetch the existing row, merge with the patch, and validate the merged result.
+        const validationFields = ["type", "collection", "config", "position"];
+        const hasPatchedValidationField = validationFields.some((f) => f in data);
+
+        if (hasPatchedValidationField && ctx.id != null) {
+            const { default: ItemsService } = await import("./ItemsService.js");
+            const itemsService = new ItemsService("baasix_Block", {
+                accountability: undefined,
+            });
+            const existing = await itemsService.readOne(
+                ctx.id,
+                { fields: ["id", "type", "collection", "config", "position"] },
+                true // bypassPermissions: internal read
+            );
+            if (existing) {
+                const merged = mergeBlockForUpdate(existing, data);
+                validateBlockData(merged, getFields);
+            } else {
+                // Row not found — still validate the patch as-is
+                validateBlockData(data, getFields);
+            }
         }
+
         return ctx;
     });
 
     // ── baasix_Page ───────────────────────────────────────────────────────
     hooksManager.registerHook("baasix_Page", "items.create", async (ctx: any) => {
         validatePageData(ctx.data, true);
-        await assertSlugUnique(ctx.data.slug, ctx.data.tenant_Id ?? null);
+        // Derive tenant scope the same way validateAndEnforceTenantContext does:
+        // accountability.tenant is the raw tenant ID (string | null).
+        const tenantId: string | null =
+            ctx.data.tenant_Id ?? ctx.accountability?.tenant ?? null;
+        await assertSlugUnique(ctx.data.slug, tenantId);
         return ctx;
     });
 
     hooksManager.registerHook("baasix_Page", "items.update", async (ctx: any) => {
         if (!ctx.data) return ctx;
         validatePageData(ctx.data, false);
-        if (ctx.data.slug != null) {
-            await assertSlugUnique(ctx.data.slug, ctx.data.tenant_Id ?? null, ctx.id);
+
+        if (ctx.data.slug != null && ctx.id != null) {
+            // Fetch the existing row so we can:
+            //  1. Skip the uniqueness query when the slug isn't actually changing.
+            //  2. Derive the correct tenant scope even when ctx.data doesn't include tenant_Id.
+            const { default: ItemsService } = await import("./ItemsService.js");
+            const itemsService = new ItemsService("baasix_Page", {
+                accountability: undefined,
+            });
+            const existing = await itemsService.readOne(
+                ctx.id,
+                { fields: ["id", "slug", "tenant_Id"] },
+                true // bypassPermissions: internal read
+            );
+
+            // Skip uniqueness check when the slug is unchanged.
+            if (existing && ctx.data.slug === existing.slug) {
+                return ctx;
+            }
+
+            // Use the patched tenant_Id if supplied, else fall back to the
+            // existing row's tenant (matches what validateAndEnforceTenantContext
+            // will inject after the hook).
+            const tenantId: string | null =
+                ctx.data.tenant_Id ?? existing?.tenant_Id ?? ctx.accountability?.tenant ?? null;
+
+            await assertSlugUnique(ctx.data.slug, tenantId, ctx.id);
         }
+
         return ctx;
     });
 }
@@ -279,5 +340,6 @@ export async function registerPageBuilderHooks(): Promise<void> {
 export default {
     validateBlockData,
     validatePageData,
+    mergeBlockForUpdate,
     registerPageBuilderHooks,
 };
