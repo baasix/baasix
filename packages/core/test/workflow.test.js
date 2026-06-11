@@ -1,6 +1,7 @@
 import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 import { beforeAll, afterAll, test, expect, describe } from "@jest/globals";
+import env from "../baasix/utils/env";
 
 let app;
 let adminToken;
@@ -25,7 +26,8 @@ async function waitForExecutionComplete(workflowId, executionId, token, maxAttem
 
 beforeAll(async () => {
     await destroyAllTablesInDB();
-    app = await startServerForTesting();
+    // Workflows are OFF by default in tests (.env.test); this suite needs them ON.
+    app = await startServerForTesting({ envOverrides: { WORKFLOWS_ENABLED: "true" } });
 
     // Login as admin
     const adminLoginResponse = await request(app)
@@ -82,7 +84,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    // Cleanup is handled by Jest timeout
+    // Restore the test default so a later suite (under --runInBand, shared process)
+    // doesn't inherit workflows-enabled.
+    env.set("WORKFLOWS_ENABLED", "false");
 });
 
 describe("Workflow CRUD Operations", () => {

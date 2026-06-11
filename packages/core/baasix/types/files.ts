@@ -32,4 +32,6 @@ export interface InternalUploadedFile {
   path: string;
   filename: string;
   name: string;
+  /** Physical storage folder prefix (null = legacy flat layout). */
+  storage_folder?: string | null;
 }

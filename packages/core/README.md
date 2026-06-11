@@ -356,6 +356,7 @@ SECRET_KEY=your-secret-key-min-32-chars
 # PROTECT_IS_PUBLIC_FIELD=false    # make baasix_File isPublic opt-in (not settable via broad "*" grant); default off = backward compatible
 # EXPOSE_ERROR_DETAILS=false       # include raw DB error text in responses; off in production (leaks schema / SQLi oracle)
 # STORAGE_PATH_CONFINEMENT=true    # Confine local-disk file ops within storage root (blocks path traversal)
+# STORAGE_FOLDER_STRUCTURE=false   # organize files into tenants/{t}/users/{u}|system folders (default off; existing files unaffected; migrate via POST /files/migrate-storage-structure)
 # ASSET_XSS_PROTECTION=true        # Force executable upload types (html/svg/js/xml) to download, not render inline
 # ASSET_NOSNIFF=true               # Send X-Content-Type-Options: nosniff on asset responses
 # STRICT_TENANT_ISOLATION=true     # (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped

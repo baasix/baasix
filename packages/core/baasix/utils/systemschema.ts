@@ -485,6 +485,11 @@ export const systemSchemas = {
                     size: { type: "Integer", allowNull: false, SystemGenerated: "true" },
                     description: { type: "Text", SystemGenerated: "true" },
                     storage: { type: "String", allowNull: false, SystemGenerated: "true" },
+                    // Physical storage folder PREFIX (e.g. "tenants/t1/users/u1"). The full
+                    // storage key = storage_folder + "/" + filename. NULL means the file is
+                    // still in the legacy flat layout (filename holds the whole key) — this
+                    // also serves as the migration "not yet migrated" / resume marker.
+                    storage_folder: { type: "String", allowNull: true, SystemGenerated: "true" },
                     width: { type: "Integer", SystemGenerated: "true" },
                     height: { type: "Integer", SystemGenerated: "true" },
                     metadata: { type: "JSON", SystemGenerated: "true" },

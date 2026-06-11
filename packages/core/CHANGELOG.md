@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.80
+
+### Patch Changes
+
+- Added new env to maintain folder structure in storage- STORAGE_FOLDER_STRUCTURE
+
 ## 0.1.79
 
 ### Patch Changes

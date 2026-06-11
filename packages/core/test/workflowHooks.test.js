@@ -1,6 +1,7 @@
 import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 import { beforeAll, afterAll, test, expect, describe } from "@jest/globals";
+import env from "../baasix/utils/env";
 
 let app;
 let adminToken;
@@ -37,7 +38,8 @@ function createWorkflowPayload(id, name, hookAction, nodes, edges) {
 
 beforeAll(async () => {
     await destroyAllTablesInDB();
-    app = await startServerForTesting();
+    // Workflows are OFF by default in tests (.env.test); the hook suite needs them ON.
+    app = await startServerForTesting({ envOverrides: { WORKFLOWS_ENABLED: "true" } });
 
     // Login as admin
     const adminLoginResponse = await request(app)
@@ -87,6 +89,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+    // Restore the test default (workflows off) for later suites under --runInBand.
+    env.set("WORKFLOWS_ENABLED", "false");
     if (app.server) {
         await new Promise((resolve) => app.server.close(resolve));
     }

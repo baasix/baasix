@@ -3,7 +3,7 @@ import sharp from "sharp";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import FilesService from "./FilesService.js";
+import FilesService, { getStorageKey } from "./FilesService.js";
 import ItemsService from "./ItemsService.js";
 import type { AssetQuery, AssetResult, ProcessedImage } from '../types/index.js';
 import { getProjectPath } from "../utils/dirname.js";
@@ -105,7 +105,7 @@ class AssetsService extends FilesService {
     const hasTransformParams = width || height || quality || format;
 
     // Get content type with fallback
-    const fileContentType = file.type || await this.getFileType(file.filename) || "application/octet-stream";
+    const fileContentType = file.type || await this.getFileType(getStorageKey(file)) || "application/octet-stream";
 
     if (fileContentType.startsWith("image/")) {
       // If no transform params, return the original image
@@ -120,8 +120,8 @@ class AssetsService extends FilesService {
         };
       }
 
-      // Generate processed filename to store alongside original
-      const processedFilename = this.getProcessedFilename(file.filename, query);
+      // Generate processed filename (full key) to store alongside the original.
+      const processedFilename = this.getProcessedFilename(getStorageKey(file), query);
       
       // Check if processed version exists in storage
       const processedBuffer = await this.getProcessedFromStorage(provider, processedFilename, isS3);
@@ -170,7 +170,7 @@ class AssetsService extends FilesService {
       
       // For video/audio files with local storage, provide file path for range requests
       if ((fileContentType.startsWith("video/") || fileContentType.startsWith("audio/")) && !isS3) {
-        filePath = resolveStorageKey(provider.basePath, file.filename);
+        filePath = resolveStorageKey(provider.basePath, getStorageKey(file));
       }
       
       return {
@@ -187,8 +187,9 @@ class AssetsService extends FilesService {
    * Get file buffer from storage (works for both LOCAL and S3)
    */
   private async getFileBuffer(file: any, provider: any, isS3: boolean): Promise<Buffer> {
+    const key = getStorageKey(file);
     if (isS3) {
-      const stream = await provider.getFile(file.filename);
+      const stream = await provider.getFile(key);
       // Convert stream to buffer
       const chunks: Uint8Array[] = [];
       for await (const chunk of stream) {
@@ -196,7 +197,7 @@ class AssetsService extends FilesService {
       }
       return Buffer.concat(chunks);
     } else {
-      const filePath = resolveStorageKey(provider.basePath, file.filename);
+      const filePath = resolveStorageKey(provider.basePath, key);
       return fs.promises.readFile(filePath);
     }
   }
@@ -216,9 +217,15 @@ class AssetsService extends FilesService {
     };
     const hash = crypto.createHash("md5").update(JSON.stringify(cacheParams)).digest("hex").substring(0, 8);
     const ext = path.extname(originalFilename);
-    const baseName = path.basename(originalFilename, ext);
     const outputExt = query.format === "webp" ? "webp" : query.format === "png" ? "png" : query.format === "avif" ? "avif" : "jpg";
-    return `${baseName}_processed_${hash}.${outputExt}`;
+    // Preserve the original's FOLDER so the processed variant lands in the same
+    // directory (e.g. tenants/t1/users/u1/). With the flat layout, dir is "" and the
+    // result is the original flat name — unchanged behavior. Use POSIX separators
+    // since storage keys use "/" on every driver (including S3).
+    const dir = path.posix.dirname(originalFilename.replace(/\\/g, "/"));
+    const baseName = path.posix.basename(originalFilename.replace(/\\/g, "/"), ext);
+    const leaf = `${baseName}_processed_${hash}.${outputExt}`;
+    return dir && dir !== "." ? `${dir}/${leaf}` : leaf;
   }
 
   /**
@@ -344,8 +351,14 @@ class AssetsService extends FilesService {
     if (!file.type?.startsWith("image/")) return;
 
     const provider = this.storageService.getProvider(file.storage);
-    const baseName = path.basename(file.filename, path.extname(file.filename));
-    const pattern = `${baseName}_processed_`;
+    // Build the FULL-PREFIX pattern so cleanup matches processed variants stored
+    // alongside the original in its folder (e.g. tenants/t1/users/u1/123-x_processed_).
+    // With the flat layout, dir is "" and the pattern is the bare basename prefix —
+    // unchanged behavior.
+    const key = String(getStorageKey(file)).replace(/\\/g, "/");
+    const dir = path.posix.dirname(key);
+    const baseName = path.posix.basename(key, path.posix.extname(key));
+    const pattern = dir && dir !== "." ? `${dir}/${baseName}_processed_` : `${baseName}_processed_`;
 
     try {
       if (provider.listFiles) {

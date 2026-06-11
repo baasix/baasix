@@ -23,6 +23,62 @@ import type { FileData, FileMetadata, InternalUploadedFile } from '../types/inde
 // This will need to be imported from your schema file
 // For now, we'll assume it's available
 
+/** True if the foldered physical storage layout is enabled (default off). */
+export function storageFolderStructureEnabled(): boolean {
+  return env.get("STORAGE_FOLDER_STRUCTURE") === "true";
+}
+
+/**
+ * Sanitize a single path segment (tenant/user id) for safe use in a storage key:
+ * keep only [A-Za-z0-9_-] so no slashes/dots/null bytes can enable traversal.
+ * Returns "_" for an empty/invalid value so a key is always well-formed.
+ */
+function safeSegment(value: any): string {
+  const s = String(value ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+  return s.length > 0 ? s : "_";
+}
+
+/**
+ * Build the storage FOLDER prefix for a file from its owner context. Returns null
+ * when the foldered layout is off (file stays flat). Layout:
+ *   tenants/{tenantId}/users/{userId}   — tenant + user file
+ *   tenants/{tenantId}/system           — tenant + no user (system-generated)
+ *   users/{userId}                       — no tenant + user file
+ *   system                               — no tenant + no user (system-generated)
+ * This value is stored in baasix_File.storage_folder; the full physical key is
+ * `storage_folder + "/" + filename`.
+ */
+export function buildStorageFolder(
+  ctx: { tenant_Id?: any; userCreated_Id?: any }
+): string | null {
+  if (!storageFolderStructureEnabled()) return null;
+
+  const hasTenant = ctx.tenant_Id !== undefined && ctx.tenant_Id !== null && ctx.tenant_Id !== "";
+  const hasUser = ctx.userCreated_Id !== undefined && ctx.userCreated_Id !== null && ctx.userCreated_Id !== "";
+
+  const parts: string[] = [];
+  if (hasTenant) parts.push("tenants", safeSegment(ctx.tenant_Id));
+  if (hasUser) parts.push("users", safeSegment(ctx.userCreated_Id));
+  else parts.push("system");
+  return parts.join("/");
+}
+
+/**
+ * The SINGLE source of truth for a file's full physical storage key. Every read /
+ * serve / delete / processed-cache path must resolve the key through this, so the
+ * storage_folder + filename split is invisible to the rest of the system.
+ *   - storage_folder set  → `${storage_folder}/${filename}`  (new foldered layout)
+ *   - storage_folder null → `filename`                       (legacy flat layout)
+ * Accepts either a file record or a {storage_folder, filename} pair.
+ */
+export function getStorageKey(file: { storage_folder?: string | null; filename: string }): string {
+  const folder = file.storage_folder;
+  if (folder && typeof folder === "string" && folder.length > 0) {
+    return `${folder}/${file.filename}`;
+  }
+  return file.filename;
+}
+
 class FilesService {
   protected accountability?: any;
   protected storageService: typeof storageService;
@@ -87,7 +143,26 @@ class FilesService {
 
       uniqueid = await this.itemService.createOne(initFileDetails);
 
-      const uploadedFile = await this.handleFileUpload(tempPath, file.name, storage!, uniqueid);
+      // Owner context for the storage folder. We take tenant_Id from the persisted
+      // record (ItemsService sets it from tenant scoping) and the USER from the
+      // current accountability directly — this gives per-user folders independent of
+      // whether baasix_File has the `usertrack` flag, and without changing
+      // userCreated_Id population for anyone. bypassPermissions: internal read.
+      let ownerContext: { tenant_Id?: any; userCreated_Id?: any } = {};
+      if (storageFolderStructureEnabled()) {
+        const created = await this.itemService.readOne(
+          uniqueid,
+          { fields: ["tenant_Id", "userCreated_Id"] },
+          true
+        );
+        ownerContext = {
+          tenant_Id: created?.tenant_Id,
+          // Prefer the recorded creator (when usertrack is on), else the current user.
+          userCreated_Id: created?.userCreated_Id ?? this.accountability?.user?.id ?? null,
+        };
+      }
+
+      const uploadedFile = await this.handleFileUpload(tempPath, file.name, storage!, uniqueid, ownerContext);
 
       const fileDetails = await this.getFileDetails(uploadedFile, tempPath, {
         ...coercedMetadata,
@@ -141,23 +216,28 @@ class FilesService {
     tempPath: string,
     originalFilename: string,
     storage: string,
-    uniqueid: string | number
+    uniqueid: string | number,
+    ownerContext?: { tenant_Id?: any; userCreated_Id?: any }
   ): Promise<InternalUploadedFile> {
     const provider = this.storageService.getProvider(storage);
 
     const extension = path.extname(originalFilename);
+    // `filename` is the LEAF only; the owner folder prefix is stored separately as
+    // storage_folder. The full physical key = storage_folder + "/" + filename.
     const filename = `${uniqueid}-${path.basename(originalFilename, extension).substring(0, 40)}${extension}`;
+    const storage_folder = buildStorageFolder(ownerContext || {}); // null when feature off
+    const fullKey = getStorageKey({ storage_folder, filename });
     let filePath: string;
 
     const fileContent = await fs.readFile(tempPath);
 
     if (provider.driver === "LOCAL") {
-      filePath = resolveStorageKey(provider.basePath!, filename);
+      filePath = resolveStorageKey(provider.basePath!, fullKey);
       const destinationDir = path.dirname(filePath);
       await fs.mkdir(destinationDir, { recursive: true });
       await fs.writeFile(filePath, fileContent);
     } else if (provider.driver === "S3") {
-      filePath = filename; // For S3, the path is just the key
+      filePath = fullKey; // For S3, the path is just the key
       await provider.saveFile(filePath, fileContent);
     } else {
       throw new APIError(`Unsupported storage driver: ${provider.driver}`, 400);
@@ -166,6 +246,7 @@ class FilesService {
     return {
       path: filePath,
       filename: filename,
+      storage_folder: storage_folder,
       name: originalFilename,
     };
   }
@@ -179,6 +260,9 @@ class FilesService {
 
     const fileDetails: any = {
       filename: filename || file.name,
+      // Persist the physical folder prefix (null = legacy flat layout) alongside the
+      // leaf filename, so the full key is reconstructed via getStorageKey().
+      storage_folder: file.storage_folder ?? null,
       title: title || file.name,
       description: description || "",
       storage: storage,
@@ -264,9 +348,10 @@ class FilesService {
     if (!file) throw new APIError("File not found", 404);
 
     const provider = this.storageService.getProvider(file.storage);
+    const key = getStorageKey(file);
 
     if (provider.driver === "LOCAL") {
-      const filePath = resolveStorageKey(provider.basePath!, file.filename);
+      const filePath = resolveStorageKey(provider.basePath!, key);
       if (
         await fs
           .access(filePath)
@@ -276,7 +361,7 @@ class FilesService {
         await fs.unlink(filePath);
       }
     } else if (provider.driver === "S3") {
-      await provider.deleteFile(file.filename);
+      await provider.deleteFile(key);
     } else {
       throw new APIError(`Unsupported storage driver: ${provider.driver}`, 400);
     }
@@ -367,6 +452,151 @@ class FilesService {
       writer.on("finish", resolve);
       writer.on("error", reject);
     });
+  }
+
+  /** Read a provider object fully into a Buffer (handles both Buffer and stream). */
+  private async readProviderObject(provider: any, key: string): Promise<Buffer> {
+    const data = await provider.getFile(key);
+    if (Buffer.isBuffer(data)) return data;
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of data) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * Migrate existing files into the foldered storage layout (tenant/user/system).
+   *
+   * Per file, the move is crash-safe: copy → verify → update DB pointer → delete old.
+   * The file stays readable at every step (the DB only points at the new key once the
+   * copy is verified). Idempotent: files already in the new layout are skipped, so the
+   * migration is safely resumable / re-runnable. Per-file errors are recorded and
+   * skipped, never fatal.
+   *
+   * @param options.dryRun  When true, only report the planned moves; touch nothing.
+   * @param options.limit   Max files to process this call (for batching large sets).
+   * @returns A summary { scanned, moved, skipped, failed, planned[] }.
+   */
+  async migrateStorageStructure(
+    options: { dryRun?: boolean; limit?: number } = {}
+  ): Promise<{
+    dryRun: boolean;
+    scanned: number;
+    moved: number;
+    skipped: number;
+    failed: number;
+    planned: Array<{ id: any; from: string; to: string; status: string; error?: string }>;
+  }> {
+    const dryRun = options.dryRun === true;
+    const limit = options.limit && options.limit > 0 ? options.limit : 1000;
+
+    if (!storageFolderStructureEnabled()) {
+      throw new APIError(
+        "STORAGE_FOLDER_STRUCTURE is not enabled. Set it to true before migrating.",
+        400
+      );
+    }
+
+    // RESUME MARKER: only files with NO storage_folder are un-migrated (still in the
+    // legacy flat layout where `filename` is the whole key). Already-migrated files
+    // have storage_folder set and are skipped — so this is idempotent and safely
+    // resumable even if a previous run stopped midway. System-context read (bypass).
+    const result = await this.itemService.readByQuery(
+      {
+        filter: { storage_folder: { isNull: true } },
+        fields: ["id", "filename", "storage", "tenant_Id", "userCreated_Id", "type"],
+        limit,
+      },
+      true
+    );
+    const files: any[] = (result as any)?.data ?? result ?? [];
+
+    const summary = {
+      dryRun,
+      scanned: files.length,
+      moved: 0,
+      skipped: 0,
+      failed: 0,
+      planned: [] as Array<{ id: any; from: string; to: string; status: string; error?: string }>,
+    };
+
+    for (const file of files) {
+      const leaf: string = file.filename;
+      if (!leaf || typeof leaf !== "string") {
+        summary.skipped++;
+        continue;
+      }
+
+      // Un-migrated file: old key is the flat filename; new folder from owner context.
+      const newFolder = buildStorageFolder({
+        tenant_Id: file.tenant_Id,
+        userCreated_Id: file.userCreated_Id,
+      });
+      // If the layout yields no folder (shouldn't happen when enabled), skip safely.
+      if (!newFolder) {
+        summary.skipped++;
+        continue;
+      }
+      const oldKey = leaf; // flat
+      const newKey = `${newFolder}/${leaf}`;
+
+      const plan = { id: file.id, from: oldKey, to: newKey, status: "planned" as string, error: undefined as string | undefined };
+
+      if (dryRun) {
+        summary.planned.push(plan);
+        continue;
+      }
+
+      try {
+        const provider = this.storageService.getProvider(file.storage);
+
+        // 1. Copy the object to the new key.
+        const content = await this.readProviderObject(provider, oldKey);
+        await provider.saveFile(newKey, content);
+
+        // 2. Verify the copy before committing the DB pointer.
+        const verify = await this.readProviderObject(provider, newKey);
+        if (!verify || verify.length !== content.length) {
+          throw new Error("Verification failed: copied object size mismatch");
+        }
+
+        // 3. Set storage_folder (filename/leaf is unchanged). After this the record
+        //    resolves to the NEW key via getStorageKey(); the old object is now stale.
+        await this.itemService.updateOne(file.id, { storage_folder: newFolder }, { bypassPermissions: true });
+
+        // 4. Move processed/cache variants next to the original (best-effort; cache
+        //    is regenerable, so variant failures don't fail the file).
+        try {
+          if (provider.listFiles) {
+            const base = leaf.includes(".") ? leaf.substring(0, leaf.lastIndexOf(".")) : leaf;
+            const variants = await provider.listFiles(`${base}_processed_`);
+            for (const v of variants) {
+              if (v.includes("/")) continue; // only flat variants belong to a flat original
+              const vNew = `${newFolder}/${v}`;
+              const vContent = await this.readProviderObject(provider, v);
+              await provider.saveFile(vNew, vContent);
+              await provider.deleteFile(v);
+            }
+          }
+        } catch (variantErr: any) {
+          console.warn(`Migration: variant move skipped for ${oldKey}:`, variantErr?.message);
+        }
+
+        // 5. Delete the old original now that the DB resolves to the verified new key.
+        await provider.deleteFile(oldKey);
+
+        plan.status = "moved";
+        summary.moved++;
+        summary.planned.push(plan);
+      } catch (err: any) {
+        plan.status = "failed";
+        plan.error = err?.message || String(err);
+        summary.failed++;
+        summary.planned.push(plan);
+        console.error(`Migration failed for file ${file.id} (${oldKey}):`, err?.message);
+      }
+    }
+
+    return summary;
   }
 }
 

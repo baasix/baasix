@@ -1,10 +1,11 @@
 import type { Express } from "../types/index.js";
-import FilesService from "../services/FilesService.js";
+import FilesService, { getStorageKey } from "../services/FilesService.js";
 import AssetsService from "../services/AssetsService.js";
 import SettingsService from "../services/SettingsService.js";
 import fileUpload from "express-fileupload";
 import { APIError } from "../utils/errorHandler.js";
 import { parseQueryParams } from "../utils/router.js";
+import { adminOnly } from "../utils/auth.js";
 import env from "../utils/env.js";
 import fs from "fs";
 import axios from "axios";
@@ -137,6 +138,21 @@ const registerEndpoint = (app: Express) => {
     }
   });
 
+  // Migrate existing files into the foldered storage layout (tenant/user/system).
+  // Admin only. Crash-safe per file (copy → verify → update DB → delete old).
+  // Use ?dryRun=true first to review the planned moves without touching storage.
+  // ?limit=N batches large sets; the operation is idempotent and safely re-runnable.
+  app.post("/files/migrate-storage-structure", adminOnly, initFileService, async (req: any, res, next) => {
+    try {
+      const dryRun = req.query.dryRun === "true" || req.body?.dryRun === true;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+      const summary = await req.filesService.migrateStorageStructure({ dryRun, limit });
+      res.status(200).json({ data: summary });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Get asset (with image processing support)
   app.get("/assets/:id", initFileService, async (req: any, res, next) => {
     try {
@@ -221,7 +237,7 @@ const registerEndpoint = (app: Express) => {
             }
 
             // Stream from S3 through server with range support
-            const presignedUrl = await provider.getPublicUrl(file.filename);
+            const presignedUrl = await provider.getPublicUrl(getStorageKey(file));
 
             const requestHeaders: any = {};
             if (req.headers.range) {
@@ -257,7 +273,7 @@ const registerEndpoint = (app: Express) => {
           } else {
             // Direct redirect for non-secure file types or unauthenticated users
             if (contentType.startsWith("video/") || contentType.startsWith("audio/")) {
-              const presignedUrl = await provider.getPublicUrl(file.filename);
+              const presignedUrl = await provider.getPublicUrl(getStorageKey(file));
               res.redirect(302, presignedUrl);
               return;
             }
@@ -272,7 +288,7 @@ const registerEndpoint = (app: Express) => {
       if (isS3 && isDownload) {
         try {
           const provider = (assetService as any).storageService.getProvider(file.storage);
-          const presignedUrl = await provider.getPublicUrl(file.filename);
+          const presignedUrl = await provider.getPublicUrl(getStorageKey(file));
 
           const s3Response = await axios({
             method: "GET",

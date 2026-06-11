@@ -104,11 +104,38 @@ class StorageService {
         await fs.unlink(fullPath);
       },
       async listFiles(prefix: string) {
-        const files = await fs.readdir(basePath);
-        return files.filter((f) => f.startsWith(prefix));
+        // Recursively walk the storage root and return keys RELATIVE to basePath,
+        // using "/" separators, filtered by prefix. (The previous flat readdir only
+        // saw top-level entries, so it missed files under tenant/user subfolders.)
+        const results: string[] = [];
+        async function walk(dir: string): Promise<void> {
+          let entries;
+          try {
+            entries = await fs.readdir(dir, { withFileTypes: true });
+          } catch {
+            return;
+          }
+          for (const entry of entries) {
+            const abs = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              await walk(abs);
+            } else {
+              const rel = path.relative(basePath, abs).split(path.sep).join("/");
+              if (rel.startsWith(prefix)) results.push(rel);
+            }
+          }
+        }
+        await walk(basePath);
+        return results;
       },
       getPublicUrl(filePath: string) {
-        return `/storage/${service}/${filePath}`;
+        // Encode each path segment so subfolder slashes are preserved as separators
+        // but special characters in segments don't break the URL.
+        const encoded = String(filePath)
+          .split("/")
+          .map((seg) => encodeURIComponent(seg))
+          .join("/");
+        return `/storage/${service}/${encoded}`;
       },
     };
 
