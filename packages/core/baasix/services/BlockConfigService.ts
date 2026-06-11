@@ -24,6 +24,7 @@ const BLOCK_TYPES = [
     "filter",
     "buttons",
     "media",
+    "feed",
 ];
 
 const COLLECTION_REQUIRED = new Set([
@@ -37,6 +38,7 @@ const COLLECTION_REQUIRED = new Set([
     "map",
     "filter",
     "media",
+    "feed",
 ]);
 
 const FORM_MODES = new Set(["create", "edit"]);
@@ -47,7 +49,7 @@ const AGGREGATE_FUNCTIONS = new Set(["count", "sum", "avg", "min", "max"]);
 
 const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
 
-const BUTTON_ACTION_TYPES = new Set(["link", "workflow"]);
+const BUTTON_ACTION_TYPES = new Set(["link", "workflow", "create", "page"]);
 
 const MEDIA_VIEWERS = new Set(["image", "video", "audio", "auto"]);
 
@@ -294,6 +296,26 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     );
                 }
             }
+        } else if (type === "feed") {
+            // textField is required when a config is present
+            if (config.textField == null) {
+                throw new APIError(`Feed block config requires "textField"`, 400);
+            }
+            assertFieldExists(config.textField, fieldMap, "config.textField");
+            // authorField / timestampField are optional but must exist when present
+            if (config.authorField != null) {
+                assertFieldExists(config.authorField, fieldMap, "config.authorField");
+            }
+            if (config.timestampField != null) {
+                assertFieldExists(config.timestampField, fieldMap, "config.timestampField");
+            }
+            // order must be asc or desc when present
+            if (config.order != null && config.order !== "asc" && config.order !== "desc") {
+                throw new APIError(
+                    `Invalid order "${config.order}" for feed block: must be "asc" or "desc"`,
+                    400
+                );
+            }
         }
     }
 
@@ -349,7 +371,7 @@ function validateButtonsConfig(config: any): void {
         }
         if (!BUTTON_ACTION_TYPES.has(action.type)) {
             throw new APIError(
-                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow`,
+                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow, create, page`,
                 400
             );
         }
@@ -364,6 +386,20 @@ function validateButtonsConfig(config: any): void {
             if (typeof action.workflowId !== "string" || action.workflowId.length === 0) {
                 throw new APIError(
                     `Invalid buttons item at index ${index}: workflow action requires "workflowId" to be a non-empty string`,
+                    400
+                );
+            }
+        } else if (action.type === "create") {
+            if (typeof action.collection !== "string" || action.collection.length === 0) {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: create action requires "collection" to be a non-empty string`,
+                    400
+                );
+            }
+        } else if (action.type === "page") {
+            if (typeof action.slug !== "string" || action.slug.length === 0) {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: page action requires "slug" to be a non-empty string`,
                     400
                 );
             }

@@ -553,6 +553,223 @@ describe("validateBlockData – phase 2 types", () => {
                 )
             ).toThrow(/workflowId/);
         });
+
+        test("buttons create action with collection does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: {
+                            items: [
+                                { label: "New Task", action: { type: "create", collection: "DemoTask" } },
+                            ],
+                        },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("buttons create action without collection throws mentioning collection", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "New", action: { type: "create" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/collection/);
+        });
+
+        test("buttons create action with empty collection string throws mentioning collection", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "New", action: { type: "create", collection: "" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/collection/);
+        });
+
+        test("buttons page action with slug does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: {
+                            items: [
+                                { label: "Go to Tasks", action: { type: "page", slug: "tasks" } },
+                            ],
+                        },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("buttons page action without slug throws mentioning slug", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Go", action: { type: "page" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/slug/);
+        });
+
+        test("buttons page action with empty slug throws mentioning slug", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Go", action: { type: "page", slug: "" } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/slug/);
+        });
+
+        test("buttons item with unknown action type error lists valid types (link, workflow, create, page)", () => {
+            let caught;
+            try {
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "Go", action: { type: "export-csv" } }] },
+                    },
+                    nullFields
+                );
+            } catch (e) {
+                caught = e;
+            }
+            expect(caught).toBeDefined();
+            expect(caught.message).toMatch(/link/);
+            expect(caught.message).toMatch(/workflow/);
+            expect(caught.message).toMatch(/create/);
+            expect(caught.message).toMatch(/page/);
+        });
+    });
+
+    describe("feed", () => {
+        const feedFields = stubFields({ title: {}, content: {}, author: {}, createdAt: {}, updatedAt: {} });
+
+        test("valid feed config with textField does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title" },
+                    },
+                    feedFields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid feed config with all optional fields does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: {
+                            textField: "title",
+                            authorField: "author",
+                            timestampField: "createdAt",
+                            order: "desc",
+                        },
+                    },
+                    feedFields
+                )
+            ).not.toThrow();
+        });
+
+        test("feed with order asc does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title", order: "asc" },
+                    },
+                    feedFields
+                )
+            ).not.toThrow();
+        });
+
+        test("feed without collection throws mentioning collection", () => {
+            expect(() =>
+                validateBlockData({ type: "feed" }, feedFields)
+            ).toThrow(/collection/);
+        });
+
+        test("feed with no config at all does not throw (lenient)", () => {
+            expect(() =>
+                validateBlockData({ type: "feed", collection: "DemoTask" }, feedFields)
+            ).not.toThrow();
+        });
+
+        test("feed config missing textField throws mentioning textField", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "feed", collection: "DemoTask", config: { order: "desc" } },
+                    feedFields
+                )
+            ).toThrow(/textField/);
+        });
+
+        test("feed config unknown textField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "feed", collection: "DemoTask", config: { textField: "nope" } },
+                    feedFields
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("feed config unknown authorField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title", authorField: "nope" },
+                    },
+                    feedFields
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("feed config unknown timestampField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title", timestampField: "nope" },
+                    },
+                    feedFields
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("feed config invalid order throws mentioning order", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "feed",
+                        collection: "DemoTask",
+                        config: { textField: "title", order: "random" },
+                    },
+                    feedFields
+                )
+            ).toThrow(/order/);
+        });
     });
 
     describe("media", () => {
