@@ -63,6 +63,7 @@ DATA_CACHE_TTL=300                  # Default cache TTL in seconds
 MULTI_TENANT=false                 # Enable multi-tenant mode
 
 # Real-time
+WORKFLOWS_ENABLED=true             # master switch for the workflow subsystem; false = no item-event hooks (no per-request overhead), no scheduled runs, /workflows/* → 404, no workflow code execution
 SOCKET_ENABLED=false               # Enable Socket.IO
 REALTIME_ROW_LEVEL_SCOPING=false   # per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (subscriber may see other rows in tenant). On = evaluate each subscriber's read perm per change (bucketed by role)
 

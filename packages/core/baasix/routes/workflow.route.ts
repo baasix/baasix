@@ -1,6 +1,6 @@
 import type { Express } from "../types/index.js";
 import { APIError } from "../utils/errorHandler.js";
-import workflowService from "../services/WorkflowService.js";
+import workflowService, { workflowsEnabled } from "../services/WorkflowService.js";
 import ItemsService from "../services/ItemsService.js";
 import fileUpload from "express-fileupload";
 import {
@@ -9,6 +9,19 @@ import {
 } from "../utils/workflow.js";
 
 const registerEndpoint = (app: Express) => {
+
+    // Master kill-switch: when workflows are disabled, do NOT register the workflow
+    // endpoints. A single catch-all answers /workflows/* with 404 so clients get a
+    // clear signal instead of a hanging or half-working route.
+    if (!workflowsEnabled()) {
+        app.all("/workflows", (_req: any, res: any) =>
+            res.status(404).json({ message: "Workflows are disabled (WORKFLOWS_ENABLED=false)." })
+        );
+        app.all("/workflows/*", (_req: any, res: any) =>
+            res.status(404).json({ message: "Workflows are disabled (WORKFLOWS_ENABLED=false)." })
+        );
+        return;
+    }
 
     /**
      * Execute a workflow manually

@@ -10,6 +10,22 @@ import schedule from "node-schedule";
 import { eq } from "drizzle-orm";
 import { schemaManager } from "../utils/schemaManager.js";
 import { getProjectPath } from "../utils/dirname.js";
+import env from "../utils/env.js";
+
+/**
+ * Master switch for the entire workflow subsystem. Default ON (backward compatible).
+ * When WORKFLOWS_ENABLED=false:
+ *  - no item-event hooks are registered (so reads/writes carry NO per-request
+ *    workflow trigger overhead),
+ *  - no scheduled workflows run,
+ *  - the /workflows/* routes are disabled,
+ *  - any stray trigger call short-circuits.
+ * This lets a project that doesn't use workflows run the API with zero workflow
+ * cost — and also removes the script/service-node code-execution surface (A2/A3).
+ */
+export function workflowsEnabled(): boolean {
+  return (env.get("WORKFLOWS_ENABLED") || "true").toLowerCase() !== "false";
+}
 
 /**
  * WorkflowService - Comprehensive workflow execution engine
@@ -125,6 +141,15 @@ class WorkflowService {
 
     async init() {
         if (this.initialized) {
+            return;
+        }
+
+        // Master kill-switch: when disabled, register NO item-event hooks and NO
+        // scheduled workflows — so the API runs with zero per-request workflow
+        // overhead and no workflow code ever executes.
+        if (!workflowsEnabled()) {
+            this.initialized = true;
+            console.info("WorkflowService disabled (WORKFLOWS_ENABLED=false) — hooks, schedules, and routes are off.");
             return;
         }
 
@@ -1330,6 +1355,11 @@ class WorkflowService {
      * @returns Object with modifiedData if workflows modified the data, null otherwise
      */
     async triggerWorkflowsByHook(collection: string, action: string, data: any) {
+        // Defensive: short-circuit if the subsystem is disabled (e.g. a hook left
+        // registered by a plugin or a prior init). No DB query, no execution.
+        if (!workflowsEnabled()) {
+            return null;
+        }
         try {
             // Skip workflow triggers for system tables to prevent infinite recursion
             // When workflow hooks try to read baasix_Workflow table, it would trigger hooks again

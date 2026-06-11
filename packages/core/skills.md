@@ -2539,6 +2539,7 @@ export async function down(baasix) {
 | BODY_SIZE_LIMIT | No | 20mb | Max JSON request body size |
 | LOG_LEVEL | No | info | Log level (fatal/error/warn/info/debug/trace) |
 | MULTI_TENANT | No | false | Enable multi-tenancy |
+| WORKFLOWS_ENABLED | No | true | Master switch for the workflow subsystem; false disables hooks (no per-request overhead), schedules, /workflows/* routes, and code execution |
 | SOCKET_ENABLED | No | false | Enable Socket.IO |
 | REALTIME_ROW_LEVEL_SCOPING | No | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
 | PUBLIC_REGISTRATION | No | true | Allow public registration |

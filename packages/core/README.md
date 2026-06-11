@@ -323,6 +323,7 @@ SECRET_KEY=your-secret-key-min-32-chars
 # DATA_CACHE_REDIS_URL=redis://localhost:6379
 
 # Real-time (optional)
+# WORKFLOWS_ENABLED=true            # master switch for the workflow subsystem; false disables hooks (no per-request overhead), schedules, /workflows/* routes, and code execution
 # SOCKET_ENABLED=true
 # REALTIME_ROW_LEVEL_SCOPING=false  # per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast
 # SOCKET_REDIS_ENABLED=true        # For multi-instance

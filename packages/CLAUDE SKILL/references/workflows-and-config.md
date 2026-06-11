@@ -356,6 +356,7 @@ const products = await baasix.items<Products>("products").list();
 | BODY_SIZE_LIMIT | 20mb | Max request body |
 | LOG_LEVEL | info | fatal/error/warn/info/debug/trace |
 | MULTI_TENANT | false | Multi-tenancy |
+| WORKFLOWS_ENABLED | true | Master switch for the whole workflow subsystem; false = no hooks/no per-request overhead, no scheduled runs, /workflows/* → 404, no code execution |
 | SOCKET_ENABLED | false | Socket.IO |
 | REALTIME_ROW_LEVEL_SCOPING | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
 | PUBLIC_REGISTRATION | true | Allow public registration |
