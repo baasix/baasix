@@ -272,9 +272,13 @@ const registerEndpoint = (app: Express) => {
     });
 
     /** Markdown reference for block configs (consumed by MCP resources). */
-    app.get("/pages/block-config-doc", adminOnly, async (_req, res) => {
-        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-        res.status(200).send(BLOCK_CONFIG_DOC);
+    app.get("/pages/block-config-doc", adminOnly, async (_req, res, next) => {
+        try {
+            res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+            res.status(200).send(BLOCK_CONFIG_DOC);
+        } catch (error: any) {
+            next(error instanceof APIError ? error : new APIError("Error serving block config doc", 500, error.message));
+        }
     });
 };
 
