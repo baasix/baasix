@@ -84,6 +84,41 @@ describe("validateBlockData", () => {
         expect(() => validateBlockData({ type: "markdown" }, nullFields)).not.toThrow();
     });
 
+    test("computed column entry with unknown field name does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "table",
+                    collection: "posts",
+                    config: {
+                        columns: [
+                            { field: "name" },
+                            { field: "_total", label: "Total", compute: "row.price * row.qty" },
+                        ],
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("computed column entry with empty field throws 400", () => {
+        try {
+            validateBlockData(
+                {
+                    type: "table",
+                    collection: "posts",
+                    config: { columns: [{ field: "", compute: "row.price * row.qty" }] },
+                },
+                userLikeFields
+            );
+            throw new Error("expected validateBlockData to throw");
+        } catch (err) {
+            expect(err.message).toMatch(/field/);
+            expect(err.statusCode).toBe(400);
+        }
+    });
+
     test("dotted field first segment is validated", () => {
         const map = stubFields({ author: {} });
         expect(() =>

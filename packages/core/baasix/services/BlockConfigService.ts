@@ -62,6 +62,32 @@ function firstSegment(fieldPath: string): string {
     return String(fieldPath).split(".")[0];
 }
 
+/**
+ * True when the entry is a computed (virtual) field entry: an object carrying
+ * a non-empty string `compute` expression. Computed entries are not backed by
+ * schema columns, so schema-existence checks are skipped for them — but
+ * `field` must still be a non-empty string (it serves as the entry key and
+ * label fallback, e.g. {field: "_total", label, compute}).
+ */
+function isComputedEntry(entry: any): boolean {
+    return (
+        entry != null &&
+        typeof entry === "object" &&
+        !Array.isArray(entry) &&
+        typeof entry.compute === "string" &&
+        entry.compute.length > 0
+    );
+}
+
+function assertComputedEntryKey(entry: any, context: string): void {
+    if (typeof entry.field !== "string" || entry.field.length === 0) {
+        throw new APIError(
+            `Invalid ${context} entry: computed entries require "field" to be a non-empty string`,
+            400
+        );
+    }
+}
+
 function assertFieldExists(
     fieldPath: any,
     fieldMap: Record<string, any>,
@@ -97,14 +123,23 @@ function requireConfigField(config: any, key: string, fieldMap: Record<string, a
  * Validate an array of field entries. Entries may be `{field}` objects
  * (ConfigFieldsPicker output, e.g. cardFields/fields/popupFields) or plain
  * field-name strings (e.g. chart groupBy). Non-arrays are ignored.
+ *
+ * When `allowComputed` is true (field-picker contexts: table columns,
+ * details/cardlist fields, kanban cardFields), entries with a non-empty
+ * string `compute` are virtual and skip the schema-existence check.
  */
 function assertFieldEntries(
     entries: any,
     fieldMap: Record<string, any>,
-    context: string
+    context: string,
+    allowComputed = false
 ): void {
     if (!Array.isArray(entries)) return;
     for (const entry of entries) {
+        if (allowComputed && isComputedEntry(entry)) {
+            assertComputedEntryKey(entry, context);
+            continue;
+        }
         const path = typeof entry === "string" ? entry : entry?.field;
         assertFieldExists(path, fieldMap, context);
     }
@@ -169,11 +204,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
 
     if (config != null && fieldMap) {
         if (type === "table") {
-            if (Array.isArray(config.columns)) {
-                for (const column of config.columns) {
-                    assertFieldExists(column?.field, fieldMap, "config.columns");
-                }
-            }
+            assertFieldEntries(config.columns, fieldMap, "config.columns", true);
         } else if (type === "form") {
             if (config.mode != null && !FORM_MODES.has(config.mode)) {
                 throw new APIError(
@@ -187,15 +218,11 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                 }
             }
         } else if (type === "details") {
-            if (Array.isArray(config.fields)) {
-                for (const entry of config.fields) {
-                    assertFieldExists(entry?.field, fieldMap, "config.fields");
-                }
-            }
+            assertFieldEntries(config.fields, fieldMap, "config.fields", true);
         } else if (type === "kanban") {
             requireConfigField(config, "groupByField", fieldMap);
             requireConfigField(config, "cardTitleField", fieldMap);
-            assertFieldEntries(config.cardFields, fieldMap, "config.cardFields");
+            assertFieldEntries(config.cardFields, fieldMap, "config.cardFields", true);
         } else if (type === "calendar") {
             requireConfigField(config, "startField", fieldMap);
             requireConfigField(config, "titleField", fieldMap);
@@ -257,7 +284,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             if (config.imageField != null) {
                 assertFieldExists(config.imageField, fieldMap, "config.imageField");
             }
-            assertFieldEntries(config.fields, fieldMap, "config.fields");
+            assertFieldEntries(config.fields, fieldMap, "config.fields", true);
             if (config.columns != null) {
                 if (!Number.isInteger(config.columns) || config.columns < 1 || config.columns > 6) {
                     throw new APIError(
