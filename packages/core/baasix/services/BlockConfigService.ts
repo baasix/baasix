@@ -27,6 +27,7 @@ const BLOCK_TYPES = [
     "feed",
     "iframe",
     "upload",
+    "code",
 ];
 
 const COLLECTION_REQUIRED = new Set([
@@ -54,6 +55,8 @@ const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
 const BUTTON_ACTION_TYPES = new Set(["link", "workflow", "create", "page", "view"]);
 
 const MEDIA_VIEWERS = new Set(["image", "video", "audio", "auto"]);
+
+const CODE_LANGUAGES = new Set(["json", "javascript", "sql", "html", "css", "text"]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -436,6 +439,49 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     // (the renderer applies its defaults).
     if (config != null && type === "upload") {
         validateUploadConfig(config);
+    }
+
+    // code has an OPTIONAL collection (like markdown it is not in
+    // COLLECTION_REQUIRED, so fieldMap above is null). Validate its config
+    // here; recordField additionally requires the block to carry a collection
+    // whose field map contains the field, so the collection is resolved on
+    // demand. No config at all stays lenient.
+    if (config != null && type === "code") {
+        validateCodeConfig(config, collection, getFields);
+    }
+}
+
+/**
+ * Validate a code block config. All keys are optional: `content` (static
+ * code/JSON string), `language` (one of CODE_LANGUAGES) and `recordField`
+ * (renders a live record's field value — requires the block to have a
+ * collection and the field to exist on it).
+ */
+function validateCodeConfig(config: any, collection: any, getFields: GetFieldsFn): void {
+    if (config.content != null && typeof config.content !== "string") {
+        throw new APIError(`Invalid code content: must be a string`, 400);
+    }
+    if (config.language != null && !CODE_LANGUAGES.has(config.language)) {
+        throw new APIError(
+            `Invalid code language "${config.language}". Must be one of: json, javascript, sql, html, css, text`,
+            400
+        );
+    }
+    if (config.recordField != null) {
+        if (typeof config.recordField !== "string" || config.recordField.length === 0) {
+            throw new APIError(`Invalid code recordField: must be a non-empty string`, 400);
+        }
+        if (!collection || typeof collection !== "string") {
+            throw new APIError(
+                `Code block config "recordField" requires the block to have a collection`,
+                400
+            );
+        }
+        const fieldMap = getFields(collection);
+        if (!fieldMap) {
+            throw new APIError(`Unknown collection "${collection}" for block`, 400);
+        }
+        assertFieldExists(config.recordField, fieldMap, "config.recordField");
     }
 }
 

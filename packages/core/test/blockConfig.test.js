@@ -666,6 +666,73 @@ describe("validateBlockData – phase 2 types", () => {
         });
     });
 
+    describe("code", () => {
+        test("valid static code config (content + language) without collection does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "code", config: { content: '{"a": 1}', language: "json" } },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid record-bound code config (collection + recordField) does not throw", () => {
+            const map = stubFields({ meta: {}, name: {} });
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "code",
+                        collection: "posts",
+                        config: { recordField: "meta", language: "json" },
+                    },
+                    map
+                )
+            ).not.toThrow();
+        });
+
+        test("code without config does not throw (lenient like markdown)", () => {
+            expect(() => validateBlockData({ type: "code" }, nullFields)).not.toThrow();
+        });
+
+        test("code with bad language throws mentioning language", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "code", config: { language: "python" } },
+                    nullFields
+                )
+            ).toThrow(/language/);
+        });
+
+        test("recordField without collection throws mentioning collection", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "code", config: { recordField: "meta" } },
+                    nullFields
+                )
+            ).toThrow(/collection/);
+        });
+
+        test("recordField not on collection throws naming the bad field", () => {
+            const map = stubFields({ name: {} });
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "code",
+                        collection: "posts",
+                        config: { recordField: "nope" },
+                    },
+                    map
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("code with non-string content throws mentioning content", () => {
+            expect(() =>
+                validateBlockData({ type: "code", config: { content: 42 } }, nullFields)
+            ).toThrow(/content/);
+        });
+    });
+
     describe("iframe", () => {
         test("valid iframe config (url + height + allowFullscreen) without collection does not throw", () => {
             expect(() =>

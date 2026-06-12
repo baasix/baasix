@@ -1900,7 +1900,7 @@ export const systemSchemas = {
                     },
                     type: {
                         type: "ENUM",
-                        values: ["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload"],
+                        values: ["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code"],
                         allowNull: false,
                         SystemGenerated: "true",
                     },
