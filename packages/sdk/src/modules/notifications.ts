@@ -50,7 +50,9 @@ export class NotificationsModule {
     limit?: number;
     page?: number;
     filter?: Record<string, unknown>;
-    sort?: string | string[] | Record<string, "asc" | "desc">;
+    // Bare strings are intentionally not accepted: the backend JSON.parses
+    // the sort param, so a non-JSON string like "-createdAt" would 500.
+    sort?: string[] | Record<string, "asc" | "desc">;
   }): Promise<PaginatedResponse<Notification>> {
     return this.client.get<PaginatedResponse<Notification>>("/notifications", {
       params: params as Record<string, unknown>,

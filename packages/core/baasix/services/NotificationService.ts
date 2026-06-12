@@ -123,15 +123,10 @@ class NotificationService {
         );
       }
 
-      const updateValues: Record<string, unknown> = { seen: false };
-      // markAsSeen sets seenAt when the column exists; clear it symmetrically.
-      if ((notificationTable as any).seenAt) {
-        updateValues.seenAt = null;
-      }
-
+      // markAsSeen sets seenAt unconditionally; clear it the same way.
       const result = await db
         .update(notificationTable)
-        .set(updateValues)
+        .set({ seen: false, seenAt: null })
         .where(whereConditions);
 
       // Invalidate cache after update
