@@ -378,6 +378,39 @@ describe("validateBlockData – phase 2 types", () => {
             ).not.toThrow();
         });
 
+        test.each(["area", "doughnut", "radar", "polar", "treemap"])(
+            "chart accepts chartType %s",
+            (chartType) => {
+                expect(() =>
+                    validateBlockData(
+                        {
+                            type: "chart",
+                            collection: "tasks",
+                            config: {
+                                chartType,
+                                aggregate: { count: { function: "count", field: "*" } },
+                                groupBy: ["status"],
+                            },
+                        },
+                        phase2Fields
+                    )
+                ).not.toThrow();
+            }
+        );
+
+        test("chart unknown chartType throws mentioning chartType", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "chart",
+                        collection: "tasks",
+                        config: { chartType: "scatter", aggregate: { c: { function: "count", field: "*" } } },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/chartType/);
+        });
+
         test("chart invalid chartType throws mentioning chartType", () => {
             expect(() =>
                 validateBlockData(

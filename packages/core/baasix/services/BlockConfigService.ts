@@ -46,7 +46,17 @@ const COLLECTION_REQUIRED = new Set([
 
 const FORM_MODES = new Set(["create", "edit"]);
 
-const CHART_TYPES = new Set(["bar", "line", "pie", "stat"]);
+const CHART_TYPES = new Set([
+    "bar",
+    "line",
+    "area",
+    "pie",
+    "doughnut",
+    "radar",
+    "polar",
+    "treemap",
+    "stat",
+]);
 
 const AGGREGATE_FUNCTIONS = new Set(["count", "sum", "avg", "min", "max"]);
 
@@ -299,7 +309,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         } else if (type === "chart") {
             if (!CHART_TYPES.has(config.chartType)) {
                 throw new APIError(
-                    `Invalid chartType "${config.chartType}". Must be one of: bar, line, pie, stat`,
+                    `Invalid chartType "${config.chartType}". Must be one of: ${[...CHART_TYPES].join(", ")}`,
                     400
                 );
             }
