@@ -552,6 +552,10 @@ const TOOL_ACTION_MAP: Record<string, string> = {
   baasix_validate_block_config: "read",
 };
 
+// Allowlisted keys for page/block update payloads (guards against tenant_Id/page_Id injection)
+const PAGE_UPDATE_KEYS = ["name", "slug", "icon", "description", "isPublic", "enabled", "sort", "parent_Id", "options", "roles"];
+const BLOCK_UPDATE_KEYS = ["type", "collection", "position", "config", "configVersion"];
+
 /**
  * Parse MCP_ENABLED_ACTIONS env var.
  * Accepts a comma-separated list of: "all", "read", "create", "update", "delete"
@@ -2759,12 +2763,14 @@ Use baasix_get_schema first to see the current relationship configuration.`,
       search: z.string().optional().describe("Filter by name/slug substring"),
       includeDisabled: z.boolean().optional().default(true).describe("Include disabled pages"),
       limit: z.number().optional().default(100),
+      page: z.number().optional().default(1).describe("Page number for pagination"),
     },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {
       const params = new URLSearchParams();
       params.set("fields", JSON.stringify(["id", "name", "slug", "icon", "enabled", "isPublic", "sort", "parent_Id", "options"]));
       params.set("sort", JSON.stringify(["sort"]));
       params.set("limit", String(args.limit ?? 100));
+      params.set("page", String(args.page ?? 1));
       if (args.search) {
         params.set("search", args.search);
         params.set("searchFields", JSON.stringify(["name", "slug"]));
@@ -2824,13 +2830,20 @@ Use baasix_get_schema first to see the current relationship configuration.`,
 
   registerTool(
     "baasix_update_page",
-    "Update fields of a page (name, slug, icon, enabled, isPublic, sort, parent_Id, options, roles).",
+    "Update fields of a page. Allowed fields: name, slug, icon, description, isPublic, enabled, sort, parent_Id, options, roles. roles is an array of role ids (null = visible to all roles).",
     {
       id: z.string().describe("Page id"),
-      data: z.record(z.any()).describe("Partial page fields to update"),
+      data: z.record(z.any()).describe("Partial page fields to update. Allowed keys: name, slug, icon, description, isPublic, enabled, sort, parent_Id, options, roles."),
     },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {
-      const res = await callRoute("PATCH", `/items/baasix_Page/${encodeURIComponent(args.id)}`, extra, args.data);
+      const body: Record<string, any> = {};
+      for (const key of PAGE_UPDATE_KEYS) {
+        if (key in args.data) body[key] = args.data[key];
+      }
+      if (Object.keys(body).length === 0) {
+        return errorResult(`No updatable fields in data — allowed: ${PAGE_UPDATE_KEYS.join(", ")}`);
+      }
+      const res = await callRoute("PATCH", `/items/baasix_Page/${encodeURIComponent(args.id)}`, extra, body);
       if (!res.ok) return errorResult(res.error || "Failed to update page");
       return successResult(res.data);
     }
@@ -2880,10 +2893,17 @@ Full config reference: resource baasix://docs/block-config.`,
     "Update a block (type/collection/position/config). The server re-validates the MERGED block, so a partial config patch replaces the whole config key — send the full new config object.",
     {
       id: z.string().describe("Block id (from baasix_get_page)"),
-      data: z.record(z.any()).describe("Partial block fields, e.g. {config: {...}} or {position: {...}}"),
+      data: z.record(z.any()).describe("Partial block fields. Allowed keys: type, collection, position, config, configVersion."),
     },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {
-      const res = await callRoute("PATCH", `/items/baasix_Block/${encodeURIComponent(args.id)}`, extra, args.data);
+      const body: Record<string, any> = {};
+      for (const key of BLOCK_UPDATE_KEYS) {
+        if (key in args.data) body[key] = args.data[key];
+      }
+      if (Object.keys(body).length === 0) {
+        return errorResult(`No updatable fields in data — allowed: ${BLOCK_UPDATE_KEYS.join(", ")}`);
+      }
+      const res = await callRoute("PATCH", `/items/baasix_Block/${encodeURIComponent(args.id)}`, extra, body);
       if (!res.ok) return errorResult(res.error || "Failed to update block (config validation error?)");
       return successResult(res.data);
     }
