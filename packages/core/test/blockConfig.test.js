@@ -345,6 +345,19 @@ describe("validateBlockData – phase 2 types", () => {
                 )
             ).not.toThrow();
         });
+
+        test("calendar with non-array views (string) throws mentioning views", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title", views: "month" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/views/);
+        });
     });
 
     describe("chart", () => {
