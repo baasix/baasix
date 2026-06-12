@@ -634,6 +634,47 @@ describe("validateBlockData – phase 2 types", () => {
             ).toThrow(/slug/);
         });
 
+        test("buttons view action with no extra keys does not throw (collection/idField optional)", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: {
+                            items: [
+                                { label: "View", action: { type: "view" } },
+                                {
+                                    label: "Tenant",
+                                    action: { type: "view", collection: "baasix_Tenant", idField: "tenant_Id" },
+                                },
+                            ],
+                        },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("buttons view action with non-string collection/idField throws naming the bad key", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "View", action: { type: "view", collection: 42 } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/collection/);
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "buttons",
+                        config: { items: [{ label: "View", action: { type: "view", idField: 42 } }] },
+                    },
+                    nullFields
+                )
+            ).toThrow(/idField/);
+        });
+
         test("buttons item with unknown action type error lists valid types (link, workflow, create, page)", () => {
             let caught;
             try {

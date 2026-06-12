@@ -49,7 +49,7 @@ const AGGREGATE_FUNCTIONS = new Set(["count", "sum", "avg", "min", "max"]);
 
 const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
 
-const BUTTON_ACTION_TYPES = new Set(["link", "workflow", "create", "page"]);
+const BUTTON_ACTION_TYPES = new Set(["link", "workflow", "create", "page", "view"]);
 
 const MEDIA_VIEWERS = new Set(["image", "video", "audio", "auto"]);
 
@@ -375,7 +375,7 @@ function validateButtonsConfig(config: any): void {
         }
         if (!BUTTON_ACTION_TYPES.has(action.type)) {
             throw new APIError(
-                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow, create, page`,
+                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow, create, page, view`,
                 400
             );
         }
@@ -404,6 +404,21 @@ function validateButtonsConfig(config: any): void {
             if (typeof action.slug !== "string" || action.slug.length === 0) {
                 throw new APIError(
                     `Invalid buttons item at index ${index}: page action requires "slug" to be a non-empty string`,
+                    400
+                );
+            }
+        } else if (action.type === "view") {
+            // Both keys are optional (collection defaults to the host block's
+            // collection, idField defaults to "id") — validate types only when present.
+            if (action.collection != null && typeof action.collection !== "string") {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: view action "collection" must be a string when present`,
+                    400
+                );
+            }
+            if (action.idField != null && typeof action.idField !== "string") {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: view action "idField" must be a string when present`,
                     400
                 );
             }
