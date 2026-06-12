@@ -721,19 +721,9 @@ export function mergeBlockForUpdate(
     return { ...existing, ...patch };
 }
 
-/**
- * Register lifecycle hooks for baasix_Page and baasix_Block.
- *
- * Uses dynamic imports for hooksManager/schemaManager/ItemsService so this
- * module stays side-effect free when only the pure validators are imported
- * (e.g. from unit tests).
- */
-export async function registerPageBuilderHooks(): Promise<void> {
-    const { hooksManager } = await import("./HooksManager.js");
-    const { schemaManager } = await import("../utils/schemaManager.js");
-
-    /** Resolve a collection's field map (columns + relation names). Unknown collection -> null. */
-    const getFields: GetFieldsFn = (collection: string) => {
+/** Build a GetFieldsFn backed by the live schemaManager (columns + relation names). */
+export function makeGetFields(schemaManager: any): GetFieldsFn {
+    return (collection: string) => {
         const table = schemaManager.getSchema(collection);
         if (!table || typeof table !== "object") return null;
         const map: Record<string, any> = {};
@@ -749,6 +739,20 @@ export async function registerPageBuilderHooks(): Promise<void> {
         }
         return map;
     };
+}
+
+/**
+ * Register lifecycle hooks for baasix_Page and baasix_Block.
+ *
+ * Uses dynamic imports for hooksManager/schemaManager/ItemsService so this
+ * module stays side-effect free when only the pure validators are imported
+ * (e.g. from unit tests).
+ */
+export async function registerPageBuilderHooks(): Promise<void> {
+    const { hooksManager } = await import("./HooksManager.js");
+    const { schemaManager } = await import("../utils/schemaManager.js");
+
+    const getFields = makeGetFields(schemaManager);
 
     /**
      * Duplicate-slug check: the schema manager emits NULLS NOT DISTINCT on PG15+
