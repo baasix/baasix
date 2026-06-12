@@ -86,6 +86,14 @@ describe("collectRequires", () => {
         expect(req.collections.DemoTask).toEqual(["assignee"]);
         expect(Object.keys(req.collections)).toEqual(["DemoTask"]);
     });
+    test("deeply nested filters don't blow the stack", () => {
+        let filter = { status: { eq: "x" } };
+        for (let i = 0; i < 5000; i += 1) filter = { and: [filter] };
+        expect(() => collectRequires([{
+            id: "b1", page_Id: "p1", type: "table", collection: "C",
+            config: { filter },
+        }])).not.toThrow();
+    });
 });
 
 describe("validateBundleShape", () => {
@@ -99,6 +107,14 @@ describe("validateBundleShape", () => {
         expect(validateBundleShape({ bundleVersion: 1, pages: "x", blocks: [] })).not.toEqual([]);
         expect(validateBundleShape({ bundleVersion: 1, pages: [{ id: "p" }], blocks: [] })).not.toEqual([]);
         expect(validateBundleShape(null)).not.toEqual([]);
+    });
+    test("rejects blocks referencing pages not in the bundle", () => {
+        const errors = validateBundleShape({
+            bundleVersion: 1,
+            pages: [{ id: "p1", name: "n", slug: "s" }],
+            blocks: [{ id: "b1", page_Id: "ghost", type: "table" }],
+        });
+        expect(errors.join(" ")).toMatch(/ghost/);
     });
 });
 

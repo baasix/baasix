@@ -33,16 +33,19 @@ function pick(row: Record<string, any>, keys: readonly string[]): Record<string,
     return out;
 }
 
-function firstSegment(field: string): string {
-    return field.split(".")[0];
+function firstSegment(field: unknown): string {
+    return String(field).split(".")[0];
 }
 
+const MAX_FILTER_DEPTH = 50;
+
 /** Collect field names referenced by an items-API filter object ({and:[...]}/{or:[...]} recurse). */
-function collectFilterFields(filter: any, into: Set<string>): void {
+function collectFilterFields(filter: any, into: Set<string>, depth = 0): void {
+    if (depth > MAX_FILTER_DEPTH) return;
     if (!filter || typeof filter !== "object" || Array.isArray(filter)) return;
     for (const [key, value] of Object.entries(filter)) {
         if (key === "and" || key === "or") {
-            if (Array.isArray(value)) for (const sub of value) collectFilterFields(sub, into);
+            if (Array.isArray(value)) for (const sub of value) collectFilterFields(sub, into, depth + 1);
             continue;
         }
         if (key.startsWith("$")) continue;
@@ -154,6 +157,8 @@ export function buildPageBundle(
     };
 }
 
+const isNonEmptyString = (v: any): boolean => typeof v === "string" && v.length > 0;
+
 /** Structural validation of an uploaded bundle. Returns [] when OK. */
 export function validateBundleShape(raw: any): string[] {
     const errors: string[] = [];
@@ -167,9 +172,9 @@ export function validateBundleShape(raw: any): string[] {
         raw.pages.forEach((p: any, i: number) => {
             if (!p || typeof p !== "object") errors.push(`pages[${i}] must be an object`);
             else {
-                if (!p.id) errors.push(`pages[${i}] is missing "id"`);
-                if (!p.name) errors.push(`pages[${i}] is missing "name"`);
-                if (!p.slug) errors.push(`pages[${i}] is missing "slug"`);
+                if (!isNonEmptyString(p.id)) errors.push(`pages[${i}] is missing "id"`);
+                if (!isNonEmptyString(p.name)) errors.push(`pages[${i}] is missing "name"`);
+                if (!isNonEmptyString(p.slug)) errors.push(`pages[${i}] is missing "slug"`);
             }
         });
         const slugs = raw.pages.map((p: any) => p?.slug).filter(Boolean);
@@ -179,9 +184,17 @@ export function validateBundleShape(raw: any): string[] {
         raw.blocks.forEach((b: any, i: number) => {
             if (!b || typeof b !== "object") errors.push(`blocks[${i}] must be an object`);
             else {
-                if (!b.id) errors.push(`blocks[${i}] is missing "id"`);
-                if (!b.page_Id) errors.push(`blocks[${i}] is missing "page_Id"`);
-                if (!b.type) errors.push(`blocks[${i}] is missing "type"`);
+                if (!isNonEmptyString(b.id)) errors.push(`blocks[${i}] is missing "id"`);
+                if (!isNonEmptyString(b.page_Id)) errors.push(`blocks[${i}] is missing "page_Id"`);
+                if (!isNonEmptyString(b.type)) errors.push(`blocks[${i}] is missing "type"`);
+            }
+        });
+    }
+    if (Array.isArray(raw.pages) && Array.isArray(raw.blocks)) {
+        const pageIds = new Set(raw.pages.map((p: any) => String(p?.id)));
+        raw.blocks.forEach((b: any, i: number) => {
+            if (b && typeof b === "object" && b.page_Id && !pageIds.has(String(b.page_Id))) {
+                errors.push(`blocks[${i}] references page_Id "${b.page_Id}" which is not in the bundle`);
             }
         });
     }
