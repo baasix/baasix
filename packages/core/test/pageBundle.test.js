@@ -6,6 +6,8 @@ import {
     validateBundleShape,
     suggestSlug,
     remapTargets,
+    analyzeImport,
+    resolveRoleIds,
 } from "../baasix/services/PageBundleService.js";
 
 const page = (over = {}) => ({
@@ -135,5 +137,78 @@ describe("remapTargets", () => {
     });
     test("returns null when nothing changed", () => {
         expect(remapTargets({ targets: ["new1"] }, new Map([["new1", "new1"]]))).toBeNull();
+    });
+});
+
+describe("resolveRoleIds", () => {
+    const ctx = {
+        roleIdExists: (id) => id === "r-local",
+        roleIdByName: (name) => (name === "user" ? "r-user-local" : undefined),
+    };
+    test("keeps ids that exist locally", () => {
+        expect(resolveRoleIds(["r-local"], {}, ctx)).toEqual({ resolved: ["r-local"], unknown: [] });
+    });
+    test("re-resolves foreign ids by name via roleNames", () => {
+        expect(resolveRoleIds(["r-foreign"], { "r-foreign": "user" }, ctx))
+            .toEqual({ resolved: ["r-user-local"], unknown: [] });
+    });
+    test("drops and reports unresolvable ids (by name when known)", () => {
+        expect(resolveRoleIds(["r-gone"], { "r-gone": "ops" }, ctx))
+            .toEqual({ resolved: [], unknown: ["ops"] });
+        expect(resolveRoleIds(["r-mystery"], {}, ctx))
+            .toEqual({ resolved: [], unknown: ["r-mystery"] });
+    });
+});
+
+describe("analyzeImport", () => {
+    const baseBundle = () => ({
+        bundleVersion: 1, baasixVersion: "1", exportedAt: "x",
+        pages: [
+            { id: "p1", name: "Tasks", slug: "tasks", parent_Id: null, roles: null, options: {} },
+            { id: "p2", name: "Child", slug: "child", parent_Id: "p1", roles: ["r-gone"], options: {} },
+            { id: "p3", name: "Orphan", slug: "orphan", parent_Id: "p-not-in-bundle", roles: null, options: {} },
+        ],
+        blocks: [
+            { id: "b1", page_Id: "p1", type: "table", collection: "DemoTask",
+              config: { columns: [{ field: "title" }] }, position: { row: 0, col: 0, span: 12 } },
+            { id: "b2", page_Id: "p1", type: "table", collection: "MissingCol", config: {} },
+        ],
+        roleNames: { "r-gone": "ops" },
+        requires: { collections: { DemoTask: ["title", "nope"], MissingCol: ["x"] } },
+    });
+    const ctx = {
+        existingPagesBySlug: new Map([["tasks", { id: "x1", name: "Tasks (existing)" }]]),
+        getFields: (collection) => (collection === "DemoTask" ? { title: {}, status: {} } : null),
+        roleIdExists: () => false,
+        roleIdByName: () => undefined,
+        validateBlock: (data) => {
+            if (data.collection === "MissingCol") throw new Error(`Unknown collection "MissingCol" for block`);
+        },
+    };
+
+    test("flags slug conflicts with suggestion; new pages pass", () => {
+        const report = analyzeImport(baseBundle(), ctx);
+        const tasks = report.pages.find((p) => p.slug === "tasks");
+        expect(tasks.status).toBe("conflict");
+        expect(tasks.existingPage).toEqual({ id: "x1", name: "Tasks (existing)" });
+        expect(tasks.suggestedSlug).toBe("tasks-2");
+        expect(report.pages.find((p) => p.slug === "child").status).toBe("new");
+    });
+
+    test("reports missing collections and missing fields from requires", () => {
+        const report = analyzeImport(baseBundle(), ctx);
+        expect(report.collections.MissingCol).toEqual({ exists: false, missingFields: [] });
+        expect(report.collections.DemoTask).toEqual({ exists: true, missingFields: ["nope"] });
+    });
+
+    test("collects per-block validation errors and unknown roles and unresolved parents", () => {
+        const report = analyzeImport(baseBundle(), ctx);
+        expect(report.blockIssues).toEqual([
+            { blockId: "b2", pageSlug: "tasks", type: "table", collection: "MissingCol",
+              error: `Unknown collection "MissingCol" for block` },
+        ]);
+        expect(report.pages.find((p) => p.slug === "child").unknownRoles).toEqual(["ops"]);
+        expect(report.pages.find((p) => p.slug === "orphan").unresolvedParent).toBe(true);
+        expect(report.pages.find((p) => p.slug === "child").unresolvedParent).toBe(false);
     });
 });

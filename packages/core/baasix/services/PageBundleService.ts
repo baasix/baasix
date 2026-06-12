@@ -224,3 +224,95 @@ export function remapTargets(config: any, blockIdMap: Map<string, string>): any 
     if (unchanged) return null;
     return { ...config, targets: remapped };
 }
+
+export interface ImportContext {
+    existingPagesBySlug: Map<string, { id: string; name: string }>;
+    getFields: (collection: string) => Record<string, any> | null | undefined;
+    roleIdExists: (id: string) => boolean;
+    roleIdByName: (name: string) => string | undefined;
+    /** Inject validateBlockData bound to the target instance's getFields. */
+    validateBlock: (data: Record<string, any>) => void;
+}
+
+/** Resolve bundle role ids against the target instance (id match, then name via roleNames). */
+export function resolveRoleIds(
+    ids: string[],
+    roleNames: Record<string, string>,
+    ctx: Pick<ImportContext, "roleIdExists" | "roleIdByName">
+): { resolved: string[]; unknown: string[] } {
+    const resolved: string[] = [];
+    const unknown: string[] = [];
+    for (const id of ids) {
+        if (ctx.roleIdExists(id)) {
+            resolved.push(id);
+            continue;
+        }
+        const name = roleNames[id];
+        const byName = name ? ctx.roleIdByName(name) : undefined;
+        if (byName) resolved.push(byName);
+        else unknown.push(name || id);
+    }
+    return { resolved, unknown };
+}
+
+export function analyzeImport(bundle: any, ctx: ImportContext) {
+    const bundleSlugs = new Set<string>(bundle.pages.map((p: any) => p.slug));
+    const bundlePageIds = new Set<string>(bundle.pages.map((p: any) => String(p.id)));
+    const roleNames: Record<string, string> = bundle.roleNames || {};
+
+    const pages = bundle.pages.map((page: any) => {
+        const existing = ctx.existingPagesBySlug.get(page.slug) || null;
+        const taken = new Set<string>([...ctx.existingPagesBySlug.keys(), ...bundleSlugs]);
+        const referencedRoles: string[] = [
+            ...(Array.isArray(page.roles) ? page.roles : []),
+            ...(Array.isArray(page.options?.homeFor) ? page.options.homeFor : []),
+        ].map(String);
+        const { unknown } = resolveRoleIds(referencedRoles, roleNames, ctx);
+        return {
+            id: page.id,
+            slug: page.slug,
+            name: page.name,
+            blockCount: bundle.blocks.filter((b: any) => String(b.page_Id) === String(page.id)).length,
+            status: existing ? ("conflict" as const) : ("new" as const),
+            existingPage: existing,
+            suggestedSlug: existing ? suggestSlug(page.slug, taken) : null,
+            unknownRoles: [...new Set(unknown)],
+            unresolvedParent: !!page.parent_Id && !bundlePageIds.has(String(page.parent_Id)),
+        };
+    });
+
+    const collections: Record<string, { exists: boolean; missingFields: string[] }> = {};
+    const required = bundle.requires?.collections || {};
+    for (const [name, fields] of Object.entries<any>(required)) {
+        const known = ctx.getFields(name);
+        if (!known) {
+            collections[name] = { exists: false, missingFields: [] };
+            continue;
+        }
+        const missing = (Array.isArray(fields) ? fields : []).filter((f: string) => !(f in known));
+        collections[name] = { exists: true, missingFields: missing };
+    }
+
+    const pageSlugById = new Map<string, string>(bundle.pages.map((p: any) => [String(p.id), p.slug]));
+    const blockIssues: { blockId: string; pageSlug: string; type: string; collection: string | null; error: string }[] = [];
+    for (const blk of bundle.blocks) {
+        try {
+            ctx.validateBlock({
+                type: blk.type,
+                collection: blk.collection ?? null,
+                config: blk.config ?? null,
+                position: blk.position ?? null,
+            });
+        } catch (error: any) {
+            blockIssues.push({
+                blockId: blk.id,
+                pageSlug: pageSlugById.get(String(blk.page_Id)) || "<unknown page>",
+                type: blk.type,
+                collection: blk.collection ?? null,
+                error: error?.message || String(error),
+            });
+        }
+    }
+
+    return { pages, collections, blockIssues };
+}
