@@ -11,6 +11,7 @@ import {
     remapTargets,
     suggestSlug,
 } from "../services/PageBundleService.js";
+import { BLOCK_CONFIG_DOC } from "../utils/blockConfigDoc.js";
 import env from "../utils/env.js";
 import type { Express } from "../types/index.js";
 
@@ -251,6 +252,29 @@ const registerEndpoint = (app: Express) => {
             console.error("[pages] import failed:", error);
             next(error instanceof APIError ? error : new APIError("Error importing pages", 500, error.message));
         }
+    });
+
+    /** Validate a block payload without writing. Body: { type, collection?, config?, position? } */
+    app.post("/pages/validate-block", adminOnly, async (req, res, next) => {
+        try {
+            const { type, collection = null, config = null, position = null } = req.body || {};
+            if (!type) throw new APIError(`"type" is required`, 400);
+            const getFields = makeGetFields(schemaManager);
+            try {
+                validateBlockData({ type, collection, config, position }, getFields);
+                res.status(200).json({ valid: true, errors: [] });
+            } catch (error: any) {
+                res.status(200).json({ valid: false, errors: [error?.message || String(error)] });
+            }
+        } catch (error: any) {
+            next(error instanceof APIError ? error : new APIError("Error validating block", 500, error.message));
+        }
+    });
+
+    /** Markdown reference for block configs (consumed by MCP resources). */
+    app.get("/pages/block-config-doc", adminOnly, async (_req, res) => {
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.status(200).send(BLOCK_CONFIG_DOC);
     });
 };
 
