@@ -14,6 +14,11 @@ const BAASIX_AUTH_TOKEN = config.BAASIX_AUTH_TOKEN;
 const BAASIX_EMAIL = config.BAASIX_EMAIL;
 const BAASIX_PASSWORD = config.BAASIX_PASSWORD;
 
+// Allowlisted keys for page/block update payloads (guards against tenant_Id/page_Id injection)
+const PAGE_UPDATE_KEYS = ["name", "slug", "icon", "description", "isPublic", "enabled", "sort", "parent_Id", "options", "roles"];
+const BLOCK_UPDATE_KEYS = ["type", "collection", "position", "config", "configVersion"];
+const PAGE_CREATE_KEYS = ["name", "slug", "icon", "description", "isPublic", "enabled", "sort", "parent_Id", "options"];
+
 // Authentication state
 let authToken = null;
 let authExpiry = null;
@@ -869,6 +874,7 @@ FILTER EXAMPLES:
                                 search: { type: "string", description: "Filter by name/slug substring" },
                                 includeDisabled: { type: "boolean", description: "Include disabled pages (default true)" },
                                 limit: { type: "number", description: "Max pages (default 100)" },
+                                page: { type: "number", description: "Page number for pagination (default 1)" },
                             },
                         },
                     },
@@ -904,7 +910,7 @@ FILTER EXAMPLES:
                     },
                     {
                         name: "baasix_update_page",
-                        description: "Update page fields (name, slug, icon, enabled, isPublic, sort, parent_Id, options, roles).",
+                        description: "Update fields of a page. Allowed fields: name, slug, icon, description, isPublic, enabled, sort, parent_Id, options, roles. roles is an array of role ids (null = visible to all roles).",
                         inputSchema: {
                             type: "object",
                             properties: {
@@ -948,7 +954,7 @@ FILTER EXAMPLES:
                     },
                     {
                         name: "baasix_update_block",
-                        description: "Update a block (type/collection/position/config). A config patch replaces the WHOLE config key — send the complete new config object.",
+                        description: "Update a block. Allowed fields: type, collection, position, config, configVersion. A config patch replaces the WHOLE config key — send the complete new config object.",
                         inputSchema: {
                             type: "object",
                             properties: {
@@ -2442,6 +2448,7 @@ The realtime config is stored in the schema definition and can include specific 
         params.set("fields", JSON.stringify(["id", "name", "slug", "icon", "enabled", "isPublic", "sort", "parent_Id", "options"]));
         params.set("sort", JSON.stringify(["sort"]));
         params.set("limit", String(args.limit ?? 100));
+        params.set("page", String(args.page ?? 1));
         if (args.search) {
             params.set("search", args.search);
             params.set("searchFields", JSON.stringify(["name", "slug"]));
@@ -2465,13 +2472,24 @@ The realtime config is stored in the schema definition and can include specific 
     }
 
     async handleCreatePage(args) {
-        const result = await baasixRequest("/items/baasix_Page", { method: "POST", data: args });
+        const body = {};
+        for (const key of PAGE_CREATE_KEYS) {
+            if (args[key] !== undefined) body[key] = args[key];
+        }
+        const result = await baasixRequest("/items/baasix_Page", { method: "POST", data: body });
         return { content: [{ type: "text", text: JSON.stringify({ ...result, hint: `Page will render at /pages/?slug=${args.slug}` }, null, 2) }] };
     }
 
     async handleUpdatePage(args) {
         const { id, data } = args;
-        const result = await baasixRequest(`/items/baasix_Page/${encodeURIComponent(id)}`, { method: "PATCH", data });
+        const body = {};
+        for (const key of PAGE_UPDATE_KEYS) {
+            if (data && key in data) body[key] = data[key];
+        }
+        if (Object.keys(body).length === 0) {
+            throw new Error("No updatable fields in data — allowed: " + PAGE_UPDATE_KEYS.join(", "));
+        }
+        const result = await baasixRequest(`/items/baasix_Page/${encodeURIComponent(id)}`, { method: "PATCH", data: body });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
 
@@ -2492,7 +2510,14 @@ The realtime config is stored in the schema definition and can include specific 
 
     async handleUpdateBlock(args) {
         const { id, data } = args;
-        const result = await baasixRequest(`/items/baasix_Block/${encodeURIComponent(id)}`, { method: "PATCH", data });
+        const body = {};
+        for (const key of BLOCK_UPDATE_KEYS) {
+            if (data && key in data) body[key] = data[key];
+        }
+        if (Object.keys(body).length === 0) {
+            throw new Error("No updatable fields in data — allowed: " + BLOCK_UPDATE_KEYS.join(", "));
+        }
+        const result = await baasixRequest(`/items/baasix_Block/${encodeURIComponent(id)}`, { method: "PATCH", data: body });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
 
@@ -2503,7 +2528,8 @@ The realtime config is stored in the schema definition and can include specific 
     }
 
     async handleValidateBlockConfig(args) {
-        const result = await baasixRequest("/pages/validate-block", { method: "POST", data: args });
+        const { type, collection, config, position } = args;
+        const result = await baasixRequest("/pages/validate-block", { method: "POST", data: { type, collection, config, position } });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
 
