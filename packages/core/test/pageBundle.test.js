@@ -88,6 +88,15 @@ describe("collectRequires", () => {
         expect(req.collections.DemoTask).toEqual(["assignee"]);
         expect(Object.keys(req.collections)).toEqual(["DemoTask"]);
     });
+    test("wildcard '*' field references are not recorded as requirements", () => {
+        const req = collectRequires([{
+            id: "b1", page_Id: "p1", type: "table", collection: "C",
+            config: { columns: [{ field: "*" }], filter: { "*": { eq: 1 }, title: { eq: "x" } },
+                sheetTitle: { fields: ["*", "name"] } },
+        }]);
+        expect(req.collections.C.sort()).toEqual(["name", "title"]);
+    });
+
     test("deeply nested filters don't blow the stack", () => {
         let filter = { status: { eq: "x" } };
         for (let i = 0; i < 5000; i += 1) filter = { and: [filter] };

@@ -37,6 +37,12 @@ function firstSegment(field: unknown): string {
     return String(field).split(".")[0];
 }
 
+/** Add a field reference to a set, silently ignoring wildcards and empty strings. */
+const addField = (set: Set<string>, field: unknown) => {
+    const segment = firstSegment(field);
+    if (segment && segment !== "*") set.add(segment);
+};
+
 const MAX_FILTER_DEPTH = 50;
 
 /** Collect field names referenced by an items-API filter object ({and:[...]}/{or:[...]} recurse). */
@@ -49,7 +55,7 @@ function collectFilterFields(filter: any, into: Set<string>, depth = 0): void {
             continue;
         }
         if (key.startsWith("$")) continue;
-        into.add(firstSegment(key));
+        addField(into, key);
     }
 }
 
@@ -57,12 +63,15 @@ function addActionRefs(action: any, addCollection: (name: string, field?: string
     if (!action || typeof action !== "object") return;
     const inner = action.action && typeof action.action === "object" ? action.action : action;
     if (inner.type === "view") {
-        if (typeof inner.idField === "string" && inner.idField) blockFields.add(firstSegment(inner.idField));
+        if (typeof inner.idField === "string" && inner.idField) addField(blockFields, inner.idField);
         if (typeof inner.collection === "string" && inner.collection) addCollection(inner.collection);
     } else if (inner.type === "create" && typeof inner.collection === "string" && inner.collection) {
         addCollection(inner.collection);
         if (inner.defaults && typeof inner.defaults === "object") {
-            for (const key of Object.keys(inner.defaults)) addCollection(inner.collection, firstSegment(key));
+            for (const key of Object.keys(inner.defaults)) {
+                const segment = firstSegment(key);
+                if (segment && segment !== "*") addCollection(inner.collection, segment);
+            }
         }
     }
 }
@@ -85,27 +94,27 @@ export function collectRequires(blocks: Record<string, any>[]): { collections: R
         const fields = ensure(block.collection);
 
         for (const key of SCALAR_FIELD_KEYS) {
-            if (typeof config[key] === "string" && config[key]) fields.add(firstSegment(config[key]));
+            if (typeof config[key] === "string" && config[key]) addField(fields, config[key]);
         }
         for (const key of ENTRY_ARRAY_KEYS) {
             if (!Array.isArray(config[key])) continue;
             for (const entry of config[key]) {
                 if (!entry || typeof entry !== "object") continue;
                 if (entry.compute) continue; // computed columns skip schema validation
-                if (typeof entry.field === "string" && entry.field) fields.add(firstSegment(entry.field));
+                if (typeof entry.field === "string" && entry.field) addField(fields, entry.field);
             }
         }
         if (Array.isArray(config.groupBy)) {
-            for (const g of config.groupBy) if (typeof g === "string" && g) fields.add(firstSegment(g));
+            for (const g of config.groupBy) if (typeof g === "string" && g) addField(fields, g);
         }
         if (config.aggregate && typeof config.aggregate === "object") {
             for (const agg of Object.values<any>(config.aggregate)) {
-                if (agg && typeof agg.field === "string" && agg.field) fields.add(firstSegment(agg.field));
+                if (agg && typeof agg.field === "string" && agg.field) addField(fields, agg.field);
             }
         }
-        if (config.compare && typeof config.compare.timeField === "string") fields.add(firstSegment(config.compare.timeField));
+        if (config.compare && typeof config.compare.timeField === "string") addField(fields, config.compare.timeField);
         if (config.sheetTitle && Array.isArray(config.sheetTitle.fields)) {
-            for (const f of config.sheetTitle.fields) if (typeof f === "string" && f) fields.add(firstSegment(f));
+            for (const f of config.sheetTitle.fields) if (typeof f === "string" && f) addField(fields, f);
         }
         collectFilterFields(config.filter, fields);
 
