@@ -772,6 +772,83 @@ describe("validateBlockData – phase 2 types", () => {
         });
     });
 
+    describe("upload", () => {
+        test("valid upload config (accept + maxSizeMB + multiple + folder) without collection does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "upload",
+                        config: {
+                            accept: "image/*,.pdf",
+                            maxSizeMB: 10,
+                            multiple: true,
+                            folder: "documents",
+                        },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("upload without config does not throw (lenient like markdown/buttons/iframe)", () => {
+            expect(() => validateBlockData({ type: "upload" }, nullFields)).not.toThrow();
+        });
+
+        test("upload with empty config does not throw (every key optional)", () => {
+            expect(() =>
+                validateBlockData({ type: "upload", config: {} }, nullFields)
+            ).not.toThrow();
+        });
+
+        test("upload with non-string accept throws mentioning accept", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "upload", config: { accept: ["image/*"] } },
+                    nullFields
+                )
+            ).toThrow(/accept/);
+        });
+
+        test("upload with non-numeric maxSizeMB throws mentioning maxSizeMB", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "upload", config: { maxSizeMB: "10" } },
+                    nullFields
+                )
+            ).toThrow(/maxSizeMB/);
+        });
+
+        test("upload with non-positive maxSizeMB throws mentioning maxSizeMB", () => {
+            expect(() =>
+                validateBlockData({ type: "upload", config: { maxSizeMB: 0 } }, nullFields)
+            ).toThrow(/maxSizeMB/);
+        });
+
+        test("upload with non-finite maxSizeMB throws mentioning maxSizeMB", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "upload", config: { maxSizeMB: Infinity } },
+                    nullFields
+                )
+            ).toThrow(/maxSizeMB/);
+        });
+
+        test("upload with non-boolean multiple throws mentioning multiple", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "upload", config: { multiple: "yes" } },
+                    nullFields
+                )
+            ).toThrow(/multiple/);
+        });
+
+        test("upload with non-string folder throws mentioning folder", () => {
+            expect(() =>
+                validateBlockData({ type: "upload", config: { folder: 7 } }, nullFields)
+            ).toThrow(/folder/);
+        });
+    });
+
     describe("buttons", () => {
         test("valid buttons config does not throw (link + workflow items, extra keys pass through)", () => {
             expect(() =>

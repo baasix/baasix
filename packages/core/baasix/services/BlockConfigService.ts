@@ -26,6 +26,7 @@ const BLOCK_TYPES = [
     "media",
     "feed",
     "iframe",
+    "upload",
 ];
 
 const COLLECTION_REQUIRED = new Set([
@@ -428,6 +429,40 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     // (renderers handle configless blocks defensively).
     if (config != null && type === "iframe") {
         validateIframeConfig(config);
+    }
+
+    // upload also has no collection — every config key is optional, but each
+    // must have the right shape when present. No config at all stays lenient
+    // (the renderer applies its defaults).
+    if (config != null && type === "upload") {
+        validateUploadConfig(config);
+    }
+}
+
+/**
+ * Validate an upload block config. All keys are optional: `accept` (string
+ * passed to the file input's accept attribute, e.g. "image/*,.pdf"),
+ * `maxSizeMB` (positive finite number — client-side size cap), `multiple`
+ * (boolean) and `folder` (string stored on the created baasix_File rows).
+ */
+function validateUploadConfig(config: any): void {
+    if (config.accept != null && typeof config.accept !== "string") {
+        throw new APIError(`Invalid upload accept: must be a string like "image/*,.pdf"`, 400);
+    }
+    if (config.maxSizeMB != null) {
+        if (
+            typeof config.maxSizeMB !== "number" ||
+            !Number.isFinite(config.maxSizeMB) ||
+            config.maxSizeMB <= 0
+        ) {
+            throw new APIError(`Invalid upload maxSizeMB: must be a positive number`, 400);
+        }
+    }
+    if (config.multiple != null && typeof config.multiple !== "boolean") {
+        throw new APIError(`Invalid upload multiple: must be a boolean`, 400);
+    }
+    if (config.folder != null && typeof config.folder !== "string") {
+        throw new APIError(`Invalid upload folder: must be a string`, 400);
     }
 }
 
