@@ -127,6 +127,13 @@ describe("validateBundleShape", () => {
         });
         expect(errors.join(" ")).toMatch(/ghost/);
     });
+    test("rejects duplicate page ids", () => {
+        expect(validateBundleShape({
+            bundleVersion: 1,
+            pages: [{ id: "p", name: "a", slug: "a" }, { id: "p", name: "b", slug: "b" }],
+            blocks: [],
+        })).not.toEqual([]);
+    });
     test("rejects malformed requires shapes", () => {
         const base = { bundleVersion: 1, pages: [{ id: "p", name: "n", slug: "s" }], blocks: [] };
         expect(validateBundleShape({ ...base, requires: { collections: ["DemoTask"] } })).not.toEqual([]);

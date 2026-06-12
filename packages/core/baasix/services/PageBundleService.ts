@@ -188,6 +188,8 @@ export function validateBundleShape(raw: any): string[] {
         });
         const slugs = raw.pages.map((p: any) => p?.slug).filter(Boolean);
         if (new Set(slugs).size !== slugs.length) errors.push("Bundle contains duplicate page slugs");
+        const ids = raw.pages.map((p: any) => p?.id).filter(Boolean);
+        if (new Set(ids).size !== ids.length) errors.push("Bundle contains duplicate page ids");
     }
     if (Array.isArray(raw.blocks)) {
         raw.blocks.forEach((b: any, i: number) => {
