@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import axios from "axios";
 import { loadEnvironmentConfig } from "./config.js";
@@ -83,11 +83,13 @@ async function baasixRequest(endpoint, options = {}) {
                     return retryResponse.data;
                 }
             } catch (retryError) {
-                throw new Error(`Baasix API Error: ${retryError.response?.data?.message || retryError.message}`);
+                throw new Error(
+                    `Baasix API Error: ${retryError.response?.data?.error?.message || retryError.response?.data?.message || retryError.message}`
+                );
             }
         }
 
-        throw new Error(`Baasix API Error: ${error.response?.data?.message || error.message}`);
+        throw new Error(`Baasix API Error: ${error.response?.data?.error?.message || error.response?.data?.message || error.message}`);
     }
 }
 
@@ -103,6 +105,7 @@ class BaasixMCPServer {
             {
                 capabilities: {
                     tools: {},
+                    resources: {},
                 },
             }
         );
@@ -853,6 +856,129 @@ FILTER EXAMPLES:
                                 },
                             },
                             required: ["collection", "id"],
+                        },
+                    },
+
+                    // Page Builder Tools
+                    {
+                        name: "baasix_list_pages",
+                        description: "List page-builder pages (baasix_Page): id, name, slug, icon, enabled, isPublic, sort, parent_Id. Pages render at /pages/?slug=<slug>.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                search: { type: "string", description: "Filter by name/slug substring" },
+                                includeDisabled: { type: "boolean", description: "Include disabled pages (default true)" },
+                                limit: { type: "number", description: "Max pages (default 100)" },
+                            },
+                        },
+                    },
+                    {
+                        name: "baasix_get_page",
+                        description: "Get one page WITH all its blocks (ids, types, positions, configs). Identify by id or slug.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                id: { type: "string", description: "Page id" },
+                                slug: { type: "string", description: "Page slug (when id not given)" },
+                            },
+                        },
+                    },
+                    {
+                        name: "baasix_create_page",
+                        description: "Create a page-builder page. Slug: lowercase a-z0-9 with dashes, unique per tenant. Renders at /pages/?slug=<slug>. Add blocks with baasix_create_block; read resource baasix://docs/block-config for the config format.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                name: { type: "string", description: "Display name" },
+                                slug: { type: "string", description: "URL slug (lowercase a-z0-9-)" },
+                                icon: { type: "string", description: "Lucide icon name" },
+                                description: { type: "string" },
+                                isPublic: { type: "boolean", description: "Public page at /p/?slug= (default false)" },
+                                enabled: { type: "boolean", description: "Default true" },
+                                sort: { type: "number" },
+                                parent_Id: { type: "string", description: "Parent page id for menu nesting" },
+                                options: { type: "object", description: "Page options JSON, e.g. {menuGroup:true}" },
+                            },
+                            required: ["name", "slug"],
+                        },
+                    },
+                    {
+                        name: "baasix_update_page",
+                        description: "Update page fields (name, slug, icon, enabled, isPublic, sort, parent_Id, options, roles).",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                id: { type: "string", description: "Page id" },
+                                data: { type: "object", description: "Partial page fields" },
+                            },
+                            required: ["id", "data"],
+                        },
+                    },
+                    {
+                        name: "baasix_delete_page",
+                        description: "Delete a page AND all its blocks (cascade). Irreversible.",
+                        inputSchema: {
+                            type: "object",
+                            properties: { id: { type: "string", description: "Page id" } },
+                            required: ["id"],
+                        },
+                    },
+                    {
+                        name: "baasix_create_block",
+                        description: "Add a block to a page. Server validates config against the block type and bound collection schema — call baasix_get_schema + baasix_validate_block_config first. Types REQUIRING collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter. Collectionless: markdown, buttons, iframe, upload (code: only with recordField). position={row>=0, col 0-11, span 1-12} on a 12-column grid. Full reference: resource baasix://docs/block-config.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                page_Id: { type: "string", description: "Owning page id" },
+                                type: {
+                                    type: "string",
+                                    enum: ["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart"],
+                                },
+                                collection: { type: "string", description: "Bound collection (see type rules)" },
+                                position: {
+                                    type: "object",
+                                    properties: { row: { type: "number" }, col: { type: "number" }, span: { type: "number" } },
+                                    required: ["row", "col", "span"],
+                                },
+                                config: { type: "object", description: "Per-type config (see baasix://docs/block-config)" },
+                                configVersion: { type: "number" },
+                            },
+                            required: ["page_Id", "type", "position"],
+                        },
+                    },
+                    {
+                        name: "baasix_update_block",
+                        description: "Update a block (type/collection/position/config). A config patch replaces the WHOLE config key — send the complete new config object.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                id: { type: "string", description: "Block id (from baasix_get_page)" },
+                                data: { type: "object", description: "Partial block fields, e.g. {config:{...}}" },
+                            },
+                            required: ["id", "data"],
+                        },
+                    },
+                    {
+                        name: "baasix_delete_block",
+                        description: "Delete a single block from a page.",
+                        inputSchema: {
+                            type: "object",
+                            properties: { id: { type: "string", description: "Block id" } },
+                            required: ["id"],
+                        },
+                    },
+                    {
+                        name: "baasix_validate_block_config",
+                        description: "Validate a block payload (type + collection + config + position) against the live schema WITHOUT creating anything. Returns {valid, errors}.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                type: { type: "string" },
+                                collection: { type: "string" },
+                                config: { type: "object" },
+                                position: { type: "object" },
+                            },
+                            required: ["type"],
                         },
                     },
 
@@ -1805,6 +1931,26 @@ The realtime config is stored in the schema definition and can include specific 
                     case "baasix_delete_item":
                         return await this.handleDeleteItem(args);
 
+                    // Page Builder
+                    case "baasix_list_pages":
+                        return await this.handleListPages(args);
+                    case "baasix_get_page":
+                        return await this.handleGetPage(args);
+                    case "baasix_create_page":
+                        return await this.handleCreatePage(args);
+                    case "baasix_update_page":
+                        return await this.handleUpdatePage(args);
+                    case "baasix_delete_page":
+                        return await this.handleDeletePage(args);
+                    case "baasix_create_block":
+                        return await this.handleCreateBlock(args);
+                    case "baasix_update_block":
+                        return await this.handleUpdateBlock(args);
+                    case "baasix_delete_block":
+                        return await this.handleDeleteBlock(args);
+                    case "baasix_validate_block_config":
+                        return await this.handleValidateBlockConfig(args);
+
                     // File Management
                     case "baasix_list_files":
                         return await this.handleListFiles(args);
@@ -1917,6 +2063,34 @@ The realtime config is stored in the schema definition and can include specific 
                 throw new McpError(
                     ErrorCode.InternalError,
                     `Tool execution failed: ${error instanceof Error ? error.message : "Unknown error"}`
+                );
+            }
+        });
+
+        this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+            resources: [
+                {
+                    uri: "baasix://docs/block-config",
+                    name: "Page-builder block config reference",
+                    description: "Block types, per-type config schemas, position grid and filter DSL for baasix_Block configs (fetched live from the connected server)",
+                    mimeType: "text/markdown",
+                },
+            ],
+        }));
+
+        this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+            const { uri } = request.params;
+            if (uri !== "baasix://docs/block-config") {
+                throw new McpError(ErrorCode.InvalidRequest, `Unknown resource: ${uri}`);
+            }
+            // Single source of truth: the doc ships with the server (core), not this package.
+            try {
+                const doc = await baasixRequest("/pages/block-config-doc");
+                return { contents: [{ uri, mimeType: "text/markdown", text: typeof doc === "string" ? doc : JSON.stringify(doc) }] };
+            } catch (error) {
+                throw new McpError(
+                    ErrorCode.InternalError,
+                    `Could not fetch the block-config doc from ${BAASIX_URL} (server too old or unreachable): ${error.message}`
                 );
             }
         });
@@ -2260,6 +2434,77 @@ The realtime config is stored in the schema definition and can include specific 
                 },
             ],
         };
+    }
+
+    // Page Builder Methods
+    async handleListPages(args = {}) {
+        const params = new URLSearchParams();
+        params.set("fields", JSON.stringify(["id", "name", "slug", "icon", "enabled", "isPublic", "sort", "parent_Id", "options"]));
+        params.set("sort", JSON.stringify(["sort"]));
+        params.set("limit", String(args.limit ?? 100));
+        if (args.search) {
+            params.set("search", args.search);
+            params.set("searchFields", JSON.stringify(["name", "slug"]));
+        }
+        if (args.includeDisabled === false) params.set("filter", JSON.stringify({ enabled: { eq: true } }));
+        const result = await baasixRequest(`/items/baasix_Page?${params}`);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+
+    async handleGetPage(args) {
+        const { id, slug } = args;
+        if (!id && !slug) throw new Error("Provide id or slug");
+        const params = new URLSearchParams();
+        params.set("fields", JSON.stringify(["*", "blocks.*"]));
+        params.set("limit", "1");
+        params.set("filter", JSON.stringify(id ? { id: { eq: id } } : { slug: { eq: slug } }));
+        const result = await baasixRequest(`/items/baasix_Page?${params}`);
+        const page = result?.data?.[0];
+        if (!page) throw new Error("Page not found");
+        return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
+    }
+
+    async handleCreatePage(args) {
+        const result = await baasixRequest("/items/baasix_Page", { method: "POST", data: args });
+        return { content: [{ type: "text", text: JSON.stringify({ ...result, hint: `Page will render at /pages/?slug=${args.slug}` }, null, 2) }] };
+    }
+
+    async handleUpdatePage(args) {
+        const { id, data } = args;
+        const result = await baasixRequest(`/items/baasix_Page/${encodeURIComponent(id)}`, { method: "PATCH", data });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+
+    async handleDeletePage(args) {
+        const { id } = args;
+        const result = await baasixRequest(`/items/baasix_Page/${encodeURIComponent(id)}`, { method: "DELETE" });
+        return { content: [{ type: "text", text: JSON.stringify(result ?? { deleted: id }, null, 2) }] };
+    }
+
+    async handleCreateBlock(args) {
+        const { page_Id, type, collection = null, position, config = null, configVersion } = args;
+        const result = await baasixRequest("/items/baasix_Block", {
+            method: "POST",
+            data: { page_Id, type, collection, position, config, ...(configVersion != null ? { configVersion } : {}) },
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+
+    async handleUpdateBlock(args) {
+        const { id, data } = args;
+        const result = await baasixRequest(`/items/baasix_Block/${encodeURIComponent(id)}`, { method: "PATCH", data });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+
+    async handleDeleteBlock(args) {
+        const { id } = args;
+        const result = await baasixRequest(`/items/baasix_Block/${encodeURIComponent(id)}`, { method: "DELETE" });
+        return { content: [{ type: "text", text: JSON.stringify(result ?? { deleted: id }, null, 2) }] };
+    }
+
+    async handleValidateBlockConfig(args) {
+        const result = await baasixRequest("/pages/validate-block", { method: "POST", data: args });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
 
     // File Management Methods
