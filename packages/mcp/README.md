@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) server that provides Claude Desktop and other MCP
 
 ## Features
 
-- **52 MCP Tools** for comprehensive Baasix operations
+- **69 MCP Tools** for comprehensive Baasix operations
 - **Schema Management** - Create, update, delete collections and relationships
 - **CRUD Operations** - Full item management with powerful query capabilities
 - **50+ Filter Operators** - From basic comparison to geospatial and JSONB queries
@@ -314,6 +314,42 @@ Use `tenantScoped: false` for global/shared collections in multi-tenant setups.
 | Tool | Description |
 |------|-------------|
 | `baasix_server_info` | Get server health/info |
+
+### Page Builder (9 tools)
+| Tool | Description |
+|------|-------------|
+| `baasix_list_pages` | List page-builder pages (id, name, slug, icon, enabled, isPublic, sort, parent) |
+| `baasix_get_page` | Get one page with all its blocks (ids, types, positions, configs) by id or slug |
+| `baasix_create_page` | Create a page-builder page; slug is lowercase a-z0-9 with dashes, unique per tenant |
+| `baasix_update_page` | Update page fields (name, slug, icon, description, isPublic, enabled, sort, parent, options, roles) |
+| `baasix_delete_page` | Delete a page and all its blocks (cascade, irreversible) |
+| `baasix_create_block` | Add a block to a page; config validated server-side by BlockConfigService |
+| `baasix_update_block` | Update a block's type, collection, position, or config (full config replace) |
+| `baasix_delete_block` | Delete a single block from a page |
+| `baasix_validate_block_config` | Validate a block payload (type + collection + config + position) without creating — returns {valid, errors} |
+
+Block types requiring a bound collection: `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`, `geochart`, `media`, `feed`, `filter`.
+Collectionless types: `markdown`, `buttons`, `iframe`, `upload` (and `code` when no `recordField`).
+Position uses a 12-column grid: `{row >= 0, col 0–11, span 1–12}`.
+Full block-config reference: see [Resources](#resources) — `baasix://docs/block-config`.
+
+## Resources
+
+The MCP server exposes one resource providing live documentation fetched from the connected Baasix server.
+
+### `baasix://docs/block-config`
+
+**Block config format reference** — fetched live from `GET /pages/block-config-doc` on the connected Baasix core server.
+
+Covers:
+- All supported block types and their per-type `config` schemas
+- Which fields are required vs optional for each type
+- Position grid rules (12-column, row/col/span)
+- Filter DSL syntax used in block configs (same operators as `baasix_list_items`)
+
+> **Requires** a Baasix core server that exposes the `GET /pages/block-config-doc` endpoint (available from the version that introduced the page-builder feature). If the server does not expose the endpoint the resource returns an error.
+
+Use this resource before calling `baasix_create_block` or `baasix_update_block` to confirm the correct `config` shape for the target block type.
 
 ## Filter Operators Reference
 
