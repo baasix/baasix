@@ -738,6 +738,32 @@ describe("validateBlockData – phase 2 types", () => {
             ).toThrow(/valueField/);
         });
 
+        test("geochart invalid aggregate throws naming the allowed functions", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "median" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/count, sum, avg, min, max/);
+        });
+
+        test("geochart unknown valueField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "sum", valueField: "nope" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/nope/);
+        });
+
         test("geochart unknown region throws mentioning world", () => {
             expect(() =>
                 validateBlockData(
