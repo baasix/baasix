@@ -145,6 +145,35 @@ function assertFieldEntries(
     }
 }
 
+/**
+ * Validate config.sheetTitle (table/cardlist/kanban): the record edit/view
+ * sheets' title — `{fields, separator?}` where every field must exist on the
+ * target collection and the optional separator must be a string. Absent key
+ * = generic sheet titles.
+ */
+function assertSheetTitle(config: any, fieldMap: Record<string, any>): void {
+    const sheetTitle = config.sheetTitle;
+    if (sheetTitle == null) return;
+    if (typeof sheetTitle !== "object" || Array.isArray(sheetTitle)) {
+        throw new APIError(
+            `Invalid sheetTitle: must be an object {fields, separator?}`,
+            400
+        );
+    }
+    if (!Array.isArray(sheetTitle.fields) || sheetTitle.fields.length === 0) {
+        throw new APIError(
+            `Invalid sheetTitle: "fields" must be a non-empty array of field names`,
+            400
+        );
+    }
+    for (const field of sheetTitle.fields) {
+        assertFieldExists(field, fieldMap, "config.sheetTitle.fields");
+    }
+    if (sheetTitle.separator != null && typeof sheetTitle.separator !== "string") {
+        throw new APIError(`Invalid sheetTitle: "separator" must be a string`, 400);
+    }
+}
+
 function validatePosition(position: any): void {
     if (position == null) return;
     if (typeof position !== "object" || Array.isArray(position)) {
@@ -205,6 +234,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     if (config != null && fieldMap) {
         if (type === "table") {
             assertFieldEntries(config.columns, fieldMap, "config.columns", true);
+            assertSheetTitle(config, fieldMap);
         } else if (type === "form") {
             if (config.mode != null && !FORM_MODES.has(config.mode)) {
                 throw new APIError(
@@ -223,6 +253,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             requireConfigField(config, "groupByField", fieldMap);
             requireConfigField(config, "cardTitleField", fieldMap);
             assertFieldEntries(config.cardFields, fieldMap, "config.cardFields", true);
+            assertSheetTitle(config, fieldMap);
         } else if (type === "calendar") {
             requireConfigField(config, "startField", fieldMap);
             requireConfigField(config, "titleField", fieldMap);
@@ -307,6 +338,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                 assertFieldExists(config.imageField, fieldMap, "config.imageField");
             }
             assertFieldEntries(config.fields, fieldMap, "config.fields", true);
+            assertSheetTitle(config, fieldMap);
             if (config.columns != null) {
                 if (!Number.isInteger(config.columns) || config.columns < 1 || config.columns > 6) {
                     throw new APIError(

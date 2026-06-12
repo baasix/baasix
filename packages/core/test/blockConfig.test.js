@@ -507,6 +507,104 @@ describe("validateBlockData – phase 2 types", () => {
         });
     });
 
+    describe("sheetTitle (table/cardlist/kanban)", () => {
+        const tableWithSheetTitle = (sheetTitle) => ({
+            type: "table",
+            collection: "posts",
+            config: { columns: [{ field: "name" }], sheetTitle },
+        });
+
+        test("valid table sheetTitle does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    tableWithSheetTitle({ fields: ["name", "status"] }),
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid cardlist sheetTitle with separator does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "cardlist",
+                        collection: "posts",
+                        config: {
+                            titleField: "title",
+                            sheetTitle: { fields: ["title"], separator: " / " },
+                        },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid kanban sheetTitle does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "kanban",
+                        collection: "tasks",
+                        config: {
+                            groupByField: "status",
+                            cardTitleField: "name",
+                            sheetTitle: { fields: ["name"] },
+                        },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("sheetTitle that is not an object throws mentioning sheetTitle", () => {
+            expect(() =>
+                validateBlockData(tableWithSheetTitle("name"), phase2Fields)
+            ).toThrow(/sheetTitle/);
+        });
+
+        test("sheetTitle as array throws mentioning sheetTitle", () => {
+            expect(() =>
+                validateBlockData(tableWithSheetTitle(["name"]), phase2Fields)
+            ).toThrow(/sheetTitle/);
+        });
+
+        test("sheetTitle without fields throws mentioning fields", () => {
+            expect(() =>
+                validateBlockData(tableWithSheetTitle({ separator: " - " }), phase2Fields)
+            ).toThrow(/fields/);
+        });
+
+        test("sheetTitle with empty fields array throws mentioning fields", () => {
+            expect(() =>
+                validateBlockData(tableWithSheetTitle({ fields: [] }), phase2Fields)
+            ).toThrow(/fields/);
+        });
+
+        test("sheetTitle with unknown field throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    tableWithSheetTitle({ fields: ["name", "nope"] }),
+                    phase2Fields
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("sheetTitle with non-string field entry throws mentioning field", () => {
+            expect(() =>
+                validateBlockData(tableWithSheetTitle({ fields: [42] }), phase2Fields)
+            ).toThrow(/field/);
+        });
+
+        test("sheetTitle with non-string separator throws mentioning separator", () => {
+            expect(() =>
+                validateBlockData(
+                    tableWithSheetTitle({ fields: ["name"], separator: 7 }),
+                    phase2Fields
+                )
+            ).toThrow(/separator/);
+        });
+    });
+
     describe("map", () => {
         test("valid map config does not throw", () => {
             expect(() =>
