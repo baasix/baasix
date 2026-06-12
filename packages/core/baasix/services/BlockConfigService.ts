@@ -28,6 +28,7 @@ const BLOCK_TYPES = [
     "iframe",
     "upload",
     "code",
+    "geochart",
 ];
 
 const COLLECTION_REQUIRED = new Set([
@@ -42,6 +43,7 @@ const COLLECTION_REQUIRED = new Set([
     "filter",
     "media",
     "feed",
+    "geochart",
 ]);
 
 const FORM_MODES = new Set(["create", "edit"]);
@@ -59,6 +61,9 @@ const CHART_TYPES = new Set([
 ]);
 
 const AGGREGATE_FUNCTIONS = new Set(["count", "sum", "avg", "min", "max"]);
+
+/** Geochart map extents; the config space is kept narrow so it can grow later. */
+const GEOCHART_REGIONS = new Set(["world"]);
 
 const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
 
@@ -361,6 +366,32 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                         400
                     );
                 }
+            }
+        } else if (type === "geochart") {
+            // Choropleth world map: records are grouped by regionField (country
+            // codes/names) and shaded by the aggregated value.
+            requireConfigField(config, "regionField", fieldMap);
+            const aggregate = config.aggregate ?? "count";
+            if (!AGGREGATE_FUNCTIONS.has(aggregate)) {
+                throw new APIError(
+                    `Invalid geochart aggregate "${config.aggregate}". Must be one of: count, sum, avg, min, max`,
+                    400
+                );
+            }
+            if (aggregate !== "count" && config.valueField == null) {
+                throw new APIError(
+                    `Geochart block config requires "valueField" when aggregate is "${aggregate}"`,
+                    400
+                );
+            }
+            if (config.valueField != null) {
+                assertFieldExists(config.valueField, fieldMap, "config.valueField");
+            }
+            if (config.region != null && !GEOCHART_REGIONS.has(config.region)) {
+                throw new APIError(
+                    `Invalid geochart region "${config.region}". Only "world" is supported for now`,
+                    400
+                );
             }
         } else if (type === "map") {
             requireConfigField(config, "geometryField", fieldMap);

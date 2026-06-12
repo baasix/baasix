@@ -141,6 +141,7 @@ describe("validateBlockData – phase 2 types", () => {
         location: {},
         image: {},
         amount: {},
+        country: {},
     });
 
     describe("kanban", () => {
@@ -676,6 +677,78 @@ describe("validateBlockData – phase 2 types", () => {
                     phase2Fields
                 )
             ).toThrow(/nope/);
+        });
+    });
+
+    describe("geochart", () => {
+        test("valid count config does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "count", region: "world" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid sum config with valueField does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "sum", valueField: "amount" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("geochart config missing regionField throws mentioning regionField", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "geochart", collection: "orders", config: { aggregate: "count" } },
+                    phase2Fields
+                )
+            ).toThrow(/regionField/);
+        });
+
+        test("geochart unknown regionField throws naming the bad field", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "geochart", collection: "orders", config: { regionField: "nope" } },
+                    phase2Fields
+                )
+            ).toThrow(/nope/);
+        });
+
+        test("geochart sum without valueField throws mentioning valueField", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "sum" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/valueField/);
+        });
+
+        test("geochart unknown region throws mentioning world", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", region: "europe" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/world/);
         });
     });
 
