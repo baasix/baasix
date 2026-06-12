@@ -17,6 +17,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import env from "../utils/env.js";
+import { BLOCK_CONFIG_DOC } from "../utils/blockConfigDoc.js";
 
 // ==================== Type Definitions ====================
 
@@ -538,6 +539,17 @@ const TOOL_ACTION_MAP: Record<string, string> = {
   // Utilities
   baasix_server_info: "read",
   baasix_sort_items: "update",
+
+  // Page Builder
+  baasix_list_pages: "read",
+  baasix_get_page: "read",
+  baasix_create_page: "create",
+  baasix_update_page: "update",
+  baasix_delete_page: "delete",
+  baasix_create_block: "create",
+  baasix_update_block: "update",
+  baasix_delete_block: "delete",
+  baasix_validate_block_config: "read",
 };
 
 /**
@@ -2734,6 +2746,185 @@ Use baasix_get_schema first to see the current relationship configuration.`,
         relationship: res.data,
       });
     }
+  );
+
+  // ==================== Page Builder Tools ====================
+  // Thin wrappers over /items/baasix_Page|baasix_Block and /pages/* routes so
+  // BlockConfigService validation applies exactly once, server-side.
+
+  registerTool(
+    "baasix_list_pages",
+    "List page-builder pages (baasix_Page). Returns id, name, slug, icon, enabled, isPublic, sort, parent_Id. Pages render at /pages/?slug=<slug>.",
+    {
+      search: z.string().optional().describe("Filter by name/slug substring"),
+      includeDisabled: z.boolean().optional().default(true).describe("Include disabled pages"),
+      limit: z.number().optional().default(100),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const params = new URLSearchParams();
+      params.set("fields", JSON.stringify(["id", "name", "slug", "icon", "enabled", "isPublic", "sort", "parent_Id", "options"]));
+      params.set("sort", JSON.stringify(["sort"]));
+      params.set("limit", String(args.limit ?? 100));
+      if (args.search) {
+        params.set("search", args.search);
+        params.set("searchFields", JSON.stringify(["name", "slug"]));
+      }
+      if (args.includeDisabled === false) params.set("filter", JSON.stringify({ enabled: { eq: true } }));
+      const res = await callRoute("GET", `/items/baasix_Page?${params}`, extra);
+      if (!res.ok) return errorResult(res.error || "Failed to list pages");
+      return successResult(res.data);
+    }
+  );
+
+  registerTool(
+    "baasix_get_page",
+    "Get one page WITH all its blocks (ids, types, positions, configs). Use before updating blocks. Identify by id or slug.",
+    {
+      id: z.string().optional().describe("Page id"),
+      slug: z.string().optional().describe("Page slug (used when id is not given)"),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      if (!args.id && !args.slug) return errorResult("Provide id or slug");
+      const params = new URLSearchParams();
+      params.set("fields", JSON.stringify(["*", "blocks.*"]));
+      params.set("limit", "1");
+      params.set("filter", JSON.stringify(args.id ? { id: { eq: args.id } } : { slug: { eq: args.slug } }));
+      const res = await callRoute("GET", `/items/baasix_Page?${params}`, extra);
+      if (!res.ok) return errorResult(res.error || "Failed to get page");
+      const page = res.data?.data?.[0];
+      if (!page) return errorResult("Page not found");
+      return successResult(page);
+    }
+  );
+
+  registerTool(
+    "baasix_create_page",
+    "Create a page-builder page. Slug must be lowercase a-z0-9 with dashes, unique per tenant. The page renders at /pages/?slug=<slug>. Add blocks with baasix_create_block. Read the baasix://docs/block-config resource for the full block config format.",
+    {
+      name: z.string().describe("Display name"),
+      slug: z.string().describe("URL slug (lowercase, a-z0-9-)"),
+      icon: z.string().optional().describe("Lucide icon name"),
+      description: z.string().optional(),
+      isPublic: z.boolean().optional().default(false),
+      enabled: z.boolean().optional().default(true),
+      sort: z.number().optional().default(0),
+      parent_Id: z.string().optional().describe("Parent page id for menu nesting"),
+      options: z.record(z.any()).optional().describe("Page options JSON, e.g. {menuGroup:true}"),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const body: Record<string, any> = {};
+      for (const key of ["name", "slug", "icon", "description", "isPublic", "enabled", "sort", "parent_Id", "options"]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      const res = await callRoute("POST", "/items/baasix_Page", extra, body);
+      if (!res.ok) return errorResult(res.error || "Failed to create page");
+      return successResult({ ...res.data, hint: `Page will render at /pages/?slug=${args.slug}` });
+    }
+  );
+
+  registerTool(
+    "baasix_update_page",
+    "Update fields of a page (name, slug, icon, enabled, isPublic, sort, parent_Id, options, roles).",
+    {
+      id: z.string().describe("Page id"),
+      data: z.record(z.any()).describe("Partial page fields to update"),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const res = await callRoute("PATCH", `/items/baasix_Page/${encodeURIComponent(args.id)}`, extra, args.data);
+      if (!res.ok) return errorResult(res.error || "Failed to update page");
+      return successResult(res.data);
+    }
+  );
+
+  registerTool(
+    "baasix_delete_page",
+    "Delete a page AND all its blocks (cascade). Irreversible.",
+    { id: z.string().describe("Page id") },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const res = await callRoute("DELETE", `/items/baasix_Page/${encodeURIComponent(args.id)}`, extra);
+      if (!res.ok) return errorResult(res.error || "Failed to delete page");
+      return successResult({ deleted: args.id });
+    }
+  );
+
+  registerTool(
+    "baasix_create_block",
+    `Add a block to a page. The server validates config against the block type and the bound collection's schema (field existence) — call baasix_get_schema first and baasix_validate_block_config to pre-check.
+Types REQUIRING collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter. Collectionless: markdown, buttons, iframe, upload (code: collection only when recordField set).
+position = {row >= 0, col 0-11, span 1-12} on a 12-column grid.
+Full config reference: resource baasix://docs/block-config.`,
+    {
+      page_Id: z.string().describe("Owning page id (from baasix_create_page / baasix_get_page)"),
+      type: z.enum(["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart"]),
+      collection: z.string().optional().describe("Bound collection (see type rules)"),
+      position: z.object({ row: z.number(), col: z.number(), span: z.number() }).describe("12-col grid placement"),
+      config: z.record(z.any()).optional().describe("Per-type config (see baasix://docs/block-config)"),
+      configVersion: z.number().optional(),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const res = await callRoute("POST", "/items/baasix_Block", extra, {
+        page_Id: args.page_Id,
+        type: args.type,
+        collection: args.collection ?? null,
+        position: args.position,
+        config: args.config ?? null,
+        ...(args.configVersion != null ? { configVersion: args.configVersion } : {}),
+      });
+      if (!res.ok) return errorResult(res.error || "Failed to create block (config validation error?)");
+      return successResult(res.data);
+    }
+  );
+
+  registerTool(
+    "baasix_update_block",
+    "Update a block (type/collection/position/config). The server re-validates the MERGED block, so a partial config patch replaces the whole config key — send the full new config object.",
+    {
+      id: z.string().describe("Block id (from baasix_get_page)"),
+      data: z.record(z.any()).describe("Partial block fields, e.g. {config: {...}} or {position: {...}}"),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const res = await callRoute("PATCH", `/items/baasix_Block/${encodeURIComponent(args.id)}`, extra, args.data);
+      if (!res.ok) return errorResult(res.error || "Failed to update block (config validation error?)");
+      return successResult(res.data);
+    }
+  );
+
+  registerTool(
+    "baasix_delete_block",
+    "Delete a single block from a page.",
+    { id: z.string().describe("Block id") },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const res = await callRoute("DELETE", `/items/baasix_Block/${encodeURIComponent(args.id)}`, extra);
+      if (!res.ok) return errorResult(res.error || "Failed to delete block");
+      return successResult({ deleted: args.id });
+    }
+  );
+
+  registerTool(
+    "baasix_validate_block_config",
+    "Validate a block payload (type + collection + config + position) against the live schema WITHOUT creating anything. Returns {valid, errors}.",
+    {
+      type: z.string(),
+      collection: z.string().optional(),
+      config: z.record(z.any()).optional(),
+      position: z.object({ row: z.number(), col: z.number(), span: z.number() }).optional(),
+    },
+    async (args: any, extra: ToolExtra): Promise<ToolResult> => {
+      const res = await callRoute("POST", "/pages/validate-block", extra, args);
+      if (!res.ok) return errorResult(res.error || "Validation call failed");
+      return successResult(res.data);
+    }
+  );
+
+  // ==================== Resources ====================
+
+  server.resource(
+    "block-config-reference",
+    "baasix://docs/block-config",
+    { description: "Baasix page-builder block config format reference (block types, config schemas, filter DSL)", mimeType: "text/markdown" },
+    async (uri: any) => ({
+      contents: [{ uri: uri?.href ?? "baasix://docs/block-config", mimeType: "text/markdown", text: BLOCK_CONFIG_DOC }],
+    })
   );
 
   return server;

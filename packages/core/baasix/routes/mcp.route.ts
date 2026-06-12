@@ -796,7 +796,7 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
       },
       capabilities: {
         tools: true,
-        resources: false,
+        resources: true,
         prompts: false,
       },
       activeSessions: activeTransports.size,
