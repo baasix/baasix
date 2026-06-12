@@ -101,6 +101,49 @@ class NotificationService {
   }
 
   /**
+   * Mark notifications as unseen (unread) for a user.
+   * Mirrors markAsSeen: omitting notificationIds marks ALL of the user's
+   * seen notifications as unseen again.
+   */
+  async markAsUnseen(userId: string, notificationIds: string[] | null = null): Promise<number> {
+    try {
+      const notificationTable = schemaManager.getTable("baasix_Notification");
+
+      let whereConditions;
+      if (notificationIds && notificationIds.length > 0) {
+        whereConditions = and(
+          eq(notificationTable.userId, userId),
+          eq(notificationTable.seen, true),
+          inArray(notificationTable.id, notificationIds)
+        );
+      } else {
+        whereConditions = and(
+          eq(notificationTable.userId, userId),
+          eq(notificationTable.seen, true)
+        );
+      }
+
+      const updateValues: Record<string, unknown> = { seen: false };
+      // markAsSeen sets seenAt when the column exists; clear it symmetrically.
+      if ((notificationTable as any).seenAt) {
+        updateValues.seenAt = null;
+      }
+
+      const result = await db
+        .update(notificationTable)
+        .set(updateValues)
+        .where(whereConditions);
+
+      // Invalidate cache after update
+      await invalidateEntireCache("baasix_Notification");
+
+      return (result as any).rowCount || 0;
+    } catch (error: any) {
+      throw new APIError("Error marking notifications as unseen", 500, error.message);
+    }
+  }
+
+  /**
    * Delete notifications for a user
    */
   async deleteForUser(userId: string, notificationIds: string[] | null = null): Promise<number> {

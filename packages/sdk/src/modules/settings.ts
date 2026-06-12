@@ -69,10 +69,16 @@ export class SettingsModule {
    * });
    * ```
    */
-  async update(settings: Partial<Settings>): Promise<Settings> {
+  async update(
+    settings: Partial<Settings>,
+    options?: { tenantId?: string | number }
+  ): Promise<Settings> {
     const response = await this.client.patch<{ data: Settings }>(
       "/settings",
-      settings
+      settings,
+      options?.tenantId !== undefined && options?.tenantId !== null
+        ? { params: { tenant_id: options.tenantId } }
+        : undefined
     );
     return response.data;
   }

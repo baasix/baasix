@@ -50,6 +50,7 @@ export class NotificationsModule {
     limit?: number;
     page?: number;
     filter?: Record<string, unknown>;
+    sort?: string | string[] | Record<string, "asc" | "desc">;
   }): Promise<PaginatedResponse<Notification>> {
     return this.client.get<PaginatedResponse<Notification>>("/notifications", {
       params: params as Record<string, unknown>,
@@ -89,6 +90,44 @@ export class NotificationsModule {
       { notificationIds }
     );
     return { count: response.count };
+  }
+
+  /**
+   * Mark notifications as unseen (unread)
+   *
+   * @example
+   * ```typescript
+   * // Mark specific notifications as unseen
+   * await baasix.notifications.markAsUnseen(['id1', 'id2']);
+   *
+   * // Mark all notifications as unseen
+   * await baasix.notifications.markAsUnseen();
+   * ```
+   */
+  async markAsUnseen(notificationIds?: string[]): Promise<{ count: number }> {
+    const response = await this.client.post<{ message: string; count: number }>(
+      "/notifications/mark-unseen",
+      { notificationIds }
+    );
+    return { count: response.count };
+  }
+
+  /**
+   * Get the per-type notification link templates configured in settings
+   * (`metadata.notificationLinks`). Templates may contain `{{field}}`
+   * placeholders resolved from the notification (including `data.*` paths).
+   *
+   * @example
+   * ```typescript
+   * const links = await baasix.notifications.getLinks();
+   * // { task_assigned: '/pages/?slug=tasks&id={{data.taskId}}' }
+   * ```
+   */
+  async getLinks(): Promise<Record<string, string>> {
+    const response = await this.client.get<{ data: Record<string, string> }>(
+      "/notifications/links"
+    );
+    return response.data ?? {};
   }
 
   /**

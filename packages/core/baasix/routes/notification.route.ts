@@ -1,5 +1,6 @@
 import type { Express } from "../types/index.js";
 import NotificationService from "../services/NotificationService.js";
+import settingsService from "../services/SettingsService.js";
 import { parseQueryParams } from "../utils/router.js";
 import { adminOnly } from "../utils/auth.js";
 import { requireAuth } from "../utils/common.js";
@@ -65,6 +66,56 @@ const registerEndpoint = (app: Express) => {
         message: "Notifications marked as seen",
         count: updatedCount,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Mark notifications as unseen (unread) — mirrors mark-seen
+  app.post("/notifications/mark-unseen", async (req, res, next) => {
+    try {
+      requireAuth(req);
+
+      const { notificationIds } = req.body; // Optional array of specific notification IDs
+
+      const notificationService = new NotificationService({
+        accountability: req.accountability,
+      });
+
+      const updatedCount = await notificationService.markAsUnseen(req.accountability.user.id, notificationIds);
+
+      res.json({
+        message: "Notifications marked as unseen",
+        count: updatedCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Per-type notification link templates (settings metadata.notificationLinks).
+  // Available to ANY authenticated user: the public GET /settings allow-list
+  // deliberately hides `metadata`, so this exposes only the link mapping.
+  app.get("/notifications/links", async (req, res, next) => {
+    try {
+      requireAuth(req);
+
+      const tenantId = req.accountability?.tenant;
+      const settings = tenantId
+        ? await settingsService.getTenantSettings(tenantId)
+        : settingsService.getGlobalSettings();
+
+      const raw = (settings?.metadata as Record<string, unknown> | undefined)?.notificationLinks;
+      const links: Record<string, string> = {};
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        for (const [type, template] of Object.entries(raw as Record<string, unknown>)) {
+          if (typeof template === "string" && template.length > 0) {
+            links[type] = template;
+          }
+        }
+      }
+
+      res.json({ data: links });
     } catch (error) {
       next(error);
     }
