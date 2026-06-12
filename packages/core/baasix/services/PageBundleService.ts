@@ -198,6 +198,20 @@ export function validateBundleShape(raw: any): string[] {
             }
         });
     }
+    if (raw.requires !== undefined) {
+        const collections = (raw.requires && typeof raw.requires === "object" && !Array.isArray(raw.requires))
+            ? raw.requires.collections
+            : undefined;
+        if (!collections || typeof collections !== "object" || Array.isArray(collections)) {
+            errors.push(`"requires.collections" must be an object mapping collection names to field arrays`);
+        } else {
+            for (const [name, fields] of Object.entries(collections)) {
+                if (!Array.isArray(fields) || fields.some((f) => typeof f !== "string")) {
+                    errors.push(`requires.collections["${name}"] must be an array of field-name strings`);
+                }
+            }
+        }
+    }
     return errors;
 }
 
@@ -259,10 +273,10 @@ export function analyzeImport(bundle: any, ctx: ImportContext) {
     const bundleSlugs = new Set<string>(bundle.pages.map((p: any) => p.slug));
     const bundlePageIds = new Set<string>(bundle.pages.map((p: any) => String(p.id)));
     const roleNames: Record<string, string> = bundle.roleNames || {};
+    const taken = new Set<string>([...ctx.existingPagesBySlug.keys(), ...bundleSlugs]);
 
     const pages = bundle.pages.map((page: any) => {
         const existing = ctx.existingPagesBySlug.get(page.slug) || null;
-        const taken = new Set<string>([...ctx.existingPagesBySlug.keys(), ...bundleSlugs]);
         const referencedRoles: string[] = [
             ...(Array.isArray(page.roles) ? page.roles : []),
             ...(Array.isArray(page.options?.homeFor) ? page.options.homeFor : []),

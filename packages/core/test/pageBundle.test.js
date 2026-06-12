@@ -118,6 +118,13 @@ describe("validateBundleShape", () => {
         });
         expect(errors.join(" ")).toMatch(/ghost/);
     });
+    test("rejects malformed requires shapes", () => {
+        const base = { bundleVersion: 1, pages: [{ id: "p", name: "n", slug: "s" }], blocks: [] };
+        expect(validateBundleShape({ ...base, requires: { collections: ["DemoTask"] } })).not.toEqual([]);
+        expect(validateBundleShape({ ...base, requires: { collections: { A: "title" } } })).not.toEqual([]);
+        expect(validateBundleShape({ ...base, requires: "junk" })).not.toEqual([]);
+        expect(validateBundleShape({ ...base, requires: { collections: { A: ["title"] } } })).toEqual([]);
+    });
 });
 
 describe("suggestSlug", () => {
@@ -210,5 +217,11 @@ describe("analyzeImport", () => {
         expect(report.pages.find((p) => p.slug === "child").unknownRoles).toEqual(["ops"]);
         expect(report.pages.find((p) => p.slug === "orphan").unresolvedParent).toBe(true);
         expect(report.pages.find((p) => p.slug === "child").unresolvedParent).toBe(false);
+    });
+    test("new pages get suggestedSlug null; null parent is not unresolved", () => {
+        const report = analyzeImport(baseBundle(), ctx);
+        const child = report.pages.find((p) => p.slug === "child");
+        expect(child.suggestedSlug).toBeNull();
+        expect(report.pages.find((p) => p.slug === "tasks").unresolvedParent).toBe(false);
     });
 });
