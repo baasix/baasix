@@ -284,6 +284,12 @@ export function analyzeImport(bundle: any, ctx: ImportContext) {
     const roleNames: Record<string, string> = bundle.roleNames || {};
     const taken = new Set<string>([...ctx.existingPagesBySlug.keys(), ...bundleSlugs]);
 
+    const blockCounts = new Map<string, number>();
+    for (const b of bundle.blocks) {
+        const key = String(b.page_Id);
+        blockCounts.set(key, (blockCounts.get(key) || 0) + 1);
+    }
+
     const pages = bundle.pages.map((page: any) => {
         const existing = ctx.existingPagesBySlug.get(page.slug) || null;
         const referencedRoles: string[] = [
@@ -295,7 +301,7 @@ export function analyzeImport(bundle: any, ctx: ImportContext) {
             id: page.id,
             slug: page.slug,
             name: page.name,
-            blockCount: bundle.blocks.filter((b: any) => String(b.page_Id) === String(page.id)).length,
+            blockCount: blockCounts.get(String(page.id)) || 0,
             status: existing ? ("conflict" as const) : ("new" as const),
             existingPage: existing,
             suggestedSlug: existing ? suggestSlug(page.slug, taken) : null,

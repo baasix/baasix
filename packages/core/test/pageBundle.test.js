@@ -233,4 +233,12 @@ describe("analyzeImport", () => {
         expect(child.suggestedSlug).toBeNull();
         expect(report.pages.find((p) => p.slug === "tasks").unresolvedParent).toBe(false);
     });
+    test("blockCount uses a precomputed map (multi-block pages counted right)", () => {
+        const b = baseBundle();
+        b.blocks.push({ id: "b3", page_Id: "p2", type: "markdown", collection: null, config: { content: "x" } });
+        const report = analyzeImport(b, ctx);
+        expect(report.pages.find((p) => p.slug === "tasks").blockCount).toBe(2);
+        expect(report.pages.find((p) => p.slug === "child").blockCount).toBe(1);
+        expect(report.pages.find((p) => p.slug === "orphan").blockCount).toBe(0);
+    });
 });
