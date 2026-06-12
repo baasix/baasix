@@ -438,13 +438,14 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
  * renderer's default sandbox attribute).
  */
 function validateIframeConfig(config: any): void {
-    if (typeof config.url !== "string" || config.url.length === 0) {
+    const url = typeof config.url === "string" ? config.url.trim() : config.url;
+    if (typeof url !== "string" || url.length === 0) {
         throw new APIError(
             `Iframe block config requires "url" to be a non-empty string`,
             400
         );
     }
-    if (!/^https?:\/\//i.test(config.url)) {
+    if (!/^https?:\/\//i.test(url)) {
         throw new APIError(
             `Invalid iframe url: must start with http:// or https://`,
             400
@@ -458,6 +459,8 @@ function validateIframeConfig(config: any): void {
     if (config.allowFullscreen != null && typeof config.allowFullscreen !== "boolean") {
         throw new APIError(`Invalid iframe allowFullscreen: must be a boolean`, 400);
     }
+    // sandbox token content is deliberately not validated — config is admin-authored;
+    // callers own sandbox semantics and are responsible for the policy they pass.
     if (config.sandbox != null && typeof config.sandbox !== "string") {
         throw new APIError(`Invalid iframe sandbox: must be a string`, 400);
     }

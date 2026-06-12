@@ -761,6 +761,15 @@ describe("validateBlockData – phase 2 types", () => {
                 )
             ).toThrow(/sandbox/);
         });
+
+        test("iframe url with leading/trailing whitespace is accepted after trim", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "iframe", config: { url: " https://example.com" } },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
     });
 
     describe("buttons", () => {
