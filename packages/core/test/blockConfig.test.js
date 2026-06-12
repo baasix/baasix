@@ -267,6 +267,84 @@ describe("validateBlockData – phase 2 types", () => {
                 )
             ).toThrow(/defaultView/);
         });
+
+        test("calendar with valid views array does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title", views: ["month", "week"] },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("calendar with views absent does not throw (all three implied)", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("calendar with invalid view entry throws mentioning the bad value", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title", views: ["month", "year"] },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/year/);
+        });
+
+        test("calendar with empty views array throws", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title", views: [] },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/views/);
+        });
+
+        test("calendar defaultView not in views throws mentioning defaultView", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title", views: ["month", "week"], defaultView: "day" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/defaultView/);
+        });
+
+        test("calendar defaultView in views does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "calendar",
+                        collection: "events",
+                        config: { startField: "start", titleField: "title", views: ["week", "day"], defaultView: "week" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
     });
 
     describe("chart", () => {

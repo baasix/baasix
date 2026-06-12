@@ -238,6 +238,28 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     400
                 );
             }
+            if (config.views != null) {
+                if (!Array.isArray(config.views) || config.views.length === 0) {
+                    throw new APIError(
+                        `config.views must be a non-empty array when present. Omit it to enable all views.`,
+                        400
+                    );
+                }
+                for (const v of config.views) {
+                    if (!CALENDAR_VIEWS.has(v)) {
+                        throw new APIError(
+                            `Invalid view "${v}" in config.views. Must be one of: month, week, day`,
+                            400
+                        );
+                    }
+                }
+                if (config.defaultView != null && !config.views.includes(config.defaultView)) {
+                    throw new APIError(
+                        `config.defaultView "${config.defaultView}" is not in config.views`,
+                        400
+                    );
+                }
+            }
         } else if (type === "chart") {
             if (!CHART_TYPES.has(config.chartType)) {
                 throw new APIError(
