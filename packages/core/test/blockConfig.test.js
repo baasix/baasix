@@ -666,6 +666,103 @@ describe("validateBlockData – phase 2 types", () => {
         });
     });
 
+    describe("iframe", () => {
+        test("valid iframe config (url + height + allowFullscreen) without collection does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "iframe",
+                        config: {
+                            url: "https://example.com/embed",
+                            height: 480,
+                            allowFullscreen: true,
+                        },
+                    },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("iframe with url only does not throw (http scheme allowed too)", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "iframe", config: { url: "http://example.com" } },
+                    nullFields
+                )
+            ).not.toThrow();
+        });
+
+        test("iframe without config does not throw (lenient like markdown/buttons)", () => {
+            expect(() => validateBlockData({ type: "iframe" }, nullFields)).not.toThrow();
+        });
+
+        test("iframe with config but missing url throws mentioning url", () => {
+            expect(() => validateBlockData({ type: "iframe", config: {} }, nullFields)).toThrow(
+                /url/
+            );
+        });
+
+        test("iframe with non-string url throws mentioning url", () => {
+            expect(() =>
+                validateBlockData({ type: "iframe", config: { url: 42 } }, nullFields)
+            ).toThrow(/url/);
+        });
+
+        test("iframe with empty-string url throws mentioning url", () => {
+            expect(() =>
+                validateBlockData({ type: "iframe", config: { url: "" } }, nullFields)
+            ).toThrow(/url/);
+        });
+
+        test("iframe with javascript: url throws mentioning http", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "iframe", config: { url: "javascript:alert(1)" } },
+                    nullFields
+                )
+            ).toThrow(/http/);
+        });
+
+        test("iframe with non-numeric height throws mentioning height", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "iframe", config: { url: "https://example.com", height: "480" } },
+                    nullFields
+                )
+            ).toThrow(/height/);
+        });
+
+        test("iframe with non-positive height throws mentioning height", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "iframe", config: { url: "https://example.com", height: 0 } },
+                    nullFields
+                )
+            ).toThrow(/height/);
+        });
+
+        test("iframe with non-boolean allowFullscreen throws mentioning allowFullscreen", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "iframe",
+                        config: { url: "https://example.com", allowFullscreen: "yes" },
+                    },
+                    nullFields
+                )
+            ).toThrow(/allowFullscreen/);
+        });
+
+        test("iframe with non-string sandbox throws mentioning sandbox", () => {
+            expect(() =>
+                validateBlockData(
+                    { type: "iframe", config: { url: "https://example.com", sandbox: 1 } },
+                    nullFields
+                )
+            ).toThrow(/sandbox/);
+        });
+    });
+
     describe("buttons", () => {
         test("valid buttons config does not throw (link + workflow items, extra keys pass through)", () => {
             expect(() =>

@@ -25,6 +25,7 @@ const BLOCK_TYPES = [
     "buttons",
     "media",
     "feed",
+    "iframe",
 ];
 
 const COLLECTION_REQUIRED = new Set([
@@ -420,6 +421,45 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     // lenient (renderers handle configless blocks defensively).
     if (config != null && type === "buttons") {
         validateButtonsConfig(config);
+    }
+
+    // iframe also has no collection — when a config is present, "url" is
+    // required and must be http(s). No config at all stays lenient
+    // (renderers handle configless blocks defensively).
+    if (config != null && type === "iframe") {
+        validateIframeConfig(config);
+    }
+}
+
+/**
+ * Validate an iframe block config: `url` must be a non-empty http(s) string
+ * (javascript:/data:/etc. schemes are rejected); optional `height` (positive
+ * number), `allowFullscreen` (boolean) and `sandbox` (string override of the
+ * renderer's default sandbox attribute).
+ */
+function validateIframeConfig(config: any): void {
+    if (typeof config.url !== "string" || config.url.length === 0) {
+        throw new APIError(
+            `Iframe block config requires "url" to be a non-empty string`,
+            400
+        );
+    }
+    if (!/^https?:\/\//i.test(config.url)) {
+        throw new APIError(
+            `Invalid iframe url: must start with http:// or https://`,
+            400
+        );
+    }
+    if (config.height != null) {
+        if (typeof config.height !== "number" || !Number.isFinite(config.height) || config.height <= 0) {
+            throw new APIError(`Invalid iframe height: must be a positive number`, 400);
+        }
+    }
+    if (config.allowFullscreen != null && typeof config.allowFullscreen !== "boolean") {
+        throw new APIError(`Invalid iframe allowFullscreen: must be a boolean`, 400);
+    }
+    if (config.sandbox != null && typeof config.sandbox !== "string") {
+        throw new APIError(`Invalid iframe sandbox: must be a string`, 400);
     }
 }
 
