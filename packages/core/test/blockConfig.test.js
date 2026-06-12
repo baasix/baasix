@@ -411,7 +411,7 @@ describe("validateBlockData – phase 2 types", () => {
             ).toThrow(/chartType/);
         });
 
-        test("chart invalid chartType throws mentioning chartType", () => {
+        test("chart near-miss chartType (donut instead of doughnut) throws mentioning chartType", () => {
             expect(() =>
                 validateBlockData(
                     {
