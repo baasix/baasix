@@ -23,6 +23,7 @@ Official JavaScript/TypeScript SDK for [Baasix](https://www.baasix.com) Backend-
 - 🔔 **Notifications** - User notification system with realtime delivery
 - 🗃️ **Migrations** - Database schema migration management
 - 🔃 **Sort/Reorder** - Drag-and-drop style item reordering
+- 🧩 **App Builder** - Create and manage pages & blocks via the items API
 
 ## Installation
 
@@ -415,6 +416,60 @@ const results = await baasix.items('orders').aggregate({
   filter: { createdAt: { gte: '$NOW-DAYS_30' } },
 });
 ```
+
+## App Builder (Pages & Blocks)
+
+The Baasix [App Builder](https://baasix.dev/docs/guides/app-builder) lets admins compose internal
+tools from data-bound blocks (table, form, kanban, calendar, chart, map, and more) on a 12-column
+grid. Pages and blocks are stored in the `baasix_Page` and `baasix_Block` system collections, so
+you manage them with the **same `items()` API** — no special client. Block `config` is validated
+server-side on every create and update.
+
+```typescript
+// Create a page
+const page = await baasix.items('baasix_Page').create({
+  name: 'Operations',
+  slug: 'operations', // unique per tenant; used in /pages/?slug=operations
+  icon: 'gauge',
+});
+
+// Add a table block bound to the orders collection
+await baasix.items('baasix_Block').create({
+  page_Id: page.id,
+  type: 'table',
+  collection: 'orders',
+  position: { row: 0, col: 0, span: 8 }, // 12-column grid: row, col, span
+  config: {
+    columns: [{ field: 'id' }, { field: 'customer' }, { field: 'total' }],
+    filter: { status: { eq: 'open' } },
+    sort: 'createdAt:desc',
+    actions: { create: true, edit: true, view: true },
+  },
+});
+
+// Add a status chart beside it
+await baasix.items('baasix_Block').create({
+  page_Id: page.id,
+  type: 'chart',
+  collection: 'orders',
+  position: { row: 0, col: 8, span: 4 },
+  config: {
+    chartType: 'doughnut',
+    aggregate: { count: { function: 'count', field: 'id' } },
+    groupBy: ['status'],
+  },
+});
+
+// List all blocks on a page
+const blocks = await baasix.items('baasix_Block')
+  .filter({ page_Id: { eq: page.id } })
+  .get();
+```
+
+> **Block types:** `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`,
+> `geochart`, `markdown`, `filter`, `buttons`, `media`, `feed`, `iframe`, `upload`, `code`.
+> Filters in any block config use the same filter DSL as the items API. See the
+> [App Builder guide](https://baasix.dev/docs/guides/app-builder) for the full config reference.
 
 ## Filter Operators
 

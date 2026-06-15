@@ -48,7 +48,7 @@ This sample project includes pre-configured MCP (Model Context Protocol) files f
 | **Remote MCP** | Built-in HTTP endpoint at `/mcp` | Production, cloud, VS Code Copilot |
 | **Local MCP** | `@baasix/mcp` npm package | Claude Desktop, local development |
 
-Both provide 52 tools for schema management, CRUD operations, permissions, authentication, and more.
+Both provide 69 tools for schema management, CRUD operations, permissions, authentication, the App Builder, and more.
 
 ### Configuration Files
 
@@ -160,7 +160,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 ### Available MCP Tools
 
-Both Remote and Local MCP provide 52 tools:
+Both Remote and Local MCP provide 69 tools:
 
 - **Schema Management** (13 tools) — Create, update, delete collections and relationships
 - **Item Management** (6 tools) — Full CRUD with 50+ filter operators
@@ -171,6 +171,7 @@ Both Remote and Local MCP provide 52 tools:
 - **Notifications** (3 tools) — User notification system
 - **Realtime** (5 tools) — WAL-based realtime management
 - **Settings & Utils** (6 tools) — Application settings and utilities
+- **Page Builder** (9 tools) — Create, update, and validate App Builder pages and blocks
 
 Full documentation: [Baasix MCP Server](https://baasix.dev/docs/extend/mcp)
 

@@ -35,6 +35,7 @@
 - **🔐 Authentication & Authorization** — JWT, cookie-based auth, SSO providers, and role-based permissions
 - **✅ Schema Validations** — Built-in field validation with min/max, patterns, required, unique, and custom rules
 - **⚡ Workflow Automation** — Visual workflow builder with 17 node types and real-time monitoring
+- **🧩 App Builder** — Compose internal tools and admin pages from 17 data-bound block types (table, form, kanban, calendar, chart, map, and more) on a 12-column grid, governed by your existing permissions
 - **🔔 Notification System** — Built-in user notifications with real-time delivery via Socket.IO
 - **📁 File Storage & Processing** — Upload, manage, and transform files with image optimization
 - **📝 Pino Logger** — High-performance structured logging with configurable transports (Datadog, Loki, etc.)
@@ -437,12 +438,13 @@ Baasix includes Model Context Protocol (MCP) support for AI assistants like Clau
 | **Local MCP** | `@baasix/mcp` npm package | Claude Desktop, local development |
 
 ### Features
-- **52 MCP Tools** for comprehensive Baasix operations
+- **69 MCP Tools** for comprehensive Baasix operations
 - **Schema Management** — Create, update, delete collections and relationships
 - **CRUD Operations** — Full item management with powerful query capabilities
 - **50+ Filter Operators** — From basic comparison to geospatial, vector similarity, and JSONB queries
 - **Permissions** — Role-based access control management
 - **Authentication** — Login, register, magic links, invitations
+- **App Builder** — Create and validate App Builder pages and blocks from natural language (9 page-builder tools + a block-config reference resource)
 
 ### Remote MCP Setup (Recommended)
 
@@ -527,6 +529,50 @@ For Claude Desktop or local stdio-based integrations:
 ```
 
 For more configuration options and examples, see the [MCP Server documentation](https://baasix.dev/docs/extend/mcp).
+
+---
+
+## 🧩 App Builder
+
+Turn your backend into a usable app without a second codebase. Administrators compose **pages**
+from configurable **blocks**, and every role uses those pages as their workspace — all governed
+by your existing permissions.
+
+- **17 block types** — `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`, `geochart`, `markdown`, `filter`, `buttons`, `media`, `feed`, `iframe`, `upload`, `code`
+- **In-place WYSIWYG editing** — the builder and the rendered app are the same components (admin-only "Editing" toggle)
+- **12-column grid** that collapses to a stacked layout on mobile
+- **Permission-governed** — every data block rides `baasix_Permission` and row-level conditions; nothing bypasses access control
+- **Public pages** for forms and dashboards reachable without login
+- **Export / import** page bundles between instances with a dry-run validation report
+- **AI-ready** — build pages from natural language via the MCP page-builder tools
+
+Pages and blocks are stored in the `baasix_Page` and `baasix_Block` system collections, so you
+build them visually in the admin app, programmatically through the SDK, or with AI:
+
+```javascript
+// Pages and blocks are ordinary collections — use the items API
+const page = await baasix.items("baasix_Page").create({
+  name: "Operations",
+  slug: "operations",
+  icon: "gauge",
+});
+
+await baasix.items("baasix_Block").create({
+  page_Id: page.id,
+  type: "table",
+  collection: "orders",
+  position: { row: 0, col: 0, span: 8 },
+  config: {
+    columns: [{ field: "id" }, { field: "customer" }, { field: "total" }],
+    filter: { status: { eq: "open" } },
+    actions: { create: true, edit: true, view: true },
+  },
+});
+// Renders at /pages/?slug=operations (public pages at /p/?slug=...)
+```
+
+Block configs are validated server-side on every save. See the
+[App Builder guide](https://baasix.dev/docs/guides/app-builder).
 
 ---
 
