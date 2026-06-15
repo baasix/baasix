@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.1.19
+
+### Patch Changes
+
+- Pre-production version of internal app builder added.
+
 ## 0.1.18
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.2.1
+
+### Patch Changes
+
+- Pre-production version of internal app builder added.
+
 ## 0.2.0
 
 ### Minor Changes

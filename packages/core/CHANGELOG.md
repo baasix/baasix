@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.81
+
+### Patch Changes
+
+- Pre-production version of internal app builder added.
+
 ## 0.1.80
 
 ### Patch Changes
