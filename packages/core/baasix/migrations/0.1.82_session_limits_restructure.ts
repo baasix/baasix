@@ -55,7 +55,7 @@ export function convertLegacySessionLimits(row: LegacyRow): Record<string, any> 
 }
 
 export async function up(context: MigrationContext): Promise<MigrationResult> {
-  const { sql, log } = context;
+  const { sql, log, schemaManager } = context;
 
   // Defensive: schema sync normally creates this before migrations run.
   await sql`ALTER TABLE "baasix_Settings" ADD COLUMN IF NOT EXISTS "session_limits" JSONB`;
@@ -103,6 +103,22 @@ export async function up(context: MigrationContext): Promise<MigrationResult> {
     WHERE "collectionName" = 'baasix_Settings'
   `;
   log("Removed legacy field definitions from baasix_SchemaDefinition");
+
+  // Refresh the in-memory model so this boot stops selecting the dropped columns.
+  // getSchemaDefinition returns a live reference to the cached JSON definition;
+  // createOrUpdateModel rebuilds the drizzle table from it.
+  try {
+    const cachedSchema = await schemaManager.getSchemaDefinition("baasix_Settings");
+    if (cachedSchema?.fields) {
+      delete cachedSchema.fields.mobile_session_limit;
+      delete cachedSchema.fields.web_session_limit;
+      delete cachedSchema.fields.session_limit_roles;
+      await schemaManager.createOrUpdateModel("baasix_Settings", cachedSchema);
+      log("Refreshed in-memory model for baasix_Settings");
+    }
+  } catch (err) {
+    log(`Warning: failed to refresh in-memory model for baasix_Settings: ${(err as Error).message}`);
+  }
 
   return {
     success: true,
