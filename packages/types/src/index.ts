@@ -217,6 +217,8 @@ export type {
   // Settings types
   Settings,
   TenantSettings,
+  SessionTypeLimits,
+  SessionLimits,
   // Task types
   BackgroundTask,
   // Hook types
