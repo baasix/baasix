@@ -1,5 +1,11 @@
 # @baasix/types
 
+## 1.0.9
+
+### Patch Changes
+
+- Added new session limit checks per role and per tenant.
+
 ## 1.0.8
 
 ### Patch Changes
