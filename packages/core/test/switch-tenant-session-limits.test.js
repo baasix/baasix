@@ -58,7 +58,7 @@ describe("Switch Tenant Session Limits", () => {
             .set("Authorization", `Bearer ${adminToken}`)
             .send({
                 project_name: "Tenant 2 Project",
-                mobile_session_limit: 1,
+                session_limits: { default: { mobile: 1 } },
             });
 
         // Reload settings cache
@@ -188,7 +188,7 @@ describe("Switch Tenant Session Limits", () => {
             .patch(`/settings?tenant_id=${tenant2.id}`)
             .set("Authorization", `Bearer ${adminToken}`)
             .send({
-                mobile_session_limit: 2,
+                session_limits: { default: { mobile: 2 } },
             });
 
         // Reload settings cache
