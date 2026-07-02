@@ -2,6 +2,9 @@ import type { SessionLimits, SessionTypeLimits } from "@baasix/types";
 
 const UNLIMITED = -1;
 
+/** Ensures the "malformed session_limits" warning is logged at most once per process. */
+let warnedMalformedSettings = false;
+
 /** Extract an integer limit for `sessionType` from a {web, mobile} object; undefined if absent/malformed. */
 function limitFrom(source: unknown, sessionType: string): number | undefined {
   if (!source || typeof source !== "object" || Array.isArray(source)) {
@@ -33,9 +36,16 @@ export function resolveSessionLimit(
   }
 
   const limits = settings?.session_limits;
-  if (!limits || typeof limits !== "object" || Array.isArray(limits)) {
-    if (limits && (typeof limits !== "object" || Array.isArray(limits))) {
+  if (limits == null) {
+    // Not configured — a normal, expected state, so no warning.
+    return UNLIMITED;
+  }
+  if (typeof limits !== "object" || Array.isArray(limits)) {
+    // Present but the wrong shape — worth flagging, but only once per process
+    // so a misconfigured setting doesn't flood logs on every login attempt.
+    if (!warnedMalformedSettings) {
       console.warn("session_limits setting is malformed; ignoring it");
+      warnedMalformedSettings = true;
     }
     return UNLIMITED;
   }

@@ -76,16 +76,6 @@ async function getItemsService() {
   return _ItemsService;
 }
 
-// Lazy getter for SettingsService
-let _SettingsService: any = null;
-async function getSettingsService() {
-  if (!_SettingsService) {
-    const module = await import('../services/SettingsService.js');
-    _SettingsService = module.default;
-  }
-  return _SettingsService;
-}
-
 /**
  * Helper function to get and cache roles and permissions
  * Uses PermissionService for role data (cached in memory) and Redis cache for permissions

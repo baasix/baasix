@@ -4,7 +4,7 @@
  */
 
 import crypto from "crypto";
-import type { AuthAdapter, Session, SessionWithUser, User, Role, Permission, Tenant } from "../types.js";
+import type { AuthAdapter, Session, SessionWithUser, User } from "../types.js";
 
 export interface SessionConfig {
   /**
