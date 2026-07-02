@@ -214,6 +214,12 @@ export const systemSchemas = {
                     avatar_Id: { type: "UUID", SystemGenerated: "true" },
                     password: { type: "String", allowNull: true, SystemGenerated: "true", hidden: true },
                     lastAccess: { type: "DateTime", allowNull: true, SystemGenerated: "true" },
+                    session_limits: {
+                        type: "JSON",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                        description: "Per-user session limit override: { web, mobile }. null = inherit role/default. -1 = unlimited.",
+                    },
                     userRoles: {
                         relType: "HasMany",
                         target: "baasix_UserRole",
@@ -327,6 +333,11 @@ export const systemSchemas = {
                         fields: ["token"],
                         unique: true,
                         name: "baasix_Session_token_unique",
+                        SystemGenerated: "true",
+                    },
+                    {
+                        fields: ["user_Id", "type", "expiresAt"],
+                        name: "baasix_Session_user_type_expires",
                         SystemGenerated: "true",
                     },
                 ],
@@ -947,25 +958,11 @@ export const systemSchemas = {
                         description: "Default currency",
                     },
                     // Session limit settings
-                    mobile_session_limit: {
-                        type: "Integer",
-                        allowNull: true,
-                        defaultValue: -1,
-                        SystemGenerated: "true",
-                        description: "Maximum number of mobile sessions per user. -1 or null for unlimited, 0 to disable mobile sessions.",
-                    },
-                    web_session_limit: {
-                        type: "Integer",
-                        allowNull: true,
-                        defaultValue: -1,
-                        SystemGenerated: "true",
-                        description: "Maximum number of web sessions per user. -1 or null for unlimited, 0 to disable web sessions.",
-                    },
-                    session_limit_roles: {
+                    session_limits: {
                         type: "JSON",
                         allowNull: true,
                         SystemGenerated: "true",
-                        description: "Array of role IDs to which session limits apply. If null or empty, limits apply to all roles except administrator.",
+                        description: "Session limits: { default: { web, mobile }, roles: { <roleId>: { web, mobile } } }. -1 = unlimited, 0 = disabled, missing key falls through.",
                     },
                     // Additional configuration fields
                     metadata: {
