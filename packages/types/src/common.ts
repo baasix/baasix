@@ -81,6 +81,23 @@ export interface Settings {
 }
 
 /**
+ * Session type limits
+ */
+export interface SessionTypeLimits {
+  /** -1 = unlimited, 0 = disabled, positive n = max concurrent sessions */
+  web?: number;
+  mobile?: number;
+}
+
+/**
+ * Session limits by role and type
+ */
+export interface SessionLimits {
+  default?: SessionTypeLimits;
+  roles?: Record<string, SessionTypeLimits>;
+}
+
+/**
  * Tenant settings
  */
 export interface TenantSettings {
@@ -109,6 +126,7 @@ export interface TenantSettings {
   email_icon?: any;
   metadata?: Record<string, any>;
   modules?: Record<string, any>;
+  session_limits?: SessionLimits | null;
   [key: string]: any;
 }
 

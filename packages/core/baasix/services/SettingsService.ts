@@ -343,7 +343,8 @@ class SettingsService {
    * Public/client-safe settings fields. The public settings endpoints return ONLY
    * these (an allow-list, not a deny-list) so a newly-added setting — a secret API
    * key, an internal flag, etc. — is never accidentally exposed. This covers
-   * branding, identity, localization, logos, and the public session-limit hints.
+   * branding, identity, localization, and logos. Session limit hints are derived
+   * and added separately by sanitizeSettings.
    */
   private static readonly PUBLIC_SETTINGS_FIELDS = new Set<string>([
     "id", "tenant_Id",
@@ -360,8 +361,6 @@ class SettingsService {
     "email_signature", "from_email_name", "smtp_enabled",
     // Localization
     "timezone", "language", "date_format", "currency",
-    // Public session hints
-    "mobile_session_limit", "web_session_limit",
     "createdAt", "updatedAt",
   ]);
 
@@ -384,6 +383,19 @@ class SettingsService {
         sanitized[key] = (settings as any)[key];
       }
     }
+
+    // Public session hints: expose only the defaults; per-role and per-user
+    // values stay private. Legacy keys are kept for older clients, derived
+    // from the default entry.
+    const rawLimits = (settings as any).session_limits;
+    const defaults =
+      rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
+        ? rawLimits.default
+        : undefined;
+    sanitized.session_limits = defaults ? { default: defaults } : null;
+    sanitized.web_session_limit = typeof defaults?.web === "number" ? defaults.web : -1;
+    sanitized.mobile_session_limit = typeof defaults?.mobile === "number" ? defaults.mobile : -1;
+
     return sanitized as TenantSettings;
   }
 

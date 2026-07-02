@@ -3,7 +3,7 @@
  */
 
 export { createSessionService, validateSessionLimits } from "./session.js";
-export type { SessionConfig, SessionService, SessionLimitConfig } from "./session.js";
+export type { SessionConfig, SessionService } from "./session.js";
 
 export { createTokenService } from "./token.js";
 export type { TokenConfig, TokenService } from "./token.js";

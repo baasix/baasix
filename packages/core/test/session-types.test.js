@@ -168,9 +168,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: 1,
-            web_session_limit: 2,
-            session_limit_roles: null // null means apply to all roles except administrator
+            session_limits: { default: { mobile: 1, web: 2 } } // applies to all roles except administrator
         });
 
         // Invalidate SettingsService cache and reload to pick up new settings
@@ -217,9 +215,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: 0, // Disabled
-            web_session_limit: -1,   // Unlimited
-            session_limit_roles: null
+            session_limits: { default: { mobile: 0 } } // mobile disabled, web unlimited (unset)
         });
 
         // Invalidate SettingsService cache and reload to pick up new settings
@@ -256,9 +252,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: 0,
-            web_session_limit: 0,
-            session_limit_roles: null
+            session_limits: { default: { mobile: 0, web: 0 } }
         });
 
         // Invalidate SettingsService cache and reload
@@ -302,9 +296,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: 0, // Disabled
-            web_session_limit: 0,    // Disabled
-            session_limit_roles: null // Apply to all (except administrator)
+            session_limits: { default: { mobile: 0, web: 0 } } // Disabled for all (except administrator)
         });
 
         settingsService.invalidateAllCaches();
@@ -353,9 +345,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: 1,
-            web_session_limit: 1,
-            session_limit_roles: [userRole.id] // Only apply to 'user' role
+            session_limits: { roles: { [userRole.id]: { mobile: 1, web: 1 } } } // Only apply to 'user' role
         });
 
         settingsService.invalidateAllCaches();
@@ -400,9 +390,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: 0, // Would block if applied
-            web_session_limit: 0,
-            session_limit_roles: ['00000000-0000-0000-0000-000000000001'] // Non-existent role
+            session_limits: { roles: { "00000000-0000-0000-0000-000000000001": { mobile: 0, web: 0 } } } // Would block if applied, but role is non-existent
         });
 
         settingsService.invalidateAllCaches();
@@ -437,9 +425,7 @@ describe("Session Types and Limits", () => {
         await settingsServiceInstance.createOne({
             tenant_Id: null,
             project_name: "Test Project",
-            mobile_session_limit: -1, // Unlimited
-            web_session_limit: -1,    // Unlimited
-            session_limit_roles: null
+            session_limits: null // Unlimited
         });
 
         settingsService.invalidateAllCaches();
