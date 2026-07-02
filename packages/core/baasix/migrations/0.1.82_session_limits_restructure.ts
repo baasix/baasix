@@ -120,6 +120,18 @@ export async function up(context: MigrationContext): Promise<MigrationResult> {
     log(`Warning: failed to refresh in-memory model for baasix_Settings: ${(err as Error).message}`);
   }
 
+  // Invalidate any persistent (e.g. Redis, infinite-TTL) tenant settings caches so
+  // migrated session_limits take effect immediately instead of being silently
+  // unenforced until each cached tenant's entry happens to expire/reload.
+  try {
+    const module = await import("../services/SettingsService.js");
+    const settingsService = module.default;
+    await settingsService.invalidateAllCaches();
+    log("Invalidated tenant settings caches");
+  } catch (err) {
+    log(`Warning: failed to invalidate settings caches: ${(err as Error).message}`);
+  }
+
   return {
     success: true,
     message: "Session limits restructured",

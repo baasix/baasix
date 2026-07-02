@@ -143,4 +143,25 @@ describe("Role-specific session limits with per-user overrides", () => {
         expect((await login()).status).toBe(200);
         expect((await login()).status).toBe(200);
     });
+
+    test("registration cannot mass-assign session_limits or other privileged fields", async () => {
+        const email = `masstest-${Date.now()}@example.com`;
+        const res = await request(app).post("/auth/register").send({
+            email,
+            password: "password123",
+            firstName: "Mass",
+            lastName: "Assign",
+            session_limits: { web: -1 },
+            emailVerified: true,
+            status: "active",
+        });
+        expect(res.status).toBe(200);
+
+        const userSvc = new ItemsService("baasix_User");
+        const users = await userSvc.readByQuery({ filter: { email: { eq: email } }, limit: 1 }, true);
+        const createdUser = users.data[0];
+
+        expect(createdUser.session_limits).toBeFalsy();
+        expect(createdUser.emailVerified).toBe(false);
+    });
 });

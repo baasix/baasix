@@ -14,6 +14,39 @@ import type { AuthAdapter, User, Account, AuthOptions } from "../types.js";
 const DUMMY_PASSWORD_HASH =
   "$argon2id$v=19$m=65536,t=3,p=4$PObFC4GloMVb0wNoefG0kg$Wg9/cMLFttZHh4txCaa0QwiaCjZ1p2Ayf4SniY5/Ni0";
 
+/**
+ * Fields a self-registering user must never be able to set via arbitrary
+ * `customFields` on /auth/register. Without this guard, `...customFields` is
+ * spread last into `adapter.createUser`, so a client-supplied value for any of
+ * these keys silently overrides what this function computes (mass assignment).
+ *
+ * - "id": would let the caller choose the new user's primary key.
+ * - "emailVerified" / "status": bypass verification/activation rules.
+ * - "lastAccess": lets the caller forge audit/tracking data.
+ * - "session_limits": lets a user grant themselves unlimited/elevated sessions.
+ * - "password": User rows carry a legacy/migration-support `password` column
+ *   (see signIn() above); customFields could smuggle a plaintext value into it
+ *   directly, bypassing hashing entirely, so it must be stripped even though the
+ *   real password param is handled separately and hashed via hashPassword().
+ */
+const PRIVILEGED_USER_FIELDS = [
+  "id",
+  "session_limits",
+  "emailVerified",
+  "status",
+  "lastAccess",
+  "password",
+] as const;
+
+/** Returns a shallow copy of `customFields` with privileged keys removed. */
+function stripPrivilegedFields(customFields: Record<string, any> | undefined): Record<string, any> {
+  const safeCustomFields = { ...(customFields || {}) };
+  for (const field of PRIVILEGED_USER_FIELDS) {
+    delete safeCustomFields[field];
+  }
+  return safeCustomFields;
+}
+
 export interface CredentialProviderOptions {
   /**
    * Password hashing function
@@ -140,6 +173,10 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
       // Hash password
       const hashedPassword = await this.hashPassword(password);
 
+      // Strip fields a self-registering caller must not be able to set (see
+      // PRIVILEGED_USER_FIELDS above) before spreading the rest as custom fields.
+      const safeCustomFields = stripPrivilegedFields(customFields);
+
       // Create user with custom fields
       const user = await adapter.createUser({
         email: email.toLowerCase(),
@@ -148,7 +185,7 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
         lastName: lastName || null,
         phone: phone || null,
         status: "active",
-        ...customFields,
+        ...safeCustomFields,
       });
 
       // Create credential account
