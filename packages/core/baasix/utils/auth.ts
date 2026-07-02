@@ -622,94 +622,6 @@ export async function validateSession(
 }
 
 /**
- * Validate session limits for a user
- */
-export async function validateSessionLimits(
-  userId: string,
-  sessionType: string,
-  tenantId: string | null = null,
-  role: { id: string | number; name: string } | null = null
-): Promise<{ isValid: boolean; error?: string }> {
-  if (sessionType === "default") {
-    return { isValid: true };
-  }
-
-  if (!["mobile", "web"].includes(sessionType)) {
-    return { isValid: false, error: "Invalid session type. Must be 'mobile' or 'web'" };
-  }
-
-  if (role?.name === "administrator") {
-    return { isValid: true };
-  }
-
-  try {
-    const settingsService = await getSettingsService();
-    const ItemsService = await getItemsService();
-
-    const isMultiTenantEnabled = env.get("MULTI_TENANT") === "true";
-    let settings;
-    if (isMultiTenantEnabled && tenantId) {
-      settings = await settingsService.getTenantSettings(tenantId);
-    } else {
-      settings = settingsService.getGlobalSettings();
-    }
-
-    if (!settings) {
-      return { isValid: true };
-    }
-
-    const limitKey = `${sessionType}_session_limit`;
-    const sessionLimit = (settings as any)[limitKey];
-
-    if (sessionLimit === undefined || sessionLimit === null || sessionLimit === -1) {
-      return { isValid: true };
-    }
-
-    const sessionLimitRoles = (settings as any).session_limit_roles;
-    if (sessionLimitRoles && Array.isArray(sessionLimitRoles) && sessionLimitRoles.length > 0) {
-      if (!role?.id || !sessionLimitRoles.includes(role.id)) {
-        return { isValid: true };
-      }
-    }
-
-    if (sessionLimit === 0) {
-      return {
-        isValid: false,
-        error: `${sessionType.charAt(0).toUpperCase() + sessionType.slice(1)} sessions are not allowed`
-      };
-    }
-
-    const sessionService = new ItemsService('baasix_Sessions');
-    const filter: any = {
-      user_Id: userId,
-      type: sessionType,
-      expiresAt: { gt: new Date().toISOString() }
-    };
-
-    if (isMultiTenantEnabled && tenantId) {
-      filter.tenant_Id = tenantId;
-    }
-
-    const activeSessions = await sessionService.readByQuery({
-      filter,
-      limit: -1
-    }, true);
-
-    if (activeSessions.data.length >= sessionLimit) {
-      return {
-        isValid: false,
-        error: `Maximum ${sessionType} session limit (${sessionLimit}) reached. Please logout from another device.`
-      };
-    }
-
-    return { isValid: true };
-  } catch (error) {
-    console.error("Error validating session limits:", error);
-    return { isValid: true };
-  }
-}
-
-/**
  * Generate token with session creation
  */
 export async function generateToken(
@@ -751,5 +663,7 @@ export async function generateToken(
 
   return generateJWT(payload, `${expiresIn}s`);
 }
+
+export { validateSessionLimits } from "../auth/services/sessionLimits.js";
 
 export default authMiddleware;

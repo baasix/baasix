@@ -1053,7 +1053,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (authType && authType !== "default") {
         const { validateSessionLimits } = await import("../utils/auth.js");
         const validation = await validateSessionLimits(
-          req.accountability.user.id,
+          req.accountability.user as any,
           authType,
           tenant.id,
           role

@@ -83,7 +83,6 @@ export {
 export type {
   SessionConfig,
   SessionService,
-  SessionLimitConfig,
   TokenConfig,
   TokenService,
   VerificationConfig,

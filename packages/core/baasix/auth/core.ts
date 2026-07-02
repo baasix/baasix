@@ -468,8 +468,7 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       
       // Validate session type and limits
       const validation = await validateSessionLimits(
-        sessionService,
-        user.id,
+        user,
         authType,
         tenant?.id || null,
         role
