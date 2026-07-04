@@ -16,7 +16,7 @@ import env from "../utils/env.js";
 import type { Express } from "../types/index.js";
 
 const PAGE_FIELDS = ["id", "name", "slug", "icon", "description", "parent_Id", "sort", "isPublic", "enabled", "options", "roles"];
-const BLOCK_FIELDS = ["id", "page_Id", "type", "collection", "position", "config", "configVersion"];
+const BLOCK_FIELDS = ["id", "page_Id", "type", "collection", "position", "config", "configVersion", "parentBlock_Id", "slot"];
 const MAX_BUNDLE_PAGES = 500;
 const MAX_BUNDLE_BLOCKS = 5000;
 
@@ -231,7 +231,32 @@ const registerEndpoint = (app: Express) => {
                 }
             }
 
-            // Pass 3: remap filter-block targets to the new block ids
+            // Pass 2.5: parent links between blocks (children were created
+            // parentless in pass 1.5 so creation order didn't matter).
+            for (const blk of bundle.blocks) {
+                if (!blk.parentBlock_Id) continue;
+                const newBlockId = blockIdMap.get(String(blk.id));
+                if (!newBlockId) continue;
+                const newParentId = blockIdMap.get(String(blk.parentBlock_Id));
+                const blkPage = pageById.get(String(blk.page_Id));
+                const blkResult = blkPage ? resultBySlug.get(blkPage.slug) : null;
+                if (!newParentId) {
+                    // Parent wasn't imported — the block stays top-level.
+                    if (blkResult) blkResult.parentDropped = true;
+                    continue;
+                }
+                try {
+                    await blockService.updateOne(newBlockId, {
+                        parentBlock_Id: newParentId,
+                        slot: blk.slot ?? null,
+                    });
+                } catch {
+                    if (blkResult) blkResult.parentDropped = true;
+                }
+            }
+
+            // Pass 3: remap filter-block targets + block-id references
+            // (record sources, modal actions, $selection placeholders).
             for (const blk of bundle.blocks) {
                 const newBlockId = blockIdMap.get(String(blk.id));
                 if (!newBlockId) continue;

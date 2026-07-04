@@ -12,6 +12,7 @@ const PAGE_EXPORT_FIELDS = [
 ] as const;
 const BLOCK_EXPORT_FIELDS = [
     "id", "page_Id", "type", "collection", "position", "config", "configVersion",
+    "parentBlock_Id", "slot",
 ] as const;
 
 /** Keys inside block configs whose value is a single field name. */
@@ -239,15 +240,75 @@ export function suggestSlug(base: string, taken: Set<string>): string {
  * config when something changed, null when no update is needed.
  */
 export function remapTargets(config: any, blockIdMap: Map<string, string>): any | null {
-    if (!config || !Array.isArray(config.targets)) return null;
-    const remapped = config.targets
-        .map((id: any) => blockIdMap.get(String(id)))
-        .filter((id: any): id is string => typeof id === "string");
-    const unchanged =
-        remapped.length === config.targets.length &&
-        remapped.every((id: string, i: number) => id === config.targets[i]);
-    if (unchanged) return null;
-    return { ...config, targets: remapped };
+    if (!config || typeof config !== "object") return null;
+    let changed = false;
+    let result = config;
+
+    // Filter-block targets: drop ids that didn't make it into the import.
+    if (Array.isArray(config.targets)) {
+        const remapped = config.targets
+            .map((id: any) => blockIdMap.get(String(id)))
+            .filter((id: any): id is string => typeof id === "string");
+        const unchanged =
+            remapped.length === config.targets.length &&
+            remapped.every((id: string, i: number) => id === config.targets[i]);
+        if (!unchanged) {
+            result = { ...result, targets: remapped };
+            changed = true;
+        }
+    }
+
+    // Block-id references elsewhere in the config: record sources
+    // ({type:"block", blockId}) and modal actions ({type:"modal", blockId}).
+    // Deep-walk and remap every such node; unmapped ids are left as-is (the
+    // renderer falls back to its empty state).
+    const SELECTION_RE = /^(\$selection\.)([^.]+)(\..+)$/;
+    const walk = (node: any): any => {
+        if (typeof node === "string") {
+            // "$selection.<blockId>.<field>" filter placeholders carry ids too.
+            const match = SELECTION_RE.exec(node);
+            if (match) {
+                const mapped = blockIdMap.get(match[2]);
+                if (mapped && mapped !== match[2]) {
+                    return `${match[1]}${mapped}${match[3]}`;
+                }
+            }
+            return node;
+        }
+        if (Array.isArray(node)) {
+            const items = node.map(walk);
+            return items.some((v, i) => v !== node[i]) ? items : node;
+        }
+        if (node && typeof node === "object") {
+            let out = node;
+            if (
+                (node.type === "block" || node.type === "modal") &&
+                typeof node.blockId === "string"
+            ) {
+                const mapped = blockIdMap.get(node.blockId);
+                if (mapped && mapped !== node.blockId) {
+                    out = { ...node, blockId: mapped };
+                }
+            }
+            for (const [key, value] of Object.entries(node)) {
+                if (key === "blockId") continue;
+                const next = walk(value);
+                if (next !== value) {
+                    if (out === node) out = { ...node };
+                    out[key] = next;
+                }
+            }
+            return out;
+        }
+        return node;
+    };
+    const walked = walk(result);
+    if (walked !== result) {
+        result = walked;
+        changed = true;
+    }
+
+    return changed ? result : null;
 }
 
 export interface ImportContext {
