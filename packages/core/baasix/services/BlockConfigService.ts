@@ -29,7 +29,16 @@ const BLOCK_TYPES = [
     "upload",
     "code",
     "geochart",
+    "tabs",
+    "container",
+    "modal",
+    "divider",
 ];
+
+/** Types that can host child blocks (children carry parentBlock_Id + slot). */
+const CONTAINER_TYPES = new Set(["tabs", "container", "modal"]);
+/** Nesting depth cap (top level = depth 0). */
+const MAX_NESTING_DEPTH = 3;
 
 const COLLECTION_REQUIRED = new Set([
     "table",
@@ -67,7 +76,7 @@ const GEOCHART_REGIONS = new Set(["world"]);
 
 const CALENDAR_VIEWS = new Set(["month", "week", "day"]);
 
-const BUTTON_ACTION_TYPES = new Set(["link", "workflow", "create", "page", "view"]);
+const BUTTON_ACTION_TYPES = new Set(["link", "workflow", "create", "page", "view", "modal"]);
 
 const MEDIA_VIEWERS = new Set(["image", "video", "audio", "auto"]);
 
@@ -507,6 +516,69 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         validateUploadConfig(config);
     }
 
+    // Layout blocks are collectionless. Shapes: tabs needs a non-empty tab
+    // list; container/modal/divider keys are optional but type-checked.
+    if (config != null && type === "tabs") {
+        if (!Array.isArray(config.tabs) || config.tabs.length === 0) {
+            throw new APIError(
+                `Tabs block config requires "tabs" to be a non-empty array of {label}`,
+                400
+            );
+        }
+        config.tabs.forEach((tab: any, index: number) => {
+            if (!tab || typeof tab !== "object" || Array.isArray(tab)) {
+                throw new APIError(`Invalid tab at index ${index}: must be an object`, 400);
+            }
+            if (typeof tab.label !== "string" || tab.label.length === 0) {
+                throw new APIError(
+                    `Invalid tab at index ${index}: "label" must be a non-empty string`,
+                    400
+                );
+            }
+        });
+    }
+    if (config != null && type === "container") {
+        if (config.variant != null && config.variant !== "card" && config.variant !== "plain") {
+            throw new APIError(
+                `Invalid container variant "${config.variant}": must be "card" or "plain"`,
+                400
+            );
+        }
+    }
+    if (config != null && type === "modal") {
+        if (
+            config.width != null &&
+            !["sm", "md", "lg", "xl"].includes(config.width)
+        ) {
+            throw new APIError(
+                `Invalid modal width "${config.width}": must be one of sm, md, lg, xl`,
+                400
+            );
+        }
+    }
+    if (config != null && type === "divider") {
+        if (config.label != null && typeof config.label !== "string") {
+            throw new APIError(`Invalid divider label: must be a string`, 400);
+        }
+    }
+
+    // Nesting (shape only — existence/cycles are checked in the DB hook):
+    // parentBlock_Id must be a string id and slot a sane string when present.
+    if (data.parentBlock_Id != null && typeof data.parentBlock_Id !== "string") {
+        throw new APIError(`Invalid parentBlock_Id: must be a block id string`, 400);
+    }
+    if (data.slot != null) {
+        if (typeof data.slot !== "string" || !/^(body|tab:\d+)$/.test(data.slot)) {
+            throw new APIError(
+                `Invalid slot "${data.slot}": must be "body" or "tab:<index>"`,
+                400
+            );
+        }
+        if (data.parentBlock_Id == null) {
+            throw new APIError(`slot requires parentBlock_Id`, 400);
+        }
+    }
+
     // code has an OPTIONAL collection (like markdown it is not in
     // COLLECTION_REQUIRED, so fieldMap above is null). Validate its config
     // here; recordField additionally requires the block to carry a collection
@@ -647,7 +719,7 @@ function validateButtonsConfig(config: any): void {
         }
         if (!BUTTON_ACTION_TYPES.has(action.type)) {
             throw new APIError(
-                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow, create, page, view`,
+                `Invalid buttons item at index ${index}: action type "${action.type}" must be one of: link, workflow, create, page, view, modal`,
                 400
             );
         }
@@ -676,6 +748,13 @@ function validateButtonsConfig(config: any): void {
             if (typeof action.slug !== "string" || action.slug.length === 0) {
                 throw new APIError(
                     `Invalid buttons item at index ${index}: page action requires "slug" to be a non-empty string`,
+                    400
+                );
+            }
+        } else if (action.type === "modal") {
+            if (typeof action.blockId !== "string" || action.blockId.length === 0) {
+                throw new APIError(
+                    `Invalid buttons item at index ${index}: modal action requires "blockId" to be a non-empty string`,
                     400
                 );
             }
@@ -740,6 +819,85 @@ export function validatePageData(data: any, isCreate: boolean): void {
  *
  * The patch wins on every key it provides; existing fills gaps.
  */
+/** Minimal block row the parent-assignment check needs. */
+export interface ParentLookupBlock {
+    id: string;
+    type: string;
+    page_Id: string;
+    parentBlock_Id?: string | null;
+    config?: any;
+}
+
+/**
+ * Validate a block's parent assignment against live rows: the parent must
+ * exist on the same page, be a container type (tabs/container/modal), the
+ * slot must fit the parent (tab:<n> within the tab list for tabs, "body"
+ * otherwise), and the ancestor chain must be acyclic and at most
+ * MAX_NESTING_DEPTH deep. `getBlock` resolves ids to rows (null = missing).
+ */
+export async function assertParentAssignment(
+    block: { id?: string | null; page_Id: string; parentBlock_Id: string; slot?: string | null },
+    getBlock: (id: string) => Promise<ParentLookupBlock | null>
+): Promise<void> {
+    const parent = await getBlock(block.parentBlock_Id);
+    if (!parent) {
+        throw new APIError(`parentBlock_Id does not reference an existing block`, 400);
+    }
+    if (block.id != null && parent.id === block.id) {
+        throw new APIError(`A block cannot be its own parent`, 400);
+    }
+    if (parent.page_Id !== block.page_Id) {
+        throw new APIError(`parentBlock_Id must reference a block on the same page`, 400);
+    }
+    if (!CONTAINER_TYPES.has(parent.type)) {
+        throw new APIError(
+            `parentBlock_Id must reference a container block (tabs, container or modal); got "${parent.type}"`,
+            400
+        );
+    }
+    const slot = block.slot ?? null;
+    if (parent.type === "tabs") {
+        const match = slot == null ? null : /^tab:(\d+)$/.exec(slot);
+        if (!match) {
+            throw new APIError(`Blocks inside a tabs block need a slot like "tab:0"`, 400);
+        }
+        const tabCount = Array.isArray(parent.config?.tabs) ? parent.config.tabs.length : 0;
+        const index = Number(match[1]);
+        if (index >= tabCount) {
+            throw new APIError(
+                `slot "${slot}" is out of range: the tabs block has ${tabCount} tab(s)`,
+                400
+            );
+        }
+    } else if (slot != null && slot !== "body") {
+        throw new APIError(
+            `Invalid slot "${slot}" for a ${parent.type} parent: only "body" (or omitted)`,
+            400
+        );
+    }
+
+    // Ancestor walk: reject cycles (the moved block appearing in its own
+    // ancestor chain) and chains deeper than MAX_NESTING_DEPTH.
+    const seen = new Set<string>(block.id != null ? [block.id] : []);
+    let current: ParentLookupBlock | null = parent;
+    let depth = 1;
+    while (current) {
+        if (seen.has(current.id)) {
+            throw new APIError(`parentBlock_Id would create a cycle`, 400);
+        }
+        seen.add(current.id);
+        if (depth > MAX_NESTING_DEPTH) {
+            throw new APIError(
+                `Blocks can be nested at most ${MAX_NESTING_DEPTH} levels deep`,
+                400
+            );
+        }
+        if (!current.parentBlock_Id) break;
+        current = await getBlock(current.parentBlock_Id);
+        depth += 1;
+    }
+}
+
 export function mergeBlockForUpdate(
     existing: Record<string, any>,
     patch: Record<string, any>
@@ -814,9 +972,34 @@ export async function registerPageBuilderHooks(): Promise<void> {
         }
     };
 
+    /** id → minimal block row for parent-assignment checks (bypass perms). */
+    const getBlockForParentCheck = async (id: string) => {
+        const { default: ItemsService } = await import("./ItemsService.js");
+        const itemsService = new ItemsService("baasix_Block", {
+            accountability: undefined,
+        });
+        const row = await itemsService.readOne(
+            id,
+            { fields: ["id", "type", "page_Id", "parentBlock_Id", "config"] },
+            true // bypassPermissions: internal read
+        );
+        return row ?? null;
+    };
+
     // ── baasix_Block ──────────────────────────────────────────────────────
     hooksManager.registerHook("baasix_Block", "items.create", async (ctx: any) => {
         validateBlockData(ctx.data, getFields);
+        if (ctx.data?.parentBlock_Id != null) {
+            await assertParentAssignment(
+                {
+                    id: ctx.data.id ?? null,
+                    page_Id: ctx.data.page_Id,
+                    parentBlock_Id: ctx.data.parentBlock_Id,
+                    slot: ctx.data.slot ?? null,
+                },
+                getBlockForParentCheck
+            );
+        }
         return ctx;
     });
 
@@ -826,7 +1009,7 @@ export async function registerPageBuilderHooks(): Promise<void> {
 
         // If any of the fields that affect validation are present in the patch,
         // fetch the existing row, merge with the patch, and validate the merged result.
-        const validationFields = ["type", "collection", "config", "position"];
+        const validationFields = ["type", "collection", "config", "position", "parentBlock_Id", "slot"];
         const hasPatchedValidationField = validationFields.some((f) => f in data);
 
         if (hasPatchedValidationField && ctx.id != null) {
@@ -836,12 +1019,22 @@ export async function registerPageBuilderHooks(): Promise<void> {
             });
             const existing = await itemsService.readOne(
                 ctx.id,
-                { fields: ["id", "type", "collection", "config", "position"] },
+                { fields: ["id", "type", "collection", "config", "position", "page_Id", "parentBlock_Id", "slot"] },
                 true // bypassPermissions: internal read
             );
             if (existing) {
                 const merged = mergeBlockForUpdate(existing, data);
                 validateBlockData(merged, getFields);
+                // Effective parent/slot after the patch (explicit null clears).
+                const parentBlockId =
+                    "parentBlock_Id" in data ? data.parentBlock_Id : existing.parentBlock_Id;
+                const slot = "slot" in data ? data.slot : existing.slot;
+                if (parentBlockId != null) {
+                    await assertParentAssignment(
+                        { id: existing.id, page_Id: existing.page_Id, parentBlock_Id: parentBlockId, slot },
+                        getBlockForParentCheck
+                    );
+                }
             } else {
                 // Row not found — still validate the patch as-is
                 validateBlockData(data, getFields);

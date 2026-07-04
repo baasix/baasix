@@ -12,7 +12,11 @@ export const BLOCK_CONFIG_DOC = `# Baasix page-builder: block config reference
   description?, parent_Id? (menu nesting), sort, isPublic (public route /p/?slug=),
   enabled, options { menuGroup?: bool, homeFor?: roleId[] }, roles?: roleId[] (menu visibility; null = all) }
 - **baasix_Block**: { page_Id, type, collection (bound collection; see per-type rules),
-  position { row, col, span }, config (per-type JSON, below), configVersion (default 1) }
+  position { row, col, span }, config (per-type JSON, below), configVersion (default 1),
+  parentBlock_Id? (parent container block id), slot? ("tab:<index>" inside tabs, "body" otherwise) }
+- Nesting: children of tabs/container/modal blocks carry parentBlock_Id (+ slot) and lay out in a
+  nested 12-col grid inside the parent; position is relative to the parent slot. Max depth 3;
+  the parent must be a container type on the same page. Deleting a parent cascades to children.
 - Authenticated pages render at \`/pages/?slug=<slug>\`; public pages at \`/p/?slug=<slug>\`.
 
 ## Grid contract
@@ -51,8 +55,8 @@ table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/m
 ## Block types
 
 Types REQUIRING a collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter.
-Collectionless types: markdown, buttons, iframe, upload. \`code\` takes an OPTIONAL collection
-(required only when \`recordField\` is set).
+Collectionless types: markdown, buttons, iframe, upload, tabs, container, modal, divider.
+\`code\` takes an OPTIONAL collection (required only when \`recordField\` is set).
 All field names referenced in a config MUST exist on the bound collection (validated server-side).
 
 ### table
@@ -105,6 +109,22 @@ Pie family (pie/doughnut/polar/treemap) uses groupBy + the FIRST aggregate alias
 ### markdown
 \`content\` (markdown string). No collection.
 
+### tabs
+\`tabs: [{ label, icon? }]\` (required, non-empty; icon = lucide name). Child blocks carry
+\`parentBlock_Id = <this block>\` and \`slot: "tab:<index>"\`. Panels mount lazily. No collection.
+
+### container
+\`variant?: "card"|"plain"\` (default card), \`collapsible?: bool\`, \`defaultCollapsed?: bool\`.
+Children use slot \`"body"\` (or omit slot). No collection.
+
+### modal
+\`width?: "sm"|"md"|"lg"|"xl"\` (default lg), \`title?\`. Hidden at rest; opened by a
+\`{type:"modal", blockId}\` action from a buttons block or a data block's header/row actions.
+Children use slot \`"body"\`. No collection.
+
+### divider
+\`label?\` (optional centered caption). No collection, no children.
+
 ### filter
 \`targets: blockId[] | "all"\`, \`fields: [{ field, operator?, label? }]\` — publishes filter state to sibling
 data blocks (merged AND into each target's filter).
@@ -143,6 +163,7 @@ data blocks (merged AND into each target's filter).
 - \`workflow { workflowId, confirm? }\` — sends { recordId, record } as triggerData
 - \`create { collection, defaults? }\` — opens the record drawer
 - \`page { slug, carryId? }\`
+- \`modal { blockId }\` — opens the modal block with that id on the same page
 - \`export-csv\` (header actions only)
 Used by buttons \`items\`, data-block \`headerActions\`, table/cardlist \`rowActions\`, kanban \`cardActions\`,
 and the single-action keys \`cardAction\`/\`itemAction\`/\`eventAction\`.

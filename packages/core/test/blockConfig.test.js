@@ -1,5 +1,5 @@
 import { test, expect, describe } from "@jest/globals";
-import { validateBlockData, validatePageData, mergeBlockForUpdate } from "../baasix/services/BlockConfigService.js";
+import { validateBlockData, validatePageData, mergeBlockForUpdate, assertParentAssignment } from "../baasix/services/BlockConfigService.js";
 
 // Stub field maps — no DB, no schemaManager
 const stubFields = (map) => (collection) => map;
@@ -1796,5 +1796,213 @@ describe("validateBlockData – record source (details/form/code)", () => {
                 userLikeFields
             )
         ).toThrow(/source/i);
+    });
+});
+
+describe("validateBlockData – layout blocks (tabs/container/modal/divider)", () => {
+    test("tabs without tabs array throws", () => {
+        expect(() =>
+            validateBlockData({ type: "tabs", config: {} }, userLikeFields)
+        ).toThrow(/tabs/);
+    });
+
+    test("tabs with empty tabs array throws", () => {
+        expect(() =>
+            validateBlockData({ type: "tabs", config: { tabs: [] } }, userLikeFields)
+        ).toThrow(/tabs/);
+    });
+
+    test("tabs with labeled tabs does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "tabs", config: { tabs: [{ label: "One" }, { label: "Two", icon: "Star" }] } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("tab entry without label throws", () => {
+        expect(() =>
+            validateBlockData({ type: "tabs", config: { tabs: [{ icon: "Star" }] } }, userLikeFields)
+        ).toThrow(/label/);
+    });
+
+    test("container with bad variant throws", () => {
+        expect(() =>
+            validateBlockData({ type: "container", config: { variant: "fancy" } }, userLikeFields)
+        ).toThrow(/variant/);
+    });
+
+    test("container with plain variant does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "container", config: { variant: "plain", collapsible: true } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("modal with bad width throws", () => {
+        expect(() =>
+            validateBlockData({ type: "modal", config: { width: "huge" } }, userLikeFields)
+        ).toThrow(/width/);
+    });
+
+    test("divider with label does not throw", () => {
+        expect(() =>
+            validateBlockData({ type: "divider", config: { label: "Section" } }, userLikeFields)
+        ).not.toThrow();
+    });
+
+    test("buttons modal action requires blockId", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "buttons", config: { items: [{ label: "Open", action: { type: "modal" } }] } },
+                userLikeFields
+            )
+        ).toThrow(/blockId/);
+    });
+
+    test("buttons modal action with blockId does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "buttons", config: { items: [{ label: "Open", action: { type: "modal", blockId: "b1" } }] } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("bad slot shape throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "table", collection: "posts", config: { columns: [] }, parentBlock_Id: "p1", slot: "drawer" },
+                userLikeFields
+            )
+        ).toThrow(/slot/);
+    });
+
+    test("slot without parentBlock_Id throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "table", collection: "posts", config: { columns: [] }, slot: "body" },
+                userLikeFields
+            )
+        ).toThrow(/parentBlock_Id/);
+    });
+});
+
+describe("assertParentAssignment", () => {
+    const rows = {
+        page: "page-1",
+        tabs1: { id: "tabs1", type: "tabs", page_Id: "page-1", parentBlock_Id: null, config: { tabs: [{ label: "A" }, { label: "B" }] } },
+        cont1: { id: "cont1", type: "container", page_Id: "page-1", parentBlock_Id: null, config: {} },
+        cont2: { id: "cont2", type: "container", page_Id: "page-1", parentBlock_Id: "cont1", config: {} },
+        cont3: { id: "cont3", type: "container", page_Id: "page-1", parentBlock_Id: "cont2", config: {} },
+        cont4: { id: "cont4", type: "container", page_Id: "page-1", parentBlock_Id: "cont3", config: {} },
+        table1: { id: "table1", type: "table", page_Id: "page-1", parentBlock_Id: null, config: {} },
+        opc: { id: "opc", type: "container", page_Id: "page-2", parentBlock_Id: null, config: {} },
+    };
+    const getBlock = async (id) => rows[id] ?? null;
+
+    test("valid container parent passes", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "cont1", slot: "body" },
+                getBlock
+            )
+        ).resolves.toBeUndefined();
+    });
+
+    test("tabs parent requires tab slot", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "tabs1", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/tab/);
+    });
+
+    test("tab slot out of range throws", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "tabs1", slot: "tab:5" },
+                getBlock
+            )
+        ).rejects.toThrow(/out of range/);
+    });
+
+    test("tab slot in range passes", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "tabs1", slot: "tab:1" },
+                getBlock
+            )
+        ).resolves.toBeUndefined();
+    });
+
+    test("non-container parent throws", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "table1", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/container/);
+    });
+
+    test("cross-page parent throws", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "opc", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/same page/);
+    });
+
+    test("missing parent throws", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "nope", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/existing/);
+    });
+
+    test("self parent throws", async () => {
+        await expect(
+            assertParentAssignment(
+                { id: "cont1", page_Id: "page-1", parentBlock_Id: "cont1", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/own parent/);
+    });
+
+    test("cycle (moving an ancestor under its descendant) throws", async () => {
+        // cont1 is an ancestor of cont2 — making cont2 the parent of cont1 cycles.
+        await expect(
+            assertParentAssignment(
+                { id: "cont1", page_Id: "page-1", parentBlock_Id: "cont2", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/cycle/);
+    });
+
+    test("child under a 3-deep chain still passes", async () => {
+        // cont1 > cont2 > cont3: a child under cont3 has exactly 3 ancestors.
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "cont3", slot: "body" },
+                getBlock
+            )
+        ).resolves.toBeUndefined();
+    });
+
+    test("exceeding max depth throws", async () => {
+        // cont1 > cont2 > cont3 > cont4: a child under cont4 has 4 ancestors.
+        await expect(
+            assertParentAssignment(
+                { id: "x1", page_Id: "page-1", parentBlock_Id: "cont4", slot: "body" },
+                getBlock
+            )
+        ).rejects.toThrow(/deep/);
     });
 });

@@ -1897,7 +1897,7 @@ export const systemSchemas = {
                     },
                     type: {
                         type: "ENUM",
-                        values: ["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart"],
+                        values: ["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart", "tabs", "container", "modal", "divider", "timeline", "progress", "repeater", "richtext", "report", "input"],
                         allowNull: false,
                         SystemGenerated: "true",
                     },
@@ -1907,6 +1907,27 @@ export const systemSchemas = {
                         allowNull: true,
                         SystemGenerated: "true",
                         description: "{row, col, span}",
+                    },
+                    parentBlock_Id: {
+                        type: "UUID",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                        description: "Parent container block (tabs/container/modal); null = top level",
+                    },
+                    parentBlock: {
+                        relType: "BelongsTo",
+                        target: "baasix_Block",
+                        foreignKey: "parentBlock_Id",
+                        as: "parentBlock",
+                        onDelete: "CASCADE",
+                        SystemGenerated: "true",
+                        description: "M2O",
+                    },
+                    slot: {
+                        type: "String",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                        description: "Container slot, e.g. tab:0 or body",
                     },
                     config: { type: "JSON", allowNull: true, SystemGenerated: "true" },
                     configVersion: {
