@@ -2006,3 +2006,155 @@ describe("assertParentAssignment", () => {
         ).rejects.toThrow(/deep/);
     });
 });
+
+describe("validateBlockData – phase 4 (wizard/conditional/widgets/input)", () => {
+    const formBase = { type: "form", collection: "posts" };
+
+    test("form with steps validates entries and passes", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    ...formBase,
+                    config: {
+                        mode: "create",
+                        steps: [
+                            { title: "Basics", fields: [{ field: "name" }] },
+                            { title: "More", fields: [{ field: "title", visibleWhen: { field: "name", operator: "notEmpty" } }] },
+                        ],
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("form with both fields and steps throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    ...formBase,
+                    config: {
+                        mode: "create",
+                        fields: [{ field: "name" }],
+                        steps: [{ title: "A", fields: [{ field: "name" }] }],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/steps/);
+    });
+
+    test("step without title throws", () => {
+        expect(() =>
+            validateBlockData(
+                { ...formBase, config: { mode: "create", steps: [{ fields: [{ field: "name" }] }] } },
+                userLikeFields
+            )
+        ).toThrow(/title/);
+    });
+
+    test("bad visibleWhen operator throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    ...formBase,
+                    config: {
+                        mode: "create",
+                        fields: [{ field: "name", visibleWhen: { field: "title", operator: "gt", value: 1 } }],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/operator/);
+    });
+
+    test("visibleWhen referencing unknown field throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    ...formBase,
+                    config: {
+                        mode: "create",
+                        fields: [{ field: "name", visibleWhen: { field: "nope", operator: "eq", value: "x" } }],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/nope/);
+    });
+
+    test("bad widget name throws", () => {
+        expect(() =>
+            validateBlockData(
+                { ...formBase, config: { mode: "create", fields: [{ field: "name", widget: "knob" }] } },
+                userLikeFields
+            )
+        ).toThrow(/widget/);
+    });
+
+    test("valid widget passes", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    ...formBase,
+                    config: { mode: "create", fields: [{ field: "name", widget: "rating", widgetOptions: { maxRating: 10 } }] },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input block requires a sane name", () => {
+        expect(() =>
+            validateBlockData({ type: "input", config: { inputType: "text", name: "9bad name" } }, userLikeFields)
+        ).toThrow(/name/);
+    });
+
+    test("input block with bad inputType throws", () => {
+        expect(() =>
+            validateBlockData({ type: "input", config: { inputType: "range", name: "x" } }, userLikeFields)
+        ).toThrow(/inputType/);
+    });
+
+    test("input select with static options passes", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "input",
+                    config: {
+                        inputType: "select",
+                        name: "status",
+                        options: [{ label: "Open", value: "open" }],
+                        required: true,
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input select with dynamic options passes", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "input",
+                    config: {
+                        inputType: "select",
+                        name: "author",
+                        options: { collection: "users", valueField: "id", labelField: "name" },
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input with malformed options throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "select", name: "x", options: [{ value: 3 }] } },
+                userLikeFields
+            )
+        ).toThrow(/options/);
+    });
+});

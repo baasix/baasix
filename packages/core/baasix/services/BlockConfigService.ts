@@ -38,7 +38,37 @@ const BLOCK_TYPES = [
     "repeater",
     "richtext",
     "report",
+    "input",
 ];
+
+const FORM_CONDITION_OPERATORS = new Set(["eq", "neq", "in", "notEmpty", "empty"]);
+const FORM_WIDGETS = new Set(["rating", "slider", "color", "phone", "currency", "signature"]);
+const INPUT_TYPES = new Set(["text", "select", "date", "toggle"]);
+const INPUT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+
+/** Validate one form field entry (flat list or inside a wizard step). */
+function assertFormFieldEntry(entry: any, fieldMap: Record<string, any>): void {
+    assertFieldExists(entry?.field, fieldMap, "config.fields");
+    if (entry.visibleWhen != null) {
+        const cond = entry.visibleWhen;
+        if (!cond || typeof cond !== "object" || Array.isArray(cond)) {
+            throw new APIError(`Invalid visibleWhen on "${entry.field}": must be {field, operator, value?}`, 400);
+        }
+        assertFieldExists(cond.field, fieldMap, "visibleWhen.field");
+        if (!FORM_CONDITION_OPERATORS.has(cond.operator)) {
+            throw new APIError(
+                `Invalid visibleWhen operator "${cond.operator}" on "${entry.field}": must be one of eq, neq, in, notEmpty, empty`,
+                400
+            );
+        }
+    }
+    if (entry.widget != null && !FORM_WIDGETS.has(entry.widget)) {
+        throw new APIError(
+            `Invalid widget "${entry.widget}" on "${entry.field}": must be one of rating, slider, color, phone, currency, signature`,
+            400
+        );
+    }
+}
 
 /** Types that can host child blocks (children carry parentBlock_Id + slot). */
 const CONTAINER_TYPES = new Set(["tabs", "container", "modal"]);
@@ -303,9 +333,27 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     400
                 );
             }
-            if (Array.isArray(config.fields)) {
+            if (Array.isArray(config.steps) && config.steps.length > 0) {
+                if (Array.isArray(config.fields) && config.fields.length > 0) {
+                    throw new APIError(
+                        `Form block config cannot set both "fields" and "steps" — wizard steps replace the flat list`,
+                        400
+                    );
+                }
+                for (const step of config.steps) {
+                    if (!step || typeof step !== "object" || typeof step.title !== "string" || !step.title) {
+                        throw new APIError(`Invalid form step: needs a "title"`, 400);
+                    }
+                    if (!Array.isArray(step.fields) || step.fields.length === 0) {
+                        throw new APIError(`Invalid form step "${step.title}": "fields" must be a non-empty array`, 400);
+                    }
+                    for (const entry of step.fields) {
+                        assertFormFieldEntry(entry, fieldMap);
+                    }
+                }
+            } else if (Array.isArray(config.fields)) {
                 for (const entry of config.fields) {
-                    assertFieldExists(entry?.field, fieldMap, "config.fields");
+                    assertFormFieldEntry(entry, fieldMap);
                 }
             }
             assertRecordSource(config.source);
@@ -713,6 +761,42 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     // demand. No config at all stays lenient.
     if (config != null && type === "code") {
         validateCodeConfig(config, collection, getFields);
+    }
+
+    // input is collectionless: name + inputType are required in any config;
+    // select options are a static list or a {collection, valueField, labelField}
+    // binding (the collection is validated on read by the renderer's query).
+    if (config != null && type === "input") {
+        if (typeof config.name !== "string" || !INPUT_NAME_RE.test(config.name)) {
+            throw new APIError(
+                `Input block config requires "name" matching ${INPUT_NAME_RE} (referenced as $input.<name>)`,
+                400
+            );
+        }
+        if (!INPUT_TYPES.has(config.inputType)) {
+            throw new APIError(
+                `Invalid inputType "${config.inputType}". Must be one of: text, select, date, toggle`,
+                400
+            );
+        }
+        if (config.options != null) {
+            const options = config.options;
+            const staticOk =
+                Array.isArray(options) &&
+                options.every((o: any) => o && typeof o === "object" && typeof o.value === "string");
+            const dynamicOk =
+                !Array.isArray(options) &&
+                typeof options === "object" &&
+                typeof options.collection === "string" &&
+                typeof options.valueField === "string" &&
+                typeof options.labelField === "string";
+            if (!staticOk && !dynamicOk) {
+                throw new APIError(
+                    `Invalid input options: must be [{label, value}] or {collection, valueField, labelField}`,
+                    400
+                );
+            }
+        }
     }
 
     // richtext mirrors code: OPTIONAL collection, required when recordField

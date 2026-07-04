@@ -56,7 +56,7 @@ table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/m
 
 Types REQUIRING a collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart,
 media, feed, filter, timeline, progress, repeater, report.
-Collectionless types: markdown, buttons, iframe, upload, tabs, container, modal, divider.
+Collectionless types: markdown, buttons, iframe, upload, tabs, container, modal, divider, input.
 \`code\` and \`richtext\` take an OPTIONAL collection (required only when \`recordField\` is set).
 All field names referenced in a config MUST exist on the bound collection (validated server-side).
 
@@ -66,8 +66,17 @@ All field names referenced in a config MUST exist on the bound collection (valid
 \`bulkEdit?\`, \`bulkDelete?\`, \`advancedFilter?: bool\`, \`sheetTitle?\`, \`headerActions?\`, \`rowActions?\`.
 
 ### form
-\`mode: "create"|"edit"\`, \`fields: [{ field, label?, required?, defaultValue?, hidden?, section? }]\`,
-\`sections?: [{ key, label }]\`, \`submitLabel?\`, \`successMessage?\`, \`redirectPageSlug?\`, \`humanCheck?: bool\`,
+\`mode: "create"|"edit"\`,
+\`fields: [{ field, label?, required?, defaultValue?, hidden?, visibleWhen?, widget?, widgetOptions? }]\`
+OR \`steps: [{ title, description?, fields: [entry…] }]\` (wizard: back/next + per-step required
+validation, single submit on the last step — mutually exclusive with the flat \`fields\`).
+Field entry extras:
+- \`visibleWhen: { field, operator: "eq"|"neq"|"in"|"notEmpty"|"empty", value? }\` — show the field
+  only while the condition on another field's live value holds; hidden fields don't submit.
+- \`widget: "rating"|"slider"|"color"|"phone"|"currency"|"signature"\` +
+  \`widgetOptions { min?, max?, step?, currency?, maxRating? }\` — input override
+  (rating/slider→Integer-ish, color/phone→String, currency→numeric, signature→String/Text PNG data-url).
+\`submitLabel?\`, \`successMessage?\`, \`redirectPageSlug?\`, \`humanCheck?: bool\`,
 \`source?\` (edit mode: where the record id comes from; see Record sources).
 
 ### details
@@ -109,6 +118,13 @@ Pie family (pie/doughnut/polar/treemap) uses groupBy + the FIRST aggregate alias
 
 ### markdown
 \`content\` (markdown string). No collection.
+
+### input
+\`inputType: "text"|"select"|"date"|"toggle"\` (required), \`name\` (required, \`^[a-zA-Z][a-zA-Z0-9_]*$\`,
+unique per page — filters reference \`"$input.<name>"\`), \`label?\`,
+\`options?: [{label, value}] | {collection, valueField, labelField}\` (select only),
+\`defaultValue?\`, \`debounceMs?\` (text; default 300), \`required?: bool\` (unset value blocks
+consumers instead of stripping their condition). No collection.
 
 ### tabs
 \`tabs: [{ label, icon? }]\` (required, non-empty; icon = lucide name). Child blocks carry
