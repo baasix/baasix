@@ -33,6 +33,11 @@ const BLOCK_TYPES = [
     "container",
     "modal",
     "divider",
+    "timeline",
+    "progress",
+    "repeater",
+    "richtext",
+    "report",
 ];
 
 /** Types that can host child blocks (children carry parentBlock_Id + slot). */
@@ -53,6 +58,10 @@ const COLLECTION_REQUIRED = new Set([
     "media",
     "feed",
     "geochart",
+    "timeline",
+    "progress",
+    "repeater",
+    "report",
 ]);
 
 const FORM_MODES = new Set(["create", "edit"]);
@@ -481,6 +490,124 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     400
                 );
             }
+        } else if (type === "timeline") {
+            requireConfigField(config, "timestampField", fieldMap);
+            requireConfigField(config, "titleField", fieldMap);
+            if (config.descriptionField != null) {
+                assertFieldExists(config.descriptionField, fieldMap, "config.descriptionField");
+            }
+            if (config.iconField != null) {
+                assertFieldExists(config.iconField, fieldMap, "config.iconField");
+            }
+            if (config.colorField != null) {
+                assertFieldExists(config.colorField, fieldMap, "config.colorField");
+            }
+            if (config.sort != null && config.sort !== "asc" && config.sort !== "desc") {
+                throw new APIError(
+                    `Invalid timeline sort "${config.sort}": must be "asc" or "desc"`,
+                    400
+                );
+            }
+        } else if (type === "progress") {
+            const aggregate = config.aggregate;
+            if (!aggregate || typeof aggregate !== "object" || Array.isArray(aggregate)) {
+                throw new APIError(
+                    `Progress block config requires "aggregate" ({function, field})`,
+                    400
+                );
+            }
+            if (!AGGREGATE_FUNCTIONS.has(aggregate.function)) {
+                throw new APIError(
+                    `Invalid progress aggregate function "${aggregate.function}". Must be one of: count, sum, avg, min, max`,
+                    400
+                );
+            }
+            if (aggregate.field !== "*") {
+                assertFieldExists(aggregate.field, fieldMap, "config.aggregate");
+            }
+            const target = config.target;
+            if (typeof target === "number") {
+                if (!Number.isFinite(target)) {
+                    throw new APIError(`Invalid progress target: must be a finite number`, 400);
+                }
+            } else if (target && typeof target === "object" && !Array.isArray(target)) {
+                if (!AGGREGATE_FUNCTIONS.has(target.function)) {
+                    throw new APIError(
+                        `Invalid progress target function "${target.function}". Must be one of: count, sum, avg, min, max`,
+                        400
+                    );
+                }
+                if (target.field !== "*") {
+                    assertFieldExists(target.field, fieldMap, "config.target");
+                }
+            } else {
+                throw new APIError(
+                    `Progress block config requires "target" (a number or {function, field})`,
+                    400
+                );
+            }
+            if (config.variant != null && config.variant !== "bar" && config.variant !== "radial") {
+                throw new APIError(
+                    `Invalid progress variant "${config.variant}": must be "bar" or "radial"`,
+                    400
+                );
+            }
+        } else if (type === "repeater") {
+            if (typeof config.template !== "string" || config.template.length === 0) {
+                throw new APIError(
+                    `Repeater block config requires "template" to be a non-empty string`,
+                    400
+                );
+            }
+            // Template {{field}} references are NOT schema-validated (dotted
+            // relation paths are allowed and resolved client-side).
+            if (config.columns != null) {
+                if (!Number.isInteger(config.columns) || config.columns < 1 || config.columns > 6) {
+                    throw new APIError(
+                        `Invalid columns "${config.columns}": must be an integer between 1 and 6`,
+                        400
+                    );
+                }
+            }
+        } else if (type === "report") {
+            const query = config.query;
+            if (!query || typeof query !== "object" || Array.isArray(query)) {
+                throw new APIError(
+                    `Report block config requires a "query" object (fields/aggregate/groupBy/sort/limit)`,
+                    400
+                );
+            }
+            if (query.aggregate != null) {
+                if (typeof query.aggregate !== "object" || Array.isArray(query.aggregate)) {
+                    throw new APIError(`Invalid report aggregate: must be an object`, 400);
+                }
+                for (const [alias, entry] of Object.entries<any>(query.aggregate)) {
+                    if (!entry || typeof entry !== "object" || !AGGREGATE_FUNCTIONS.has(entry.function)) {
+                        throw new APIError(
+                            `Invalid report aggregate "${alias}": must be {function, field} with a valid function`,
+                            400
+                        );
+                    }
+                }
+            }
+            if (query.groupBy != null) {
+                if (!Array.isArray(query.groupBy) || query.groupBy.some((g: any) => typeof g !== "string")) {
+                    throw new APIError(`Invalid report groupBy: must be an array of field strings`, 400);
+                }
+                // "date:"-prefixed entries are virtual buckets; plain names are
+                // NOT schema-checked here (dotted relational paths are allowed).
+            }
+            if (query.fields != null && !Array.isArray(query.fields)) {
+                throw new APIError(`Invalid report fields: must be an array`, 400);
+            }
+            if (query.limit != null && (!Number.isInteger(query.limit) || query.limit < -1)) {
+                throw new APIError(`Invalid report limit: must be an integer >= -1`, 400);
+            }
+            if (config.columns != null) {
+                if (!Array.isArray(config.columns) || config.columns.some((c: any) => !c || typeof c.field !== "string")) {
+                    throw new APIError(`Invalid report columns: must be an array of {field, label?}`, 400);
+                }
+            }
         }
     }
 
@@ -586,6 +713,31 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     // demand. No config at all stays lenient.
     if (config != null && type === "code") {
         validateCodeConfig(config, collection, getFields);
+    }
+
+    // richtext mirrors code: OPTIONAL collection, required when recordField
+    // is set; content is an HTML string authored with the lexical editor.
+    if (config != null && type === "richtext") {
+        if (config.content != null && typeof config.content !== "string") {
+            throw new APIError(`Invalid richtext content: must be an HTML string`, 400);
+        }
+        if (config.recordField != null) {
+            if (typeof config.recordField !== "string" || config.recordField.length === 0) {
+                throw new APIError(`Invalid richtext recordField: must be a non-empty string`, 400);
+            }
+            if (!collection || typeof collection !== "string") {
+                throw new APIError(
+                    `Richtext block config "recordField" requires the block to have a collection`,
+                    400
+                );
+            }
+            const richFieldMap = getFields(collection);
+            if (!richFieldMap) {
+                throw new APIError(`Unknown collection "${collection}" for block`, 400);
+            }
+            assertFieldExists(config.recordField, richFieldMap, "config.recordField");
+        }
+        assertRecordSource(config.source);
     }
 }
 

@@ -54,9 +54,10 @@ table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/m
 
 ## Block types
 
-Types REQUIRING a collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter.
+Types REQUIRING a collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart,
+media, feed, filter, timeline, progress, repeater, report.
 Collectionless types: markdown, buttons, iframe, upload, tabs, container, modal, divider.
-\`code\` takes an OPTIONAL collection (required only when \`recordField\` is set).
+\`code\` and \`richtext\` take an OPTIONAL collection (required only when \`recordField\` is set).
 All field names referenced in a config MUST exist on the bound collection (validated server-side).
 
 ### table
@@ -124,6 +125,37 @@ Children use slot \`"body"\`. No collection.
 
 ### divider
 \`label?\` (optional centered caption). No collection, no children.
+
+### timeline
+\`timestampField\` (required, Date/DateTime), \`titleField\` (required), \`descriptionField?\`,
+\`iconField?\` (values are lucide icon names), \`colorField?\` (CSS-color values tint the dot),
+\`groupByDay?: bool\` (default true), \`sort?: "asc"|"desc"\` (default desc), \`pageSize?\` (default 20,
+"Load more" appends), \`filter?\`, \`itemAction?: BlockAction\`. Vertical event timeline.
+
+### progress
+\`aggregate: {function, field}\` (required; "*" allowed for count) — the current value.
+\`target: number | {function, field, filter?}\` (required) — fixed goal or a second aggregate
+(e.g. value = count of done tasks, target = count of all tasks).
+\`variant?: "bar"|"radial"\` (default bar), \`label?\`, \`format? {prefix?, suffix?, decimals?}\`,
+\`thresholds?: [{upTo, color}]\` (percent-based color), \`filter?\`.
+
+### repeater
+\`template\` (required; markdown rendered once per record, \`{{fieldPath}}\` placeholders interpolate
+HTML-escaped values, dotted paths ok — placeholders are NOT schema-validated), \`columns?: 1-6\`,
+\`pageSize?\`, \`sort?\`, \`filter?\`, \`itemAction?: BlockAction\`, \`emptyText?\`.
+
+### richtext
+\`content?\` (HTML string authored with the @baasix/lexical editor) or \`recordField?\` (dotted ok;
+renders that field's HTML from a live record — collection REQUIRED when set; \`source?\` picks the
+record like the code block). Output is sanitized before render.
+
+### report
+\`query\` (required): ItemsService query passed to \`/reports/:collection\` —
+\`{ fields? (dotted relations ok), aggregate? {alias: {function, field}}, groupBy? (supports
+"date:" virtual buckets like "date:month:createdAt"), sort?, limit? }\`.
+\`columns?: [{field, label?}]\` (absent = first result row's keys), \`filter?\` (merged into
+query.filter; $param/$selection/$input aware), \`pageSize?\` (client-side pagination).
+Read-only aggregate table — no row actions/selection; header \`export-csv\` downloads the result set.
 
 ### filter
 \`targets: blockId[] | "all"\`, \`fields: [{ field, operator?, label? }]\` — publishes filter state to sibling
