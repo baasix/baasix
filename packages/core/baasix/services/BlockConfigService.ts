@@ -485,6 +485,12 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                 );
             }
         } else if (type === "map") {
+            if (config.provider != null && config.provider !== "leaflet" && config.provider !== "google") {
+                throw new APIError(
+                    `Invalid map provider "${config.provider}": must be "leaflet" or "google"`,
+                    400
+                );
+            }
             requireConfigField(config, "geometryField", fieldMap);
             if (config.titleField != null) {
                 assertFieldExists(config.titleField, fieldMap, "config.titleField");

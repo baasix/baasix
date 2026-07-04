@@ -2158,3 +2158,23 @@ describe("validateBlockData – phase 4 (wizard/conditional/widgets/input)", () 
         ).toThrow(/options/);
     });
 });
+
+describe("validateBlockData – map provider", () => {
+    test("google provider passes", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "map", collection: "posts", config: { geometryField: "name", provider: "google" } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("unknown provider throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "map", collection: "posts", config: { geometryField: "name", provider: "bing" } },
+                userLikeFields
+            )
+        ).toThrow(/provider/);
+    });
+});

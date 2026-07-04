@@ -109,7 +109,9 @@ Pie family (pie/doughnut/polar/treemap) uses groupBy + the FIRST aggregate alias
 
 ### map
 \`geometryField\` (required; GeoJSON/WKT), \`titleField?\`, \`popupFields?: []\`, \`defaultCenter?\`,
-\`defaultZoom?\`, \`filter?\`, \`clusterMarkers?: bool\`, \`colorField?\`, \`colorMap? { value: cssColor }\`.
+\`defaultZoom?\`, \`filter?\`, \`clusterMarkers?: bool\`, \`colorField?\`, \`colorMap? { value: cssColor }\`,
+\`provider?: "leaflet"|"google"\` (default leaflet; google needs a Maps JS API key saved in project
+settings as \`metadata.googleMapsApiKey\` — without one the block falls back to leaflet).
 
 ### geochart
 \`regionField\` (required; values are ISO 3166-1 alpha-2 "IN", alpha-3 "IND" or country names, case-insensitive),
