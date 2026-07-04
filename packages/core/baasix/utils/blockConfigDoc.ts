@@ -33,8 +33,20 @@ Data blocks may also carry \`realtime?: true\` (socket push / 10s poll fallback)
 Every \`filter\` value anywhere in a config uses the items-API filter DSL — the same operators
 (\`eq, neq, gt, gte, lt, lte, in, contains, between, dwithin\`, …) and dynamic variables
 (\`$CURRENT_USER\`, \`$CURRENT_TENANT\`, \`$NOW±DAYS_N\`) as baasix_Permission conditions and GET /items.
-A data-block filter value may also be the string \`"$param.<name>"\` — resolved from the page URL's
-query params at runtime (master-detail wiring).
+A data-block filter value may also be one of these runtime placeholders (master-detail wiring):
+- \`"$param.<name>"\` — resolved from the page URL's query params.
+- \`"$selection.<blockId>.<fieldPath>"\` — the record last clicked in the sibling data block with
+  that id (table row / cardlist-kanban card / calendar event / map marker). Dotted field paths ok.
+- \`"$input.<name>"\` — an input block's current value (see input block).
+While a referenced param/selection is absent the condition is stripped and the block shows a
+"Select a record" state instead of querying unfiltered; unset non-required inputs strip silently.
+
+## Record sources
+
+Record-bound blocks (details, form mode:"edit", code with recordField) take their record id from
+\`source\`: \`{type:"param"}\` (default; the ?id= URL param — legacy string "route-param" still
+accepted) or \`{type:"block", blockId}\` — following the selection published by a sibling
+table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/marker.
 
 ## Block types
 
@@ -50,10 +62,12 @@ All field names referenced in a config MUST exist on the bound collection (valid
 
 ### form
 \`mode: "create"|"edit"\`, \`fields: [{ field, label?, required?, defaultValue?, hidden?, section? }]\`,
-\`sections?: [{ key, label }]\`, \`submitLabel?\`, \`successMessage?\`, \`redirectPageSlug?\`, \`humanCheck?: bool\`.
+\`sections?: [{ key, label }]\`, \`submitLabel?\`, \`successMessage?\`, \`redirectPageSlug?\`, \`humanCheck?: bool\`,
+\`source?\` (edit mode: where the record id comes from; see Record sources).
 
 ### details
-\`fields: [{ field, label?, format? }]\`, \`source: "route-param"|"selection"\` (record id from ?id= or a sibling block's selection).
+\`fields: [{ field, label?, format? }]\`, \`source?: {type:"param"} | {type:"block", blockId}\`
+(record id from ?id= — the default — or a sibling block's selection; see Record sources).
 
 ### kanban
 \`groupByField\` (required; drag updates it), \`columnOrder?: []\`, \`cardTitleField\` (required),
@@ -118,7 +132,8 @@ data blocks (merged AND into each target's filter).
 
 ### code
 \`content?\` (static text), \`language?: "json"|"javascript"|"sql"|"html"|"css"|"text"\` (default "text"),
-\`recordField?\` (dotted path ok; renders that field from a live record — collection REQUIRED when set).
+\`recordField?\` (dotted path ok; renders that field from a live record — collection REQUIRED when set),
+\`source?\` (recordField mode: where the record id comes from; see Record sources).
 
 ## Actions (BlockAction / ActionItem)
 

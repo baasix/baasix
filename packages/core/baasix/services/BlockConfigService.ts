@@ -222,6 +222,29 @@ function validatePosition(position: any): void {
  * @param getFields  resolver returning the field map of a collection, or null
  *                   when the collection does not exist
  */
+/**
+ * Validate a record-bound block's `source` (details / form edit-mode / code
+ * recordField-mode). Accepted: legacy strings "route-param" / "selection",
+ * {type:"param"}, or {type:"block", blockId} following a sibling data block's
+ * published selection. Like filter.targets, the blockId is validated for
+ * shape only (page composition may change after save; renderers handle a
+ * missing source block with an empty state).
+ */
+function assertRecordSource(source: any): void {
+    if (source == null) return;
+    if (source === "route-param" || source === "selection") return;
+    if (typeof source === "object" && !Array.isArray(source)) {
+        if (source.type === "param") return;
+        if (source.type === "block" && typeof source.blockId === "string" && source.blockId) {
+            return;
+        }
+    }
+    throw new APIError(
+        `Invalid source: must be {type:"param"} or {type:"block", blockId} (or legacy "route-param")`,
+        400
+    );
+}
+
 export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     if (!data || typeof data !== "object") {
         throw new APIError("Invalid block payload", 400);
@@ -267,8 +290,10 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     assertFieldExists(entry?.field, fieldMap, "config.fields");
                 }
             }
+            assertRecordSource(config.source);
         } else if (type === "details") {
             assertFieldEntries(config.fields, fieldMap, "config.fields", true);
+            assertRecordSource(config.source);
         } else if (type === "kanban") {
             requireConfigField(config, "groupByField", fieldMap);
             requireConfigField(config, "cardTitleField", fieldMap);
@@ -524,6 +549,7 @@ function validateCodeConfig(config: any, collection: any, getFields: GetFieldsFn
         }
         assertFieldExists(config.recordField, fieldMap, "config.recordField");
     }
+    assertRecordSource(config.source);
 }
 
 /**

@@ -1690,3 +1690,111 @@ describe("mergeBlockForUpdate", () => {
         expect(existing.config).toEqual({ columns: [] });
     });
 });
+
+describe("validateBlockData – record source (details/form/code)", () => {
+    const detailsBase = {
+        type: "details",
+        collection: "posts",
+        config: { fields: [{ field: "name" }] },
+    };
+
+    test("details with param source object does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                { ...detailsBase, config: { ...detailsBase.config, source: { type: "param" } } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("details with legacy route-param string does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                { ...detailsBase, config: { ...detailsBase.config, source: "route-param" } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("details with block source shape does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    ...detailsBase,
+                    config: { ...detailsBase.config, source: { type: "block", blockId: "abc-123" } },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("details with unknown source type throws mentioning source", () => {
+        expect(() =>
+            validateBlockData(
+                { ...detailsBase, config: { ...detailsBase.config, source: { type: "magic" } } },
+                userLikeFields
+            )
+        ).toThrow(/source/i);
+    });
+
+    test("details block source without blockId throws mentioning source", () => {
+        expect(() =>
+            validateBlockData(
+                { ...detailsBase, config: { ...detailsBase.config, source: { type: "block" } } },
+                userLikeFields
+            )
+        ).toThrow(/source/i);
+    });
+
+    test("form edit with block source does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    collection: "posts",
+                    config: {
+                        mode: "edit",
+                        fields: [{ field: "name" }],
+                        source: { type: "block", blockId: "abc-123" },
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("form with non-string blockId throws mentioning source", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    collection: "posts",
+                    config: { mode: "edit", source: { type: "block", blockId: 42 } },
+                },
+                userLikeFields
+            )
+        ).toThrow(/source/i);
+    });
+
+    test("code recordField with block source does not throw", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "code",
+                    collection: "posts",
+                    config: { recordField: "name", source: { type: "block", blockId: "abc" } },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("code with invalid source shape throws mentioning source", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "code", config: { content: "x", source: ["block"] } },
+                userLikeFields
+            )
+        ).toThrow(/source/i);
+    });
+});
