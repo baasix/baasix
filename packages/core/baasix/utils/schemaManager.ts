@@ -834,6 +834,92 @@ export class SchemaManager {
   }
 
   /**
+   * Build the full CREATE TABLE statement for a schema, partition-aware via `schema.partitioning`.
+   * Behavior-preserving for non-partitioned schemas: emits byte-identical SQL to the pre-partitioning
+   * inline column-building loop.
+   */
+  private buildCreateTableSQL(tableName: string, schema: any): string | null {
+    const partitionConfig = normalizePartitioning(schema.partitioning);
+    const partitionKeys = partitionConfig ? getPartitionKeyColumns(partitionConfig) : [];
+    const columns: string[] = [];
+    let pkField: string | null = null;
+    const inlineUniqueFields: string[] = [];
+
+    for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
+      let fs = fieldSchema as any;
+
+      if (fs.relType === 'BelongsTo') {
+        const foreignKey = fs.foreignKey || `${fieldName}_Id`;
+        const foreignKeyExists = foreignKey !== fieldName && Object.keys(schema.fields).includes(foreignKey);
+        if (!foreignKeyExists && foreignKey !== fieldName) {
+          const RELATION_TYPES_CT = ["M2O", "O2O", "O2M", "M2M"];
+          const fkType = (fs.type && !RELATION_TYPES_CT.includes(fs.type)) ? fs.type : 'UUID';
+          // PARTITION-AWARE: partition key columns must be NOT NULL; inline UNIQUE moves to composite
+          const fkAllowNull = partitionKeys.includes(foreignKey) ? false : fs.allowNull;
+          const fkUnique = partitionConfig ? false : fs.unique;
+          if (partitionConfig && fs.unique) inlineUniqueFields.push(foreignKey);
+          const columnDef = this.buildColumnDefinition(foreignKey, {
+            type: fkType, allowNull: fkAllowNull, unique: fkUnique
+          });
+          if (columnDef) columns.push(columnDef);
+        }
+        const RELATION_INDICATORS_CT = ["M2O", "O2O", "O2M", "M2M"];
+        if (!(foreignKey === fieldName && fs.type && !RELATION_INDICATORS_CT.includes(fs.type))) {
+          continue;
+        }
+      }
+
+      const RELATION_TYPE_IND = ["M2O", "O2O", "O2M", "M2M"];
+      if (fs.relType && (!fs.type || RELATION_TYPE_IND.includes(fs.type))) continue;
+
+      // PARTITION-AWARE: strip inline PRIMARY KEY / UNIQUE, force NOT NULL on partition keys
+      if (partitionConfig) {
+        if (fs.primaryKey) { pkField = fieldName; fs = { ...fs, primaryKey: false }; }
+        if (fs.unique) { inlineUniqueFields.push(fieldName); fs = { ...fs, unique: false }; }
+        if (partitionKeys.includes(fieldName) && fs.allowNull !== false) {
+          fs = { ...fs, allowNull: false };
+        }
+      }
+
+      const columnDef = this.buildColumnDefinition(fieldName, fs);
+      if (columnDef) columns.push(columnDef);
+    }
+
+    if (schema.timestamps !== false) {
+      if (!schema.fields.createdAt) {
+        // PARTITION-AWARE: createdAt must be NOT NULL when it is the partition key
+        columns.push(partitionKeys.includes('createdAt')
+          ? '"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()'
+          : '"createdAt" TIMESTAMPTZ DEFAULT NOW()');
+      }
+      if (!schema.fields.updatedAt) {
+        columns.push('"updatedAt" TIMESTAMPTZ DEFAULT NOW()');
+      }
+    }
+    if (schema.paranoid && !schema.fields.deletedAt) {
+      columns.push('"deletedAt" TIMESTAMPTZ');
+    }
+    if (columns.length === 0) return null;
+
+    // PARTITION-AWARE: composite PK / UNIQUE constraints and PARTITION BY clause
+    let partitionByClause = '';
+    if (partitionConfig) {
+      const quotedKeys = partitionKeys.map((k) => `"${k}"`).join(', ');
+      if (pkField) {
+        const pkCols = [pkField, ...partitionKeys.filter((k) => k !== pkField)].map((k) => `"${k}"`);
+        columns.push(`PRIMARY KEY (${pkCols.join(', ')})`);
+      }
+      for (const uf of inlineUniqueFields) {
+        columns.push(`UNIQUE ("${uf}", ${quotedKeys})`);
+      }
+      partitionByClause = partitionConfig.strategy === 'time'
+        ? ` PARTITION BY RANGE ("${partitionConfig.timeField}")`
+        : ` PARTITION BY LIST ("tenant_Id")`;
+    }
+    return `CREATE TABLE "${tableName}" (${columns.join(', ')})${partitionByClause}`;
+  }
+
+  /**
    * Create table from schema definition using raw SQL
    */
   private async createTableFromSchema(collectionName: string, schema: any, skipFKConstraints: boolean = false): Promise<void> {
@@ -863,87 +949,26 @@ export class SchemaManager {
           await this.createIndex(collectionName, index);
         }
       }
+      await this.ensurePartitions(collectionName, schema);
       return;
     }
 
-    // Build CREATE TABLE statement
-    const columns: string[] = [];
-    const foreignKeyAssociations: Array<{fieldName: string, assoc: any}> = [];
-
-    for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
-      const fs = fieldSchema as any;
-
-      // Handle BelongsTo relations - they need a foreign key column
-      if (fs.relType === 'BelongsTo') {
-        const foreignKey = fs.foreignKey || `${fieldName}_Id`;
-
-        // Check if foreign key column already exists as a separate field
-        // If foreignKey === fieldName AND field has explicit type, we'll create it below
-        const foreignKeyExists = foreignKey !== fieldName && Object.keys(schema.fields).includes(foreignKey);
-
-        if (!foreignKeyExists && foreignKey !== fieldName) {
-          // Only create foreign key column if it doesn't already exist as a separate field
-          const RELATION_TYPES_CT = ["M2O", "O2O", "O2M", "M2M"];
-          const fkType = (fs.type && !RELATION_TYPES_CT.includes(fs.type)) ? fs.type : 'UUID';
-          const columnDef = this.buildColumnDefinition(foreignKey, {
-            type: fkType,
-            allowNull: fs.allowNull,
-            unique: fs.unique
-          });
-          if (columnDef) {
-            columns.push(columnDef);
-          }
-        }
-
-        // Store association for later foreign key constraint creation
-        foreignKeyAssociations.push({fieldName, assoc: fs});
-
-        // If foreignKey === fieldName AND field has a real column type (not a relation indicator), create column below
-        const RELATION_INDICATORS_CT = ["M2O", "O2O", "O2M", "M2M"];
-        if (foreignKey === fieldName && fs.type && !RELATION_INDICATORS_CT.includes(fs.type)) {
-          // Fall through to create the column
-        } else {
-          continue;
-        }
-      }
-
-      // Skip other relation types that don't have explicit type (or have relation type indicators)
-      const RELATION_TYPE_IND = ["M2O", "O2O", "O2M", "M2M"];
-      if (fs.relType && (!fs.type || RELATION_TYPE_IND.includes(fs.type))) continue;
-
-      const columnDef = this.buildColumnDefinition(fieldName, fs);
-      if (columnDef) {
-        columns.push(columnDef);
-      }
-    }
-
-    // Add timestamps if enabled (default: true unless explicitly set to false)
-    if (schema.timestamps !== false) {
-      if (!schema.fields.createdAt) {
-        columns.push('"createdAt" TIMESTAMPTZ DEFAULT NOW()');
-      }
-      if (!schema.fields.updatedAt) {
-        columns.push('"updatedAt" TIMESTAMPTZ DEFAULT NOW()');
-      }
-    }
-
-    // Add deletedAt for paranoid mode
-    if (schema.paranoid) {
-      if (!schema.fields.deletedAt) {
-        columns.push('"deletedAt" TIMESTAMPTZ');
-      }
-    }
-
-    if (columns.length === 0) {
+    const createTableSQL = this.buildCreateTableSQL(collectionName, schema);
+    if (!createTableSQL) {
       console.warn(`No columns to create for table ${collectionName}`);
       return;
     }
-
-    const createTableSQL = `CREATE TABLE "${collectionName}" (${columns.join(', ')})`;
+    const foreignKeyAssociations: Array<{fieldName: string, assoc: any}> = [];
+    for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
+      const fs = fieldSchema as any;
+      if (fs.relType === 'BelongsTo') foreignKeyAssociations.push({fieldName, assoc: fs});
+    }
 
     try {
       await sql.unsafe(createTableSQL);
       console.log(`Created table: ${collectionName}`);
+
+      await this.ensurePartitions(collectionName, schema);
 
       // Create foreign key constraints for BelongsTo relations (unless skipped)
       if (!skipFKConstraints && foreignKeyAssociations.length > 0) {
@@ -967,6 +992,68 @@ export class SchemaManager {
     } catch (error) {
       console.error(`Failed to create table ${collectionName}:`, error);
     }
+  }
+
+  /** Idempotently create default/tenant/time partitions for a partitioned collection. */
+  async ensurePartitions(
+    collectionName: string,
+    schema: any,
+    opts: { tableName?: string; sqlClient?: any } = {}
+  ): Promise<void> {
+    const config = normalizePartitioning(schema.partitioning);
+    if (!config) return;
+    const sql = opts.sqlClient || getSqlClient();
+    const table = opts.tableName || collectionName;
+
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${partitionName(table, ['default'])}" PARTITION OF "${table}" DEFAULT`);
+
+    if (config.strategy === 'time') {
+      for (const p of periodsToEnsure(new Date(), config.interval, config.premake)) {
+        await sql.unsafe(
+          `CREATE TABLE IF NOT EXISTS "${partitionName(table, [p.suffix])}" PARTITION OF "${table}" ` +
+          `FOR VALUES FROM ('${p.start}') TO ('${p.end}')`);
+      }
+      return;
+    }
+
+    const tenants = await sql`SELECT id FROM "baasix_Tenant"`;
+    for (const t of tenants) {
+      await this.ensureTenantPartition(table, config, String(t.id), sql);
+    }
+  }
+
+  private async ensureTenantPartition(
+    parentTable: string, config: PartitioningConfig, tenantId: string, sqlClient?: any
+  ): Promise<void> {
+    const sql = sqlClient || getSqlClient();
+    const tName = tenantPartitionName(parentTable, tenantId); // validates UUID (DDL injection guard)
+    if (config.strategy === 'tenant') {
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "${tName}" PARTITION OF "${parentTable}" FOR VALUES IN ('${tenantId}')`);
+      return;
+    }
+    // tenant+time: the tenant partition is itself RANGE-partitioned by the time field
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${tName}" PARTITION OF "${parentTable}" FOR VALUES IN ('${tenantId}') ` +
+      `PARTITION BY RANGE ("${config.timeField}")`);
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${partitionName(tName, ['default'])}" PARTITION OF "${tName}" DEFAULT`);
+    for (const p of periodsToEnsure(new Date(), config.interval, config.premake)) {
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "${partitionName(tName, [p.suffix])}" PARTITION OF "${tName}" ` +
+        `FOR VALUES FROM ('${p.start}') TO ('${p.end}')`);
+    }
+  }
+
+  /** relkind check: null = table missing, true = partitioned parent, false = plain table. */
+  async isTablePartitioned(tableName: string): Promise<boolean | null> {
+    const sql = getSqlClient();
+    const rows = await sql`
+      SELECT relkind FROM pg_class
+      WHERE relname = ${tableName} AND relnamespace = 'public'::regnamespace`;
+    if (rows.length === 0) return null;
+    return rows[0].relkind === 'p';
   }
 
   /**
