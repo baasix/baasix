@@ -382,12 +382,16 @@ export {
 export type { StorageAdapter, StorageKey } from "./storage/index";
 
 // Module exports
-export { AuthModule } from "./modules/auth";
-export type { 
-  OAuthProvider, 
-  OAuthOptions, 
-  InviteOptions, 
-  VerifyInviteResult 
+export { AuthModule, SOCIAL_PROVIDERS } from "./modules/auth";
+export type {
+  OAuthProvider,
+  OAuthOptions,
+  InviteOptions,
+  VerifyInviteResult,
+  AuthMethods,
+  TwoFactorChallengeResponse,
+  LoginResult,
+  TwoFactorEnableResult,
 } from "./modules/auth";
 export { ItemsModule, QueryBuilder } from "./modules/items";
 export type { ImportResult } from "./modules/items";

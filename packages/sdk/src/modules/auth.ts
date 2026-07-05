@@ -16,13 +16,36 @@ import type {
 } from "../types";
 import { BaasixError } from "../types";
 
-export type OAuthProvider = "google" | "facebook" | "apple" | "github";
+export const SOCIAL_PROVIDERS = ["apple","atlassian","cognito","discord","dropbox","facebook","figma","github","gitlab","google","huggingface","kakao","kick","line","linear","linkedin","microsoft","naver","notion","paybin","paypal","polar","railway","reddit","roblox","salesforce","slack","spotify","tiktok","twitch","twitter","vercel","vk","wechat","zoom"] as const;
+export type OAuthProvider = (typeof SOCIAL_PROVIDERS)[number];
 
 export interface OAuthOptions {
   provider: OAuthProvider;
   redirectUrl: string;
   scopes?: string[];
   state?: string;
+}
+
+export interface AuthMethods {
+  registration: boolean;
+  emailPassword: boolean;
+  magicLink: boolean;
+  passkey: boolean;
+  twoFactor: boolean;
+  socialProviders: OAuthProvider[];
+}
+
+export interface TwoFactorChallengeResponse {
+  twoFactorRequired: true;
+  twoFactorToken: string;
+}
+
+export type LoginResult = AuthResponse | TwoFactorChallengeResponse;
+
+export interface TwoFactorEnableResult {
+  secret: string;
+  otpauthUrl: string;
+  backupCodes: string[];
 }
 
 export interface InviteOptions {
@@ -70,12 +93,75 @@ export class AuthModule {
   private authMode: AuthMode;
   private onAuthStateChange?: (event: AuthStateEvent, user: User | null) => void;
   private currentUser: User | null = null;
+  private authMethodsCache: AuthMethods | null = null;
+
+  /**
+   * Two-factor authentication (TOTP) helpers.
+   *
+   * @example
+   * ```typescript
+   * const result = await baasix.auth.login({ email, password });
+   * if ("twoFactorRequired" in result && result.twoFactorRequired) {
+   *   const { user, token } = await baasix.auth.twoFactor.verify(result.twoFactorToken, code);
+   * }
+   * ```
+   */
+  readonly twoFactor: {
+    verify(
+      twoFactorToken: string,
+      code: string,
+      opts?: { authMode?: AuthMode; authType?: string }
+    ): Promise<AuthResponse>;
+    enable(): Promise<TwoFactorEnableResult>;
+    verifySetup(code: string): Promise<{ enabled: boolean }>;
+    disable(password: string): Promise<{ disabled: boolean }>;
+  };
 
   constructor(config: AuthModuleConfig) {
     this.client = config.client;
     this.storage = config.storage;
     this.authMode = config.authMode;
     this.onAuthStateChange = config.onAuthStateChange;
+
+    this.twoFactor = {
+      verify: async (
+        twoFactorToken: string,
+        code: string,
+        opts?: { authMode?: AuthMode; authType?: string }
+      ): Promise<AuthResponse> => {
+        const response = await this.client.post<AuthResponse>(
+          "/auth/2fa/verify",
+          {
+            twoFactorToken,
+            code,
+            authMode: opts?.authMode,
+            authType: opts?.authType,
+          },
+          { skipAuth: true }
+        );
+
+        await this.storeTokens(response);
+        this.emitAuthStateChange("SIGNED_IN", response.user);
+
+        return response;
+      },
+
+      enable: (): Promise<TwoFactorEnableResult> => {
+        return this.client.post<TwoFactorEnableResult>("/auth/2fa/enable");
+      },
+
+      verifySetup: (code: string): Promise<{ enabled: boolean }> => {
+        return this.client.post<{ enabled: boolean }>("/auth/2fa/verify-setup", {
+          code,
+        });
+      },
+
+      disable: (password: string): Promise<{ disabled: boolean }> => {
+        return this.client.post<{ disabled: boolean }>("/auth/2fa/disable", {
+          password,
+        });
+      },
+    };
   }
 
   /**
@@ -171,8 +257,8 @@ export class AuthModule {
    * });
    * ```
    */
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>(
+  async login(credentials: LoginCredentials): Promise<LoginResult> {
+    const response = await this.client.post<LoginResult>(
       "/auth/login",
       {
         email: credentials.email,
@@ -184,10 +270,45 @@ export class AuthModule {
       { skipAuth: true }
     );
 
-    await this.storeTokens(response);
-    this.emitAuthStateChange("SIGNED_IN", response.user);
+    if ("twoFactorRequired" in response && response.twoFactorRequired) {
+      return response;
+    }
 
-    return response;
+    const authResponse = response as AuthResponse;
+    await this.storeTokens(authResponse);
+    this.emitAuthStateChange("SIGNED_IN", authResponse.user);
+
+    return authResponse;
+  }
+
+  /**
+   * Discover which authentication methods are enabled for this project
+   * (registration, email/password, magic link, passkey, 2FA, and the list
+   * of configured social/OAuth providers). Result is cached per instance;
+   * pass `force: true` to bypass the cache and refetch.
+   *
+   * @example
+   * ```typescript
+   * const methods = await baasix.auth.getAuthMethods();
+   * if (methods.socialProviders.includes("google")) {
+   *   // show "Sign in with Google"
+   * }
+   * ```
+   */
+  async getAuthMethods(force = false): Promise<AuthMethods> {
+    if (this.authMethodsCache && !force) {
+      return this.authMethodsCache;
+    }
+
+    const response = await this.client.get<{ project?: { auth?: AuthMethods } }>(
+      "/",
+      { skipAuth: true }
+    );
+
+    const authMethods = response?.project?.auth as AuthMethods;
+    this.authMethodsCache = authMethods;
+
+    return authMethods;
   }
 
   /**
