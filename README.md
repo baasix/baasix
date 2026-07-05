@@ -32,7 +32,7 @@
 
 - **🗄️ Dynamic Database Management** — Create and modify data models on the fly with a flexible schema system
 - **🔍 Powerful Query API** — Complex filtering, sorting, pagination, aggregation, and full-text search
-- **🔐 Authentication & Authorization** — JWT, cookie-based auth, SSO providers, and role-based permissions
+- **🔐 Authentication & Authorization** — JWT, cookie-based auth, 35+ social OAuth providers, passkeys (WebAuthn), 2FA (TOTP + backup codes), magic link, and role-based permissions
 - **✅ Schema Validations** — Built-in field validation with min/max, patterns, required, unique, and custom rules
 - **⚡ Workflow Automation** — Visual workflow builder with 17 node types and real-time monitoring
 - **🧩 App Builder** — Compose internal tools and admin pages from 17 data-bound block types (table, form, kanban, calendar, chart, map, and more) on a 12-column grid, governed by your existing permissions
@@ -130,7 +130,7 @@ POST /realtime/collections/products/enable
 ### SDK Features
 
 - 🌐 **Universal** — Works in browsers, Node.js, and React Native
-- 🔐 **Flexible Auth** — JWT tokens, HTTP-only cookies, OAuth (Google, Facebook, Apple, GitHub)
+- 🔐 **Flexible Auth** — JWT tokens, HTTP-only cookies, 35+ social OAuth providers (Google, GitHub, Discord, Microsoft, Slack, and more), passkeys (WebAuthn), 2FA (TOTP + backup codes), and magic link, with auth-method discovery to drive your login UI
 - 💾 **Customizable Storage** — LocalStorage, AsyncStorage, or custom adapters
 - 📝 **Type-Safe** — Full TypeScript support with generics
 - 📡 **Realtime** — WebSocket subscriptions for live data updates
@@ -360,7 +360,7 @@ Full documentation is available at **[baasix.com/docs](https://baasix.com/docs)*
 
 - [Deployment Guide](https://baasix.com/docs/deploy) — Docker, PM2, Kubernetes deployment
 - [Database Schema Guide](https://baasix.com/docs/guides/schema/design) — Schema system and relationships
-- [Authentication Guide](https://baasix.com/docs/guides/authentication) — Auth setup and SSO providers
+- [Authentication Guide](https://baasix.com/docs/guides/authentication) — Auth setup, 35+ social OAuth providers, passkeys, and 2FA
 - [Extensions Guide](https://baasix.com/docs/extend/extensions) — Create custom hooks and endpoints
 - [Advanced Query Guide](https://baasix.com/docs/guides/data/querying) — Complex filtering and aggregation
 

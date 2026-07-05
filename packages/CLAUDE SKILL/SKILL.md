@@ -70,8 +70,44 @@ This skill has detailed reference files. **Read the relevant file before writing
 | POST | /auth/refresh | Yes |
 | POST | /auth/forgot-password | No |
 | POST | /auth/reset-password | No |
+| GET | /auth/signin/:provider | No |
+| GET | /auth/callback/:provider | No |
+| POST | /auth/2fa/enable | Yes |
+| POST | /auth/2fa/verify-setup | Yes |
+| POST | /auth/2fa/disable | Yes |
+| POST | /auth/2fa/verify | No |
+| POST | /auth/passkey/register/options | Yes |
+| POST | /auth/passkey/register/verify | Yes |
+| POST | /auth/passkey/authenticate/options | No |
+| POST | /auth/passkey/authenticate/verify | No |
+| GET | /auth/passkey | Yes |
+| DELETE | /auth/passkey/:id | Yes |
+| GET | / | No |
 
-Login returns `{ token, user }`. Use `Authorization: Bearer <token>` for protected routes.
+Login returns `{ token, user }`, or `{ twoFactorRequired: true, twoFactorToken, code: "TWO_FACTOR_REQUIRED" }` when the account has 2FA enabled — complete the challenge via `POST /auth/2fa/verify`. Use `Authorization: Bearer <token>` for protected routes.
+
+- `GET /auth/signin/:provider?redirect_url=<app-url>` — 302 to the OAuth provider (browser flow); provider is one of 35 social providers. `GET /auth/callback/:provider` completes the flow, redirecting back to `redirect_url` with `?token=` on success or `?error=` on failure.
+- `POST /auth/2fa/enable` → `{ secret, otpauthUrl, backupCodes[10] }` (requires the account to have a password credential); `POST /auth/2fa/verify-setup { code }` confirms setup; `POST /auth/2fa/disable { password }` turns it off; `POST /auth/2fa/verify { twoFactorToken, code }` (public, rate-limited) completes a 2FA login challenge with a TOTP code or unused backup code.
+- `POST /auth/passkey/register/options` / `register/verify` register a new passkey (authed). `POST /auth/passkey/authenticate/options` / `authenticate/verify` (public, rate-limited) log in with a passkey. `GET /auth/passkey` lists the current user's passkeys (no key material); `DELETE /auth/passkey/:id` removes one of your own.
+
+Social, magic-link, and passkey logins bypass the 2FA challenge (2FA gates password login only).
+
+`GET /` (project info) includes an `auth` discovery block so clients can build their login UI dynamically:
+```json
+{
+  "project": {
+    "auth": {
+      "registration": true,
+      "emailPassword": true,
+      "magicLink": false,
+      "passkey": true,
+      "twoFactor": true,
+      "socialProviders": ["google", "github", "discord"]
+    }
+  }
+}
+```
+Only providers that are both enabled (`AUTH_SERVICES_ENABLED`) and credentialed appear in `socialProviders`. `magicLink` is true only when `LOCAL` is enabled and SMTP is configured. No secrets are ever exposed.
 
 ```javascript
 // Register

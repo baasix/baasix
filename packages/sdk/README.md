@@ -9,7 +9,7 @@ Official JavaScript/TypeScript SDK for [Baasix](https://www.baasix.com) Backend-
 ## Features
 
 - 🌐 **Universal** - Works in browsers, Node.js, and React Native
-- 🔐 **Flexible Auth** - JWT tokens, HTTP-only cookies, OAuth (Google, Facebook, Apple, GitHub)
+- 🔐 **Flexible Auth** - JWT tokens, HTTP-only cookies, 35+ OAuth providers (Google, GitHub, Discord, Microsoft, Slack, and more), passkeys (WebAuthn), and 2FA (TOTP + backup codes)
 - 💾 **Customizable Storage** - LocalStorage, AsyncStorage, or custom adapters
 - 📝 **Type-Safe** - Full TypeScript support with generics
 - 🔄 **Auto Token Refresh** - Seamless token management
@@ -1236,22 +1236,105 @@ baasix.realtime.disconnect();
 
 ## OAuth / Social Login
 
+35 social providers are supported via the `SOCIAL_PROVIDERS` constant — `google`, `github`, `discord`, `microsoft`, `slack`, `apple`, `facebook`, `gitlab`, `linkedin`, `twitter`, … 35 total. `getOAuthUrl`'s `provider` option is typed as `OAuthProvider`, the union of all 35 ids — import `SOCIAL_PROVIDERS` if you need the list at runtime (e.g. to render login buttons).
+
+End-to-end browser flow: `getOAuthUrl()` builds the provider redirect URL → the browser navigates there and completes the provider's login → the provider redirects back to your app's callback page with a `token` (or `error`) query param → your callback page calls `handleOAuthCallback(token)` to finish signing in.
+
 ```typescript
-// Redirect to OAuth provider
+import { SOCIAL_PROVIDERS, type OAuthProvider } from '@baasix/sdk';
+
+// SOCIAL_PROVIDERS: readonly array of all 35 provider ids, e.g. for rendering buttons
+SOCIAL_PROVIDERS.forEach((provider) => renderSocialButton(provider));
+
+// 1. Redirect to the OAuth provider
 const url = baasix.auth.getOAuthUrl({
-  provider: 'google', // 'google' | 'facebook' | 'apple' | 'github'
+  provider: 'github', // OAuthProvider — one of SOCIAL_PROVIDERS (35 total)
   redirectUrl: 'https://myapp.com/auth/callback',
 });
 window.location.href = url;
 
-// In your callback page
+// 2. Provider redirects back to your callback page with ?token=... (or ?error=...)
+// In your callback page:
 const params = new URLSearchParams(window.location.search);
 const token = params.get('token');
+const error = params.get('error');
 
 if (token) {
   const { user } = await baasix.auth.handleOAuthCallback(token);
   console.log('Logged in as:', user.email);
+} else if (error) {
+  console.error('OAuth sign-in failed:', error);
 }
+```
+
+## Auth Method Discovery
+
+Ask the server which login methods are actually enabled (registration, email/password, magic link, passkey, 2FA, and the list of configured social providers) so your login UI only shows what's available. The result is cached per client instance — pass `force: true` to bypass the cache.
+
+```typescript
+const methods = await baasix.auth.getAuthMethods();
+// {
+//   registration: true,
+//   emailPassword: true,
+//   magicLink: false,
+//   passkey: true,
+//   twoFactor: true,
+//   socialProviders: ['google', 'github', 'discord'],
+// }
+
+if (methods.socialProviders.includes('google')) {
+  // show "Sign in with Google"
+}
+if (methods.passkey) {
+  // show "Sign in with a passkey"
+}
+```
+
+## Two-Factor Authentication
+
+TOTP-based 2FA (SHA1, 6-digit codes, 30s window) with 10 single-use backup codes. 2FA gates **password login only** — social, magic-link, and passkey sign-ins bypass the 2FA challenge (they're already a possession/federated factor). Enabling 2FA requires the account to already have a password credential.
+
+```typescript
+// Enable 2FA (while logged in) — returns a secret, otpauth:// URL (render as a QR code), and backup codes
+const setup = await baasix.auth.twoFactor.enable();
+// { secret, otpauthUrl, backupCodes: [10 codes] }
+
+// Confirm setup with a code from the authenticator app
+await baasix.auth.twoFactor.verifySetup('123456');
+// { enabled: true }
+
+// Disable 2FA (requires the account password)
+await baasix.auth.twoFactor.disable('currentPassword');
+// { disabled: true }
+
+// Login flow with 2FA enabled
+const result = await baasix.auth.login({ email, password });
+
+if ('twoFactorRequired' in result && result.twoFactorRequired) {
+  // Prompt for a TOTP code or an unused backup code
+  const { user, token } = await baasix.auth.twoFactor.verify(result.twoFactorToken, '123456');
+} else {
+  // Logged in directly — 2FA not enabled for this account
+  const { user, token } = result;
+}
+```
+
+## Passkeys
+
+WebAuthn-based, usernameless passkey sign-in with per-user credential management. **Browser-only** — `baasix.auth.passkey.*` methods dynamically import `@simplewebauthn/browser` and throw a `BaasixError` when called outside a browser (e.g. Node.js or React Native).
+
+```typescript
+// Register a passkey for the currently logged-in user
+await baasix.auth.passkey.register('MacBook Touch ID'); // name is optional
+
+// Authenticate with a passkey (no prior login required)
+const { user, token } = await baasix.auth.passkey.authenticate();
+
+// List the current user's registered passkeys (no key material returned)
+const passkeys = await baasix.auth.passkey.list();
+
+// Remove one of your own passkeys
+await baasix.auth.passkey.remove(passkeys[0].id);
 ```
 
 ## Invitation System (Multi-tenant)

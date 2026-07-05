@@ -45,8 +45,8 @@ npm run dev
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
-| POST | /auth/register | Register new user | No |
-| POST | /auth/login | Login, returns JWT token | No |
+| POST | /auth/register | Register new user (403 `REGISTRATION_DISABLED` if `PUBLIC_REGISTRATION=false` and no invite token) | No |
+| POST | /auth/login | Login, returns JWT token (or `{ twoFactorRequired: true, twoFactorToken }` if 2FA is enabled) | No |
 | GET | /auth/me | Get current authenticated user | Yes |
 | GET | /auth/logout | Logout and invalidate session | Yes |
 | POST | /auth/magiclink | Request magic link login | No |
@@ -54,6 +54,38 @@ npm run dev
 | POST | /auth/refresh | Refresh JWT token | Yes |
 | POST | /auth/forgot-password | Request password reset | No |
 | POST | /auth/reset-password | Reset password with token | No |
+| GET | /auth/signin/:provider | Start browser OAuth flow; 302 to one of 35 social providers | No |
+| GET | /auth/callback/:provider | OAuth provider callback; 302 back to the app with `?token=` or `?error=` | No |
+| POST | /auth/2fa/enable | Enable 2FA; returns `{ secret, otpauthUrl, backupCodes[10] }` (requires a password credential) | Yes |
+| POST | /auth/2fa/verify-setup | Confirm TOTP code to turn 2FA on | Yes |
+| POST | /auth/2fa/disable | Disable 2FA (requires current password) | Yes |
+| POST | /auth/2fa/verify | Complete a 2FA login challenge (TOTP or backup code); rate-limited | No |
+| POST | /auth/passkey/register/options | Get WebAuthn registration options | Yes |
+| POST | /auth/passkey/register/verify | Verify and save a new passkey | Yes |
+| POST | /auth/passkey/authenticate/options | Get WebAuthn login options; rate-limited | No |
+| POST | /auth/passkey/authenticate/verify | Complete passkey login; rate-limited | No |
+| GET | /auth/passkey | List the current user's passkeys | Yes |
+| DELETE | /auth/passkey/:id | Remove one of your own passkeys | Yes |
+| GET | / | Project info, including an `auth` discovery block (enabled login methods) | No |
+
+Social, magic-link, and passkey logins bypass the 2FA challenge — 2FA gates password login only. `GET /` returns:
+
+```json
+{
+  "project": {
+    "auth": {
+      "registration": true,
+      "emailPassword": true,
+      "magicLink": false,
+      "passkey": true,
+      "twoFactor": true,
+      "socialProviders": ["google", "github", "discord"]
+    }
+  }
+}
+```
+
+`socialProviders` only lists providers that are both enabled (`AUTH_SERVICES_ENABLED`) and credentialed; `magicLink` is true only when `LOCAL` is enabled and SMTP is configured; no secrets are exposed.
 
 ### Authentication Examples
 
@@ -2542,7 +2574,7 @@ export async function down(baasix) {
 | WORKFLOWS_ENABLED | No | true | Master switch for the workflow subsystem; false disables hooks (no per-request overhead), schedules, /workflows/* routes, and code execution |
 | SOCKET_ENABLED | No | false | Enable Socket.IO |
 | REALTIME_ROW_LEVEL_SCOPING | No | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
-| PUBLIC_REGISTRATION | No | true | Allow public registration |
+| PUBLIC_REGISTRATION | No | true | Allow public registration; `false` makes `POST /auth/register` return 403 `REGISTRATION_DISABLED` unless the request carries a valid invite token |
 | RATE_LIMIT | No | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | No | 5000 | Rate limit interval (ms) |
 | AUTH_RATE_LIMIT | No | 10 | Brute-force limit for login/magic-link/password-reset, per (IP+email) pair (each account has its own budget per IP; does not cap total attempts across accounts) |
@@ -2587,6 +2619,17 @@ export async function down(baasix) {
 | ASSET_XSS_PROTECTION | No | true | Force executable upload types (html/svg/js/xml) to download, not render inline |
 | ASSET_NOSNIFF | No | true | Send `X-Content-Type-Options: nosniff` on asset responses |
 | STRICT_TENANT_ISOLATION | No | true | (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped |
+| AUTH_SERVICES_ENABLED | No | LOCAL | Comma list (uppercase): `LOCAL`, any of the 35 social provider ids (e.g. `GOOGLE,GITHUB,DISCORD`), `PASSKEY`, `TWOFACTOR` |
+| BASE_URL | For OAuth | - | Required for OAuth; builds the provider callback `redirect_uri`: `{BASE_URL}/auth/callback/{provider}` |
+| `<PROVIDERID>_CLIENT_ID` / `<PROVIDERID>_CLIENT_SECRET` | No | - | Per-provider credentials (e.g. `DISCORD_CLIENT_ID`); a provider activates only when enabled AND credentialed, else skipped with a startup warning |
+| APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_PRIVATE_KEY | No | - | Apple Sign In extra keys |
+| MICROSOFT_TENANT_ID | No | common | Microsoft (Entra ID) tenant |
+| TIKTOK_CLIENT_KEY | No | - | TikTok; also currently requires `TIKTOK_CLIENT_ID` to be set as the registration gate |
+| COGNITO_DOMAIN / COGNITO_REGION | No | - | AWS Cognito |
+| WECHAT_CLIENT_ID / WECHAT_CLIENT_SECRET | No | - | WeChat appid / secret |
+| PASSKEY_RP_ID | For passkeys | - | WebAuthn Relying Party ID (e.g. `example.com`); required with RP_NAME and ORIGIN to activate passkeys |
+| PASSKEY_RP_NAME | For passkeys | - | WebAuthn Relying Party display name |
+| PASSKEY_ORIGIN | For passkeys | - | Comma list of allowed web origins for WebAuthn |
 | OAUTH_ALLOW_UNVERIFIED_LINK | No | false | Auto-link OAuth to existing account on UNVERIFIED email (default off = secure; only link verified) |
 | OAUTH_ALLOW_DIRECT_IDTOKEN | No | false | Enable client-supplied direct idToken sign-in (default off; requires JWKS verification) |
 | OAUTH_STATE_COOKIE_BINDING | No | false | Bind OAuth state to browser via httpOnly cookie (CSRF; default off — may break cross-site callbacks) |

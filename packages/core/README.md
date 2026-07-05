@@ -32,7 +32,7 @@
 
 - **🗄️ Dynamic Database Management** — Create and modify data models on the fly with a flexible schema system
 - **🔍 Powerful Query API** — Complex filtering, sorting, pagination, aggregation, and full-text search
-- **🔐 Authentication & Authorization** — JWT, cookie-based auth, SSO providers, and role-based permissions
+- **🔐 Authentication & Authorization** — JWT, cookie-based auth, 35+ social OAuth providers, passkeys (WebAuthn), 2FA (TOTP + backup codes), magic link, and role-based permissions
 - **✅ Schema Validations** — Built-in field validation with min/max, patterns, required, unique, and custom rules
 - **⚡ Workflow Automation** — Visual workflow builder with 17 node types and real-time monitoring
 - **🧩 App Builder** — Compose internal tools and admin pages from 17 data-bound block types (table, form, kanban, calendar, chart, map, and more) on a 12-column grid, governed by your existing permissions
@@ -130,7 +130,7 @@ POST /realtime/collections/products/enable
 ### SDK Features
 
 - 🌐 **Universal** — Works in browsers, Node.js, and React Native
-- 🔐 **Flexible Auth** — JWT tokens, HTTP-only cookies, OAuth (Google, Facebook, Apple, GitHub)
+- 🔐 **Flexible Auth** — JWT tokens, HTTP-only cookies, 35+ social OAuth providers (Google, GitHub, Discord, Microsoft, Slack, and more), passkeys (WebAuthn), 2FA (TOTP + backup codes), and magic link, with auth-method discovery to drive your login UI
 - 💾 **Customizable Storage** — LocalStorage, AsyncStorage, or custom adapters
 - 📝 **Type-Safe** — Full TypeScript support with generics
 - 📡 **Realtime** — WebSocket subscriptions for live data updates
@@ -361,6 +361,27 @@ SECRET_KEY=your-secret-key-min-32-chars
 # ASSET_XSS_PROTECTION=true        # Force executable upload types (html/svg/js/xml) to download, not render inline
 # ASSET_NOSNIFF=true               # Send X-Content-Type-Options: nosniff on asset responses
 # STRICT_TENANT_ISOLATION=true     # (Multi-tenant) restrict isTenantSpecific:false bypass to administrator; non-admin global roles stay tenant-scoped
+
+# Authentication methods (optional - LOCAL email/password is on by default)
+# AUTH_SERVICES_ENABLED=LOCAL       # comma list (uppercase): LOCAL, any of the 35 social provider ids (e.g. GOOGLE,GITHUB,DISCORD), PASSKEY, TWOFACTOR
+# PUBLIC_REGISTRATION=true          # false -> POST /auth/register returns 403 REGISTRATION_DISABLED unless the request carries a valid invite token
+# BASE_URL=https://api.example.com  # required for OAuth; used to build the provider callback redirect_uri: {BASE_URL}/auth/callback/{provider}
+#
+# Social provider credentials (per enabled provider, uppercase id):
+# <PROVIDERID>_CLIENT_ID=...        # e.g. DISCORD_CLIENT_ID
+# <PROVIDERID>_CLIENT_SECRET=...    # e.g. DISCORD_CLIENT_SECRET — a provider only activates when enabled AND credentialed; otherwise skipped with a startup warning
+# APPLE_TEAM_ID=... / APPLE_KEY_ID=... / APPLE_PRIVATE_KEY=...   # Apple Sign In extra keys
+# MICROSOFT_TENANT_ID=common        # Microsoft (Entra ID); default "common"
+# TIKTOK_CLIENT_KEY=...             # TikTok also currently requires TIKTOK_CLIENT_ID to be set as the registration gate
+# COGNITO_DOMAIN=... / COGNITO_REGION=...   # AWS Cognito
+# WECHAT_CLIENT_ID=...              # WeChat appid
+# WECHAT_CLIENT_SECRET=...          # WeChat secret
+#
+# Passkeys (WebAuthn) - all three required for the feature to activate:
+# PASSKEY_RP_ID=example.com         # Relying Party ID (your app's domain)
+# PASSKEY_RP_NAME=My App            # Relying Party display name
+# PASSKEY_ORIGIN=https://example.com # comma list of allowed web origins
+
 # OAuth hardening (default off = secure restriction):
 # OAUTH_ALLOW_UNVERIFIED_LINK=false # auto-link OAuth to existing account on unverified email (off = only verified; prevents takeover)
 # OAUTH_ALLOW_DIRECT_IDTOKEN=false  # enable client-supplied direct idToken sign-in (off; requires JWKS verification)
@@ -406,7 +427,7 @@ Full documentation is available at **[baasix.com/docs](https://baasix.com/docs)*
 
 - [Deployment Guide](https://baasix.com/docs/deploy) — Docker, PM2, Kubernetes deployment
 - [Database Schema Guide](https://baasix.com/docs/guides/schema/design) — Schema system and relationships
-- [Authentication Guide](https://baasix.com/docs/guides/authentication) — Auth setup and SSO providers
+- [Authentication Guide](https://baasix.com/docs/guides/authentication) — Auth setup, 35+ social OAuth providers, passkeys, and 2FA
 - [Extensions Guide](https://baasix.com/docs/extend/extensions) — Create custom hooks and endpoints
 - [Advanced Query Guide](https://baasix.com/docs/guides/data/querying) — Complex filtering and aggregation
 

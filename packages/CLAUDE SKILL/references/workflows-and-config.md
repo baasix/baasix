@@ -359,13 +359,30 @@ const products = await baasix.items<Products>("products").list();
 | WORKFLOWS_ENABLED | true | Master switch for the whole workflow subsystem; false = no hooks/no per-request overhead, no scheduled runs, /workflows/* → 404, no code execution |
 | SOCKET_ENABLED | false | Socket.IO |
 | REALTIME_ROW_LEVEL_SCOPING | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
-| PUBLIC_REGISTRATION | true | Allow public registration |
+| PUBLIC_REGISTRATION | true | Allow public registration; `false` → `POST /auth/register` returns 403 `REGISTRATION_DISABLED` unless the request carries a valid invite token |
 | RATE_LIMIT | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | 5000 | Rate limit interval (ms) |
 | AUTH_RATE_LIMIT | 10 | Brute-force limit for login/magic-link/password-reset, per (IP+email) pair (per-account budget per IP; does not cap total across accounts) |
 | AUTH_RATE_LIMIT_INTERVAL | 900000 | Window (ms) for the auth limiter (15 min) |
 | AUTH_RATE_LIMIT_DISABLED | (off) | Disable the auth limiter (auto-disabled in TEST_MODE) |
 | COUNT_BY_DEFAULT | true | Compute `totalCount` on list reads (per-request `?count=` overrides) |
+
+### Authentication Methods
+| Variable | Default | Description |
+|----------|---------|-------------|
+| AUTH_SERVICES_ENABLED | LOCAL | Comma list (uppercase): `LOCAL`, any of the 35 social provider ids (e.g. `GOOGLE,GITHUB,DISCORD`), `PASSKEY`, `TWOFACTOR` |
+| BASE_URL | - | Required for OAuth; builds the provider callback `redirect_uri`: `{BASE_URL}/auth/callback/{provider}` |
+| `<PROVIDERID>_CLIENT_ID` / `<PROVIDERID>_CLIENT_SECRET` | - | Per-provider credentials (e.g. `DISCORD_CLIENT_ID`); a provider is active only when enabled AND credentialed, otherwise skipped with a startup warning |
+| APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_PRIVATE_KEY | - | Apple Sign In extra keys |
+| MICROSOFT_TENANT_ID | common | Microsoft (Entra ID) tenant |
+| TIKTOK_CLIENT_KEY | - | TikTok; also currently requires `TIKTOK_CLIENT_ID` to be set as the registration gate |
+| COGNITO_DOMAIN / COGNITO_REGION | - | AWS Cognito |
+| WECHAT_CLIENT_ID / WECHAT_CLIENT_SECRET | - | WeChat appid / secret |
+| PASSKEY_RP_ID | - | WebAuthn Relying Party ID (e.g. `example.com`); required with RP_NAME and ORIGIN to activate passkeys |
+| PASSKEY_RP_NAME | - | WebAuthn Relying Party display name |
+| PASSKEY_ORIGIN | - | Comma list of allowed web origins for WebAuthn |
+
+> If `PASSKEY_RP_ID` or `PASSKEY_ORIGIN` is missing, passkey support is disabled with a startup warning.
 
 ### Security Hardening (all default true/secure; set false to relax)
 | Variable | Default | Description |
