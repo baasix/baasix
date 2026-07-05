@@ -123,6 +123,29 @@ function fmt(d: Date): string {
   return `${d.toISOString().slice(0, 10)} 00:00:00+00`;
 }
 
+/**
+ * Parse a Postgres-rendered timestamp literal into the Date it represents, or null if
+ * unparseable. Postgres renders partition bounds (pg_get_expr on relpartbound) using the
+ * SESSION timezone, so the offset shape varies with `TimeZone`:
+ *   - 'YYYY-MM-DD HH:MM:SS+00'      (UTC session)
+ *   - 'YYYY-MM-DD HH:MM:SS-05'      (bare ±HH offset, e.g. America/New_York in winter)
+ *   - 'YYYY-MM-DD HH:MM:SS+05:30'   (±HH:MM offset, e.g. Asia/Kolkata)
+ *   - 'YYYY-MM-DD HH:MM:SS'         (no offset — DateTime_NO_TZ bound; treat as UTC)
+ * `new Date()` only parses the ±HH:MM (or Z) forms; a bare ±HH offset yields Invalid Date on
+ * Node. Normalize the bare-offset case to ±HH:00 before handing off to the Date constructor.
+ */
+export function parsePgTimestamp(text: string): Date | null {
+  let iso = text.trim().replace(" ", "T");
+  // Bare ±HH offset (no minutes, no colon) at the end → pad to ±HH:00.
+  iso = iso.replace(/([+-]\d{2})$/, "$1:00");
+  // No offset at all (DateTime_NO_TZ bound) → treat as UTC.
+  if (!/[+-]\d{2}:\d{2}$/.test(iso) && !/Z$/.test(iso)) {
+    iso += "Z";
+  }
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export function periodsToEnsure(
   now: Date, interval: "month" | "quarter" | "year", premake: number
 ): Array<{ suffix: string; start: string; end: string }> {

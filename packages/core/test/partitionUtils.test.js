@@ -2,6 +2,7 @@ import { describe, test, expect } from "@jest/globals";
 import {
   normalizePartitioning, validatePartitioning, getPartitionKeyColumns,
   partitionName, tenantPartitionName, periodsToEnsure, timeSuffixForStart,
+  parsePgTimestamp,
 } from "../baasix/utils/partitionUtils.js";
 
 describe("partitionUtils", () => {
@@ -76,6 +77,29 @@ describe("partitionUtils", () => {
         expect(timeSuffixForStart(interval, startDate)).toBe(p.suffix);
       }
     }
+  });
+
+  test("parsePgTimestamp resolves any session-timezone offset shape to the same UTC instant", () => {
+    // Postgres renders partition bounds per SESSION timezone: bare ±HH (America/New_York-style),
+    // full ±HH:MM (Asia/Kolkata-style), plain +00 (UTC session), or no offset at all
+    // (DateTime_NO_TZ bound). All four of these represent 2026-01-01T00:00:00Z exactly.
+    const expected = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const cases = [
+      "2026-01-01 00:00:00+00",     // UTC session
+      "2025-12-31 19:00:00-05",     // bare ±HH offset (Invalid Date on plain `new Date()`)
+      "2026-01-01 05:30:00+05:30",  // full ±HH:MM offset
+      "2026-01-01 00:00:00",        // no offset — DateTime_NO_TZ bound, treated as UTC
+    ];
+    for (const c of cases) {
+      const d = parsePgTimestamp(c);
+      expect(d).not.toBeNull();
+      expect(d.getTime()).toBe(expected);
+    }
+  });
+
+  test("parsePgTimestamp returns null for genuinely unparseable text", () => {
+    expect(parsePgTimestamp("not-a-timestamp")).toBeNull();
+    expect(parsePgTimestamp("")).toBeNull();
   });
 
   test("validatePartitioning gates env/system/timeField", () => {

@@ -6,7 +6,7 @@ import { mapJsonTypeToDrizzle, isRelationField } from './typeMapper.js';
 import { relationBuilder, createForeignKeySQL } from './relationUtils.js';
 import systemSchemaModule from './systemschema.js';
 import env from './env.js';
-import { validatePartitioning, normalizePartitioning, getPartitionKeyColumns, partitionName, tenantPartitionName, timeSuffixForStart, periodsToEnsure, PartitioningConfig } from './partitionUtils.js';
+import { validatePartitioning, normalizePartitioning, getPartitionKeyColumns, partitionName, tenantPartitionName, timeSuffixForStart, periodsToEnsure, parsePgTimestamp, PartitioningConfig } from './partitionUtils.js';
 import { APIError } from './errorHandler.js';
 import type { SchemaDefinition, IndexDefinition, AssociationDefinition } from '@baasix/types';
 import type { PluginSchemaDefinition } from '../types/plugin.js';
@@ -1056,6 +1056,18 @@ export class SchemaManager {
       let config: PartitioningConfig | null = null;
       try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
       if (!config || config.strategy === 'time') continue;
+      // Config-vs-physical drift guard: a collection can have a partitioning config while its
+      // table is still a plain (unpartitioned) relation — e.g. the DDL conversion hasn't run yet,
+      // or the table was altered out-of-band. Partitions can't be created on a plain table; warn
+      // and skip rather than throwing, so this drift doesn't fail unrelated tenant creation.
+      // reconcilePartitions already warns about the same drift at startup.
+      const partitioned = await this.isTablePartitioned(name);
+      if (partitioned !== true) {
+        console.warn(`[partitioning] "${name}" has a partitioning config but its table is ` +
+          `${partitioned === null ? 'missing' : 'not partitioned'} — skipping partition creation ` +
+          `for tenant ${tenantId}.`);
+        continue;
+      }
       try {
         await this.ensureTenantPartition(name, config, tenantId);
       } catch (error) {
@@ -1480,12 +1492,15 @@ export class SchemaManager {
     }
   }
 
-  /** Extract the FROM ('<start>') timestamp of a RANGE partition bound, or null if unparseable. */
+  /**
+   * Extract the FROM ('<start>') timestamp of a RANGE partition bound, or null if unparseable.
+   * Delegates offset-shape normalization to parsePgTimestamp — Postgres renders the bound text
+   * per SESSION timezone (bare ±HH, ±HH:MM, or no offset at all for DateTime_NO_TZ columns).
+   */
   private parseRangeStart(bound: string): Date | null {
     const m = bound.match(/FOR VALUES FROM \('([^']+)'\) TO \(/);
     if (!m) return null;
-    const d = new Date(m[1].replace(' ', 'T'));
-    return isNaN(d.getTime()) ? null : d;
+    return parsePgTimestamp(m[1]);
   }
 
   /**

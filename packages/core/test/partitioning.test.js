@@ -1,6 +1,7 @@
+import postgres from "postgres";
 import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
-import { beforeAll, test, expect, describe, jest } from "@jest/globals";
+import { beforeAll, afterAll, test, expect, describe, jest } from "@jest/globals";
 import { getSqlClient } from "../baasix/utils/db.js";
 import { schemaManager } from "../baasix/utils/schemaManager.js";
 import { tenantPartitionName, partitionName } from "../baasix/utils/partitionUtils.js";
@@ -12,12 +13,40 @@ let tenantB;
 
 const authed = (req) => req.set("Authorization", `Bearer ${adminToken}`);
 
+// Regression coverage for the bare ±HH-offset bug (schemaManager.parseRangeStart): Postgres
+// renders partition bounds (pg_get_expr on relpartbound) per SESSION timezone. This dev
+// machine's PG default is Asia/Kolkata, which always renders a full '+05:30' offset — the one
+// shape `new Date()` parses natively — so the bug never showed up locally. To exercise the
+// UTC-rendering path ('...+00') deterministically, force the whole suite's session timezone to
+// UTC via `ALTER DATABASE ... SET timezone` BEFORE the app's connection pool is created: once a
+// pooled connection is established it keeps whatever session TimeZone was in effect at connect
+// time, so the ALTER must land before `startServerForTesting()` opens the pool, not mid-suite.
+// Tests run with --runInBand, so no other suite shares this database concurrently; the setting
+// is restored in the top-level afterAll regardless of pass/fail. No test in this file depends
+// on non-UTC wall-clock semantics (all date assertions use getUTC*), so running the entire file
+// under UTC is safe.
 beforeAll(async () => {
+  const admin = postgres(process.env.DATABASE_URL);
+  try {
+    await admin.unsafe(`ALTER DATABASE ${new URL(process.env.DATABASE_URL).pathname.slice(1)} SET timezone TO 'UTC'`);
+  } finally {
+    await admin.end();
+  }
+
   await destroyAllTablesInDB();
   app = await startServerForTesting({ envOverrides: { MULTI_TENANT: "true" } });
   const login = await request(app).post("/auth/login")
     .send({ email: "admin@baasix.com", password: "admin@123" });
   adminToken = login.body.token ?? login.body.data?.token;
+});
+
+afterAll(async () => {
+  const admin = postgres(process.env.DATABASE_URL);
+  try {
+    await admin.unsafe(`ALTER DATABASE ${new URL(process.env.DATABASE_URL).pathname.slice(1)} RESET timezone`);
+  } finally {
+    await admin.end();
+  }
 });
 
 describe("partitioning validation", () => {
@@ -542,5 +571,76 @@ describe("conversion drops schema field while enabling partitioning", () => {
     const backup = await sql.unsafe(
       `SELECT legacy_note FROM "${backupName}" ORDER BY legacy_note`);
     expect(backup.map((r) => r.legacy_note)).toEqual(["drop-me-1", "drop-me-2"]);
+  });
+});
+
+describe("conversion to time strategy under a UTC session timezone", () => {
+  // See the top-level beforeAll/afterAll: this whole file's session timezone is forced to UTC
+  // before the app's connection pool is created, specifically so this suite can exercise the
+  // '...+00'-rendered partition bound shape (as opposed to this dev machine's PG default of
+  // Asia/Kolkata, which always renders a full '+05:30' offset).
+  const collection = "conv_time_orders";
+
+  beforeAll(async () => {
+    await authed(request(app).post("/schemas")).send({
+      collectionName: collection,
+      schema: {
+        name: "ConvTimeOrder",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+      },
+    });
+    for (let i = 0; i < 4; i++) {
+      await authed(request(app).post(`/items/${collection}`)).send({ ref: `T-${i}` });
+    }
+  });
+
+  test("session reports UTC for the duration of this suite", async () => {
+    const sql = getSqlClient();
+    const [{ tz }] = await sql`SELECT current_setting('TimeZone') AS tz`;
+    expect(tz).toBe("UTC");
+  });
+
+  test("converts to time strategy with canonical partition names and no skip-warnings", async () => {
+    const sql = getSqlClient();
+    const [{ c: before }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${collection}"`);
+    expect(before).toBe(4);
+
+    const warnSpy = jest.spyOn(console, "warn");
+    const res = await authed(request(app).patch(`/schemas/${collection}`)).send({
+      schema: {
+        name: "ConvTimeOrder",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+        partitioning: { strategy: "time", interval: "year", premake: 0 },
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+
+    const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+    expect(parent.relkind).toBe("p");
+    const [{ c: after }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${collection}"`);
+    expect(after).toBe(before);
+
+    const year = new Date().getUTCFullYear();
+    const parts = await sql.unsafe(
+      `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${collection}"'::regclass) WHERE isleaf`);
+    const names = parts.map((p) => p.name.replace(/"/g, ""));
+    // canonical time-range partition name, derived from the (UTC-rendered) bound
+    expect(names).toContain(`${collection}__y${year}`);
+    expect(names).toContain(partitionName(collection, ["default"]));
+
+    // No "Could not derive canonical name" skip-warning fired for this collection — i.e. the
+    // bare '+00'/UTC-rendered bound parsed correctly instead of falling through to skip-with-warn.
+    const badForThis = warnSpy.mock.calls.filter((args) => {
+      const s = args.join(" ");
+      return s.includes(collection) && /Could not derive canonical name/i.test(s);
+    });
+    expect(badForThis).toEqual([]);
+    warnSpy.mockRestore();
   });
 });
