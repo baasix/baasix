@@ -1105,11 +1105,16 @@ export class SchemaManager {
           continue;
         }
         await this.ensurePartitions(name, schema);
-        // Non-empty DEFAULT partitions signal rows that missed their partition
+        // Non-empty DEFAULT partitions signal rows that missed their partition.
+        // Identify them by partition bound (not by name substring) — a collection
+        // legitimately named e.g. "orders__default" would otherwise LIKE-match a
+        // real tenant partition and trigger a false warning.
         const sql = getSqlClient();
         const defaults = await sql`
-          SELECT relid::regclass::text AS part FROM pg_partition_tree(${'"' + name + '"'}::regclass)
-          WHERE isleaf AND relid::regclass::text LIKE '%__default%'`;
+          SELECT relid::regclass::text AS part
+          FROM pg_partition_tree(${'"' + name + '"'}::regclass) t
+          JOIN pg_class c ON c.oid = t.relid
+          WHERE t.isleaf AND pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT'`;
         for (const d of defaults) {
           const [{ count }] = await sql.unsafe(`SELECT COUNT(*)::int AS count FROM ${d.part}`);
           if (count > 0) {

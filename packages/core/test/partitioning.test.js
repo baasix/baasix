@@ -1,6 +1,6 @@
 import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
-import { beforeAll, test, expect, describe } from "@jest/globals";
+import { beforeAll, test, expect, describe, jest } from "@jest/globals";
 import { getSqlClient } from "../baasix/utils/db.js";
 import { schemaManager } from "../baasix/utils/schemaManager.js";
 
@@ -277,5 +277,41 @@ describe("partition reconciliation", () => {
 
     rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
     expect(rows.length).toBe(1);
+  });
+
+  test("warns when rows land in the DEFAULT partition (missed their tenant partition)", async () => {
+    const sql = getSqlClient();
+    // A tenant id with no baasix_Tenant row and therefore no partition. We bypass the
+    // FK (via session_replication_role, superuser-only) purely to plant an orphan row —
+    // reconcilePartitions() must never be able to create a partition for a tenant that
+    // isn't in baasix_Tenant, so a real tenant insert isn't used/needed here; this also
+    // avoids Postgres's "updated partition constraint for default partition would be
+    // violated" error that a real tenant row would trigger once its partition gets created.
+    const orphanTenantId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+    await sql.begin(async (tx) => {
+      await tx.unsafe(`SET LOCAL session_replication_role = replica`);
+      await tx.unsafe(
+        `INSERT INTO "part_orders" (id, sku, amount, "tenant_Id") ` +
+        `VALUES (gen_random_uuid(), 'SKU-ORPHAN', 1, '${orphanTenantId}')`
+      );
+    });
+
+    try {
+      const [row] = await sql`
+        SELECT tableoid::regclass::text AS part FROM "part_orders" WHERE sku = 'SKU-ORPHAN'`;
+      expect(row.part.replace(/"/g, "")).toBe("part_orders__default");
+
+      const warnSpy = jest.spyOn(console, "warn");
+      await schemaManager.reconcilePartitions();
+
+      const matched = warnSpy.mock.calls.some(
+        (args) => /part_orders__default/.test(args.join(" ")) && /holds \d+ rows/.test(args.join(" "))
+      );
+      expect(matched).toBe(true);
+      warnSpy.mockRestore();
+    } finally {
+      await sql`DELETE FROM "part_orders" WHERE sku = 'SKU-ORPHAN'`;
+    }
   });
 });
