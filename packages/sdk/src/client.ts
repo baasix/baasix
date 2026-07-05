@@ -218,7 +218,7 @@ export class HttpClient {
    * Parse error response
    */
   private async parseError(response: Response): Promise<BaasixError> {
-    let errorData: { message?: string; error?: { message?: string; code?: string }; details?: unknown[] } = {};
+    let errorData: { message?: string; code?: string; error?: { message?: string; code?: string }; details?: unknown[] } = {};
 
     try {
       errorData = await response.json();
@@ -232,7 +232,7 @@ export class HttpClient {
       response.statusText ||
       "Request failed";
 
-    const code = errorData.error?.code;
+    const code = errorData.error?.code ?? errorData.code;
     const details = errorData.details as { code?: string; field?: string; message?: string }[] | undefined;
 
     return new BaasixError(message, response.status, code, details);
