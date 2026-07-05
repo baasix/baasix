@@ -14,6 +14,7 @@ import settingsService from "../services/SettingsService.js";
 import ItemsService from "../services/ItemsService.js";
 import { APIError } from "../utils/errorHandler.js";
 import { PROVIDER_IDS } from "../auth/providers/index.js";
+import { setAuthMethodsInfo } from "../auth/discovery.js";
 
 // Providers that need more than CLIENT_ID/CLIENT_SECRET from env
 const PROVIDER_EXTRA_ENV: Record<string, () => Record<string, any>> = {
@@ -90,6 +91,15 @@ const registerEndpoint = (app: Express) => {
 
   // Create auth instance and register routes
   authInstance = createAuthRoutes(app, authOptions);
+
+  setAuthMethodsInfo({
+    registration: env.get("PUBLIC_REGISTRATION") !== "false",
+    emailPassword: enabledServices.includes("LOCAL"),
+    magicLink: enabledServices.includes("LOCAL"), // AND smtp — finalized in getProjectInfo
+    passkey: enabledServices.includes("PASSKEY"), // refined in Task 11
+    twoFactor: enabledServices.includes("TWOFACTOR"), // refined in Task 12
+    socialProviders: Array.from(authInstance.providers.keys()),
+  });
 
   // ====================
   // Invitation System Routes

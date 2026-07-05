@@ -3,6 +3,7 @@ import { APIError } from "../utils/errorHandler.js";
 import ItemsService from "./ItemsService.js";
 import { getCache } from "../utils/cache.js";
 import type { TenantSettings } from '../types/index.js';
+import { getAuthMethodsInfo } from "../auth/discovery.js";
 
 class SettingsService {
   private globalSettings: TenantSettings | null = null;
@@ -448,6 +449,10 @@ class SettingsService {
           multitenant: env.get("MULTI_TENANT") || false,
           metadata: settings.metadata || {},
           modules: settings.modules || {},
+          auth: (() => {
+            const auth = getAuthMethodsInfo();
+            return { ...auth, magicLink: auth.magicLink && !!settings.smtp_enabled };
+          })(),
         },
         version: env.get("npm_package_version") || "0.0.1",
       };
