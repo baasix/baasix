@@ -1295,6 +1295,122 @@ export class SchemaManager {
   }
 
   /**
+   * Copy-and-swap a table between plain and partitioned layouts.
+   * Runs in one transaction; the pre-conversion table is kept as a backup.
+   */
+  private async convertTableLayout(
+    collectionName: string, schema: any, config: PartitioningConfig | null
+  ): Promise<void> {
+    const sql = getSqlClient();
+    const keys = config ? getPartitionKeyColumns(config) : [];
+    const tempName = partitionName(collectionName, ['part_new']);
+    const backupName = config
+      ? partitionName(collectionName, ['preparted'])
+      : partitionName(collectionName, ['prepart_rollback']);
+
+    for (const key of keys) {
+      const nullRows = await sql.unsafe(
+        `SELECT COUNT(*)::int AS count FROM "${collectionName}" WHERE "${key}" IS NULL`);
+      if (nullRows[0].count > 0) {
+        throw new APIError(`Cannot partition "${collectionName}"`, 400,
+          `${nullRows[0].count} rows have NULL "${key}". Assign values to these rows before enabling partitioning.`);
+      }
+    }
+    const backupExists = await sql`SELECT 1 FROM pg_class WHERE relname = ${backupName}`;
+    if (backupExists.length > 0) {
+      throw new APIError(`Backup table "${backupName}" already exists`, 400,
+        `A previous conversion left "${backupName}" behind. Drop or rename it, then retry.`);
+    }
+
+    // Copy every real (non-generated) column, in a stable order shared by INSERT and SELECT
+    const cols = await sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = ${collectionName} AND table_schema = 'public' AND is_generated = 'NEVER'
+      ORDER BY ordinal_position`;
+    const colList = cols.map((c: any) => `"${c.column_name}"`).join(', ');
+
+    await sql.begin(async (tx: any) => {
+      await tx.unsafe(`LOCK TABLE "${collectionName}" IN ACCESS EXCLUSIVE MODE`);
+
+      // 1. Drop inbound FKs; they are recreated against the new table afterwards
+      const inbound = await tx.unsafe(
+        `SELECT conname, conrelid::regclass::text AS child_table
+         FROM pg_constraint WHERE contype = 'f' AND confrelid = '"${collectionName}"'::regclass`);
+      for (const fk of inbound) {
+        await tx.unsafe(`ALTER TABLE ${fk.child_table} DROP CONSTRAINT "${fk.conname}"`);
+      }
+
+      // 2. New layout under a temp name (schema object carries the DESIRED partitioning already)
+      const createSQL = this.buildCreateTableSQL(tempName, schema);
+      if (!createSQL) throw new Error(`No columns for "${collectionName}" conversion`);
+      await tx.unsafe(createSQL);
+      if (config) {
+        await this.ensurePartitions(collectionName, schema, { tableName: tempName, sqlClient: tx });
+      }
+
+      // 3. Copy all rows (table is exclusively locked, so this is a consistent snapshot)
+      await tx.unsafe(`INSERT INTO "${tempName}" (${colList}) SELECT ${colList} FROM "${collectionName}"`);
+
+      // 4. Move the old table aside and free up its index names
+      await tx.unsafe(`ALTER TABLE "${collectionName}" RENAME TO "${backupName}"`);
+      const oldIndexes = await tx.unsafe(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = '${backupName}'`);
+      for (const idx of oldIndexes) {
+        await tx.unsafe(
+          `ALTER INDEX "${idx.indexname}" RENAME TO "${partitionName(idx.indexname, ['bak'])}"`);
+      }
+      // 4b. If the old table was partitioned (reverse conversion), rename ITS partitions
+      // out of the way too — their canonical names must be free for any future conversion.
+      const oldParts = await tx.unsafe(
+        `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${backupName}"'::regclass)
+         WHERE relid <> '"${backupName}"'::regclass`);
+      for (const p of oldParts) {
+        const raw = p.name.replace(/^"|"$/g, '');
+        await tx.unsafe(`ALTER TABLE ${p.name} RENAME TO "${partitionName(raw, ['bak'])}"`);
+      }
+
+      // 5. Promote the new table
+      await tx.unsafe(`ALTER TABLE "${tempName}" RENAME TO "${collectionName}"`);
+
+      // 5b. Partitions were created under the temp prefix — rename them to canonical names
+      // (renaming the parent does NOT rename its partitions).
+      const newParts = await tx.unsafe(
+        `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${collectionName}"'::regclass)
+         WHERE relid <> '"${collectionName}"'::regclass`);
+      for (const p of newParts) {
+        const raw = p.name.replace(/^"|"$/g, '');
+        if (!raw.startsWith(tempName)) continue;
+        const canonical = collectionName + raw.slice(tempName.length);
+        await tx.unsafe(`ALTER TABLE ${p.name} RENAME TO "${canonical}"`);
+      }
+    });
+
+    // 6. Rebuild indexes and FKs with their canonical names (outside the txn, same helpers as create path)
+    if (schema.indexes && Array.isArray(schema.indexes)) {
+      for (const index of schema.indexes) await this.createIndex(collectionName, index);
+    }
+    for (const [fieldName, fieldDef] of Object.entries(schema.fields || {})) {
+      const fd = fieldDef as any;
+      if (fd.type === 'Vector' || fd.type === 'HalfVec' || fd.type === 'SparseVec') {
+        await this.createVectorIndex(collectionName, fieldName, fd.type);
+      }
+    }
+    await this.ensureForeignKeyConstraints(collectionName, schema);
+
+    // 7. Recreate inbound FKs from children (composite or skipped per partition rules)
+    for (const [childName, childEntry] of this.schemaDefinitions) {
+      if (childName === collectionName) continue;
+      const childSchema = (childEntry as any)?.schema ?? childEntry;
+      const references = Object.values(childSchema?.fields || {}).some(
+        (f: any) => f?.relType === 'BelongsTo' && f?.target === collectionName);
+      if (references) await this.ensureForeignKeyConstraints(childName, childSchema);
+    }
+
+    console.log(`[partitioning] Converted "${collectionName}" ` +
+      `(${config ? 'partitioned' : 'plain'} layout). Backup kept as "${backupName}".`);
+  }
+
+  /**
    * Create an index on a table
    */
   /**
@@ -2343,6 +2459,13 @@ export class SchemaManager {
       }
     }
 
+    // Capture the previous in-memory definition BEFORE overwriting it, so we can detect
+    // whether the physical table layout needs to change (conversion) below.
+    const previousEntry: any = this.schemaDefinitions.get(collectionName);
+    const previousSchema = previousEntry?.schema ?? previousEntry;
+    let previousConfig: PartitioningConfig | null = null;
+    try { previousConfig = normalizePartitioning(previousSchema?.partitioning); } catch { previousConfig = null; }
+
     // Store JSON schema definition in memory
     this.schemaDefinitions.set(collectionName, { collectionName, schema });
 
@@ -2373,8 +2496,18 @@ export class SchemaManager {
     // Create/update the Drizzle schema in memory
     await this.createOrUpdateModel(collectionName, schema);
 
-    // Create the actual PostgreSQL table
-    await this.createTableFromSchema(collectionName, schema);
+    // Create the actual PostgreSQL table (or convert its layout if partitioning changed)
+    const physicallyPartitioned = await this.isTablePartitioned(collectionName);
+    const wantsPartitioned = !!partitionConfig;
+    const layoutChanged = physicallyPartitioned !== null && (
+      physicallyPartitioned !== wantsPartitioned ||
+      (wantsPartitioned && JSON.stringify(partitionConfig) !== JSON.stringify(previousConfig))
+    );
+    if (layoutChanged) {
+      await this.convertTableLayout(collectionName, schema, partitionConfig);
+    } else {
+      await this.createTableFromSchema(collectionName, schema);
+    }
 
     console.log(`Model ${collectionName} created/updated successfully`);
   }

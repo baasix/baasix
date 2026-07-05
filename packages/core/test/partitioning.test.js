@@ -315,3 +315,69 @@ describe("partition reconciliation", () => {
     }
   });
 });
+
+describe("conversion copy-and-swap", () => {
+  const collection = "conv_orders";
+  const baseSchema = {
+    name: "ConvOrder",
+    fields: {
+      id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+      ref: { type: "String", allowNull: false },
+    },
+  };
+
+  beforeAll(async () => {
+    await authed(request(app).post("/schemas")).send({ collectionName: collection, schema: baseSchema });
+    for (let i = 0; i < 5; i++) {
+      await authed(request(app).post(`/items/${collection}`))
+        .send({ ref: `A-${i}`, tenant_Id: tenantA });
+      await authed(request(app).post(`/items/${collection}`))
+        .send({ ref: `B-${i}`, tenant_Id: tenantB });
+    }
+  });
+
+  test("PATCH with partitioning converts the populated table", async () => {
+    const sql = getSqlClient();
+    const [{ c: before }] = await sql`SELECT COUNT(*)::int AS c FROM "conv_orders"`;
+    expect(before).toBe(10);
+
+    const res = await authed(request(app).patch(`/schemas/${collection}`))
+      .send({ schema: { ...baseSchema, partitioning: { strategy: "tenant" } } });
+    expect(res.status).toBeLessThan(300);
+
+    const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = 'conv_orders'`;
+    expect(parent.relkind).toBe("p");
+    const [{ c: after }] = await sql`SELECT COUNT(*)::int AS c FROM "conv_orders"`;
+    expect(after).toBe(before);
+    const [backup] = await sql`SELECT relkind FROM pg_class WHERE relname = 'conv_orders__preparted'`;
+    expect(backup.relkind).toBe("r");
+    // rows are routed into tenant partitions, not the default
+    const [{ c: inDefault }] = await sql`SELECT COUNT(*)::int AS c FROM "conv_orders__default"`;
+    expect(inDefault).toBe(0);
+  });
+
+  test("removing partitioning converts back to a plain table", async () => {
+    const sql = getSqlClient();
+    const res = await authed(request(app).patch(`/schemas/${collection}`))
+      .send({ schema: baseSchema });
+    expect(res.status).toBeLessThan(300);
+    const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = 'conv_orders'`;
+    expect(parent.relkind).toBe("r");
+    const [{ c }] = await sql`SELECT COUNT(*)::int AS c FROM "conv_orders"`;
+    expect(c).toBe(10);
+  });
+
+  test("conversion aborts when rows have NULL tenant_Id", async () => {
+    const sql = getSqlClient();
+    // drop leftover backup so the name is free, then poke a NULL row in directly
+    await sql.unsafe(`DROP TABLE IF EXISTS "conv_orders__preparted" CASCADE`);
+    await sql.unsafe(`INSERT INTO "conv_orders" ("id", "ref") VALUES (gen_random_uuid(), 'orphan')`);
+
+    const res = await authed(request(app).patch(`/schemas/${collection}`))
+      .send({ schema: { ...baseSchema, partitioning: { strategy: "tenant" } } });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/NULL/i);
+    const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = 'conv_orders'`;
+    expect(parent.relkind).toBe("r"); // unchanged
+  });
+});
