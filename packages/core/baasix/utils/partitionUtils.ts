@@ -90,23 +90,33 @@ export function tenantPartitionName(table: string, tenantId: string): string {
   return partitionName(table, [`t_${tenantId.replace(/-/g, "").slice(0, 8).toLowerCase()}`]);
 }
 
-function boundsFor(interval: string, year: number, monthIdx: number): { suffix: string; start: Date; end: Date } {
-  if (interval === "year") {
-    return { suffix: `y${year}`, start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year + 1, 0, 1)) };
-  }
+/**
+ * Suffix for the period that CONTAINS the given start instant, per interval.
+ * Formats are identical to boundsFor: year → y2026, quarter → 2026q3, month → 202607.
+ * Used both to name freshly-created partitions and to derive the canonical name of an
+ * existing partition from its stored range bound (copy-and-swap promotion).
+ */
+export function timeSuffixForStart(interval: string, startDate: Date): string {
+  const year = startDate.getUTCFullYear();
+  const monthIdx = startDate.getUTCMonth();
+  if (interval === "year") return `y${year}`;
   if (interval === "quarter") {
     const q = Math.floor(monthIdx / 3);
-    return {
-      suffix: `${year}q${q + 1}`,
-      start: new Date(Date.UTC(year, q * 3, 1)),
-      end: new Date(Date.UTC(year, q * 3 + 3, 1)),
-    };
+    return `${year}q${q + 1}`;
   }
-  return {
-    suffix: `${year}${String(monthIdx + 1).padStart(2, "0")}`,
-    start: new Date(Date.UTC(year, monthIdx, 1)),
-    end: new Date(Date.UTC(year, monthIdx + 1, 1)),
-  };
+  return `${year}${String(monthIdx + 1).padStart(2, "0")}`;
+}
+
+function boundsFor(interval: string, year: number, monthIdx: number): { suffix: string; start: Date; end: Date } {
+  const start =
+    interval === "year" ? new Date(Date.UTC(year, 0, 1))
+    : interval === "quarter" ? new Date(Date.UTC(year, Math.floor(monthIdx / 3) * 3, 1))
+    : new Date(Date.UTC(year, monthIdx, 1));
+  const end =
+    interval === "year" ? new Date(Date.UTC(year + 1, 0, 1))
+    : interval === "quarter" ? new Date(Date.UTC(year, Math.floor(monthIdx / 3) * 3 + 3, 1))
+    : new Date(Date.UTC(year, monthIdx + 1, 1));
+  return { suffix: timeSuffixForStart(interval, start), start, end };
 }
 
 function fmt(d: Date): string {

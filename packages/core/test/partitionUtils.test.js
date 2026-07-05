@@ -1,7 +1,7 @@
 import { describe, test, expect } from "@jest/globals";
 import {
   normalizePartitioning, validatePartitioning, getPartitionKeyColumns,
-  partitionName, tenantPartitionName, periodsToEnsure,
+  partitionName, tenantPartitionName, periodsToEnsure, timeSuffixForStart,
 } from "../baasix/utils/partitionUtils.js";
 
 describe("partitionUtils", () => {
@@ -54,6 +54,28 @@ describe("partitionUtils", () => {
       { suffix: "202612", start: "2026-12-01 00:00:00+00", end: "2027-01-01 00:00:00+00" },
       { suffix: "202701", start: "2027-01-01 00:00:00+00", end: "2027-02-01 00:00:00+00" },
     ]);
+  });
+
+  test("timeSuffixForStart matches periodsToEnsure suffixes (all intervals)", () => {
+    // year: any date in 2026 → y2026
+    expect(timeSuffixForStart("year", new Date("2026-01-01T00:00:00Z"))).toBe("y2026");
+    expect(timeSuffixForStart("year", new Date("2026-11-30T23:59:59Z"))).toBe("y2026");
+    // quarter: Q3 starts July → 2026q3; Q1 → 2026q1
+    expect(timeSuffixForStart("quarter", new Date("2026-07-01T00:00:00Z"))).toBe("2026q3");
+    expect(timeSuffixForStart("quarter", new Date("2026-02-15T00:00:00Z"))).toBe("2026q1");
+    // month: zero-padded → 202607, 202612
+    expect(timeSuffixForStart("month", new Date("2026-07-01T00:00:00Z"))).toBe("202607");
+    expect(timeSuffixForStart("month", new Date("2026-12-01T00:00:00Z"))).toBe("202612");
+
+    // Cross-check: for every interval, the suffix derived from a period's start string equals
+    // the suffix periodsToEnsure produced. This guarantees the promotion rename lands on the
+    // exact name the create/reconcile paths use.
+    for (const interval of ["year", "quarter", "month"]) {
+      for (const p of periodsToEnsure(new Date("2026-07-05T10:00:00Z"), interval, 3)) {
+        const startDate = new Date(p.start.replace(" ", "T").replace("+00", "Z"));
+        expect(timeSuffixForStart(interval, startDate)).toBe(p.suffix);
+      }
+    }
   });
 
   test("validatePartitioning gates env/system/timeField", () => {

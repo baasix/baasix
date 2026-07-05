@@ -3,6 +3,7 @@ import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 import { beforeAll, test, expect, describe, jest } from "@jest/globals";
 import { getSqlClient } from "../baasix/utils/db.js";
 import { schemaManager } from "../baasix/utils/schemaManager.js";
+import { tenantPartitionName, partitionName } from "../baasix/utils/partitionUtils.js";
 
 let app;
 let adminToken;
@@ -379,5 +380,167 @@ describe("conversion copy-and-swap", () => {
     expect(JSON.stringify(res.body)).toMatch(/NULL/i);
     const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = 'conv_orders'`;
     expect(parent.relkind).toBe("r"); // unchanged
+  });
+});
+
+describe("conversion long-name canonical partition rename", () => {
+  // 48-char name: partitionName(name, ['part_new']) is 58 (fits), but the temp tenant
+  // partition is 70 → hash-truncated, so it does NOT start with the temp prefix. The old
+  // prefix-strip rename skipped it, leaving a non-canonical partition and breaking later
+  // CREATE/DROP. Bound-derived renaming must land the canonical name regardless.
+  const collection = "conv_long_collection_name_for_canonical_rename_x"; // exactly 48 chars
+
+  beforeAll(async () => {
+    expect(collection.length).toBe(48);
+    await authed(request(app).post("/schemas")).send({
+      collectionName: collection,
+      schema: {
+        name: "ConvLong",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+      },
+    });
+    for (let i = 0; i < 3; i++) {
+      await authed(request(app).post(`/items/${collection}`)).send({ ref: `LA-${i}`, tenant_Id: tenantA });
+      await authed(request(app).post(`/items/${collection}`)).send({ ref: `LB-${i}`, tenant_Id: tenantB });
+    }
+  });
+
+  test("converts and names partitions canonically (bound-derived, not prefix-strip)", async () => {
+    const sql = getSqlClient();
+    const [{ c: before }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${collection}"`);
+    expect(before).toBe(6);
+
+    const res = await authed(request(app).patch(`/schemas/${collection}`)).send({
+      schema: {
+        name: "ConvLong",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+        partitioning: { strategy: "tenant" },
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+
+    // relkind 'p' and row count preserved
+    const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+    expect(parent.relkind).toBe("p");
+    const [{ c: after }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${collection}"`);
+    expect(after).toBe(before);
+
+    // Partitions carry CANONICAL names — computed via the SAME helpers the app uses.
+    const parts = await sql.unsafe(
+      `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${collection}"'::regclass) WHERE isleaf`);
+    const names = parts.map((p) => p.name.replace(/"/g, ""));
+    const canonA = tenantPartitionName(collection, tenantA);
+    const canonB = tenantPartitionName(collection, tenantB);
+    const canonDefault = partitionName(collection, ["default"]);
+    expect(names).toContain(canonA);
+    expect(names).toContain(canonB);
+    expect(names).toContain(canonDefault);
+    // and NO leftover temp-named / hash-suffixed partition survives
+    expect(names.some((n) => n.includes("part_new"))).toBe(false);
+
+    // rows routed into tenant partitions, not the default
+    const [{ c: inDefault }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${canonDefault}"`);
+    expect(inDefault).toBe(0);
+  });
+
+  test("reconcilePartitions runs clean — no 'would overlap' for this collection", async () => {
+    const errSpy = jest.spyOn(console, "error");
+    await schemaManager.reconcilePartitions();
+    const badForThis = errSpy.mock.calls.filter((args) => {
+      const s = args.join(" ");
+      return s.includes(collection) && /overlap/i.test(s);
+    });
+    expect(badForThis).toEqual([]);
+    errSpy.mockRestore();
+  });
+
+  test("deleting a fresh tenant actually drops its (canonical) partition", async () => {
+    const sql = getSqlClient();
+    const created = await authed(request(app).post("/items/baasix_Tenant")).send({ name: "ConvLong Tenant C" });
+    const tenantC = created.body.data?.id ?? created.body.id;
+    const canonC = tenantPartitionName(collection, tenantC);
+
+    // its partition was created on tenant creation
+    let rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${canonC}`;
+    expect(rows.length).toBe(1);
+
+    // insert a row for tenant C, then delete tenant C
+    await authed(request(app).post(`/items/${collection}`)).send({ ref: "LC-0", tenant_Id: tenantC });
+    const del = await authed(request(app).delete(`/items/baasix_Tenant/${tenantC}`));
+    expect(del.status).toBeLessThan(300);
+
+    // the canonical partition (and tenant C's data) is gone — not a no-op on a stale name
+    rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${canonC}`;
+    expect(rows.length).toBe(0);
+  });
+});
+
+describe("conversion drops schema field while enabling partitioning", () => {
+  // colList must be the INTERSECTION of old and new columns. A field removed from the schema
+  // in the same PATCH is physically still on the old table but absent from the temp table;
+  // copying it would blow up the INSERT. It must be skipped (data stays in the backup).
+  const collection = "conv_drop_field";
+
+  beforeAll(async () => {
+    await authed(request(app).post("/schemas")).send({
+      collectionName: collection,
+      schema: {
+        name: "ConvDropField",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+          legacy_note: { type: "String", allowNull: true },
+        },
+      },
+    });
+    await authed(request(app).post(`/items/${collection}`))
+      .send({ ref: "keep-1", legacy_note: "drop-me-1", tenant_Id: tenantA });
+    await authed(request(app).post(`/items/${collection}`))
+      .send({ ref: "keep-2", legacy_note: "drop-me-2", tenant_Id: tenantB });
+  });
+
+  test("removing a field AND enabling partitioning succeeds; dropped column absent, backup retains it", async () => {
+    const sql = getSqlClient();
+    // PATCH: legacy_note removed from schema.fields, partitioning enabled — same request.
+    const res = await authed(request(app).patch(`/schemas/${collection}`)).send({
+      schema: {
+        name: "ConvDropField",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+        partitioning: { strategy: "tenant" },
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+
+    const [parent] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+    expect(parent.relkind).toBe("p");
+
+    // row count preserved
+    const [{ c }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${collection}"`);
+    expect(c).toBe(2);
+
+    // dropped column is not present on the new table
+    const newCols = await sql.unsafe(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = '${collection}' AND table_schema = 'public'`);
+    expect(newCols.map((r) => r.column_name)).not.toContain("legacy_note");
+
+    // ref data survives on the new table
+    const refs = await sql.unsafe(`SELECT ref FROM "${collection}" ORDER BY ref`);
+    expect(refs.map((r) => r.ref)).toEqual(["keep-1", "keep-2"]);
+
+    // the backup still holds legacy_note values (dropped-field data is recoverable)
+    const backupName = partitionName(collection, ["preparted"]);
+    const backup = await sql.unsafe(
+      `SELECT legacy_note FROM "${backupName}" ORDER BY legacy_note`);
+    expect(backup.map((r) => r.legacy_note)).toEqual(["drop-me-1", "drop-me-2"]);
   });
 });

@@ -6,7 +6,7 @@ import { mapJsonTypeToDrizzle, isRelationField } from './typeMapper.js';
 import { relationBuilder, createForeignKeySQL } from './relationUtils.js';
 import systemSchemaModule from './systemschema.js';
 import env from './env.js';
-import { validatePartitioning, normalizePartitioning, getPartitionKeyColumns, partitionName, tenantPartitionName, periodsToEnsure, PartitioningConfig } from './partitionUtils.js';
+import { validatePartitioning, normalizePartitioning, getPartitionKeyColumns, partitionName, tenantPartitionName, timeSuffixForStart, periodsToEnsure, PartitioningConfig } from './partitionUtils.js';
 import { APIError } from './errorHandler.js';
 import type { SchemaDefinition, IndexDefinition, AssociationDefinition } from '@baasix/types';
 import type { PluginSchemaDefinition } from '../types/plugin.js';
@@ -1308,29 +1308,27 @@ export class SchemaManager {
       ? partitionName(collectionName, ['preparted'])
       : partitionName(collectionName, ['prepart_rollback']);
 
-    for (const key of keys) {
-      const nullRows = await sql.unsafe(
-        `SELECT COUNT(*)::int AS count FROM "${collectionName}" WHERE "${key}" IS NULL`);
-      if (nullRows[0].count > 0) {
-        throw new APIError(`Cannot partition "${collectionName}"`, 400,
-          `${nullRows[0].count} rows have NULL "${key}". Assign values to these rows before enabling partitioning.`);
-      }
-    }
+    // Backup-name collision check is DDL-free and safe outside the txn.
     const backupExists = await sql`SELECT 1 FROM pg_class WHERE relname = ${backupName}`;
     if (backupExists.length > 0) {
       throw new APIError(`Backup table "${backupName}" already exists`, 400,
         `A previous conversion left "${backupName}" behind. Drop or rename it, then retry.`);
     }
 
-    // Copy every real (non-generated) column, in a stable order shared by INSERT and SELECT
-    const cols = await sql`
-      SELECT column_name FROM information_schema.columns
-      WHERE table_name = ${collectionName} AND table_schema = 'public' AND is_generated = 'NEVER'
-      ORDER BY ordinal_position`;
-    const colList = cols.map((c: any) => `"${c.column_name}"`).join(', ');
-
     await sql.begin(async (tx: any) => {
       await tx.unsafe(`LOCK TABLE "${collectionName}" IN ACCESS EXCLUSIVE MODE`);
+
+      // NULL partition-key pre-check runs INSIDE the txn, after the LOCK, so the friendly
+      // APIError(400) is race-free (no row can gain/lose a NULL key between check and copy).
+      // An APIError thrown here rolls back the txn and propagates (porsager rethrows).
+      for (const key of keys) {
+        const nullRows = await tx.unsafe(
+          `SELECT COUNT(*)::int AS count FROM "${collectionName}" WHERE "${key}" IS NULL`);
+        if (nullRows[0].count > 0) {
+          throw new APIError(`Cannot partition "${collectionName}"`, 400,
+            `${nullRows[0].count} rows have NULL "${key}". Assign values to these rows before enabling partitioning.`);
+        }
+      }
 
       // 1. Drop inbound FKs; they are recreated against the new table afterwards
       const inbound = await tx.unsafe(
@@ -1347,6 +1345,25 @@ export class SchemaManager {
       if (config) {
         await this.ensurePartitions(collectionName, schema, { tableName: tempName, sqlClient: tx });
       }
+
+      // 2b. Copy list = INTERSECTION of the OLD and NEW (temp) tables' real columns.
+      // The txn sees its own DDL, so both live in information_schema now. Using the
+      // intersection means a field dropped from the schema in the SAME patch (still
+      // physically present on the old table) is skipped instead of exploding the INSERT;
+      // its data survives in the __preparted backup. Order follows the old table.
+      const oldCols = await tx.unsafe(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name = '${collectionName}' AND table_schema = 'public' AND is_generated = 'NEVER'
+         ORDER BY ordinal_position`);
+      const newColSet = new Set(
+        (await tx.unsafe(
+          `SELECT column_name FROM information_schema.columns
+           WHERE table_name = '${tempName}' AND table_schema = 'public' AND is_generated = 'NEVER'`))
+          .map((c: any) => c.column_name));
+      const colList = oldCols
+        .filter((c: any) => newColSet.has(c.column_name))
+        .map((c: any) => `"${c.column_name}"`).join(', ');
+      if (!colList) throw new Error(`No shared columns for "${collectionName}" conversion`);
 
       // 3. Copy all rows (table is exclusively locked, so this is a consistent snapshot)
       await tx.unsafe(`INSERT INTO "${tempName}" (${colList}) SELECT ${colList} FROM "${collectionName}"`);
@@ -1372,16 +1389,12 @@ export class SchemaManager {
       // 5. Promote the new table
       await tx.unsafe(`ALTER TABLE "${tempName}" RENAME TO "${collectionName}"`);
 
-      // 5b. Partitions were created under the temp prefix — rename them to canonical names
-      // (renaming the parent does NOT rename its partitions).
-      const newParts = await tx.unsafe(
-        `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${collectionName}"'::regclass)
-         WHERE relid <> '"${collectionName}"'::regclass`);
-      for (const p of newParts) {
-        const raw = p.name.replace(/^"|"$/g, '');
-        if (!raw.startsWith(tempName)) continue;
-        const canonical = collectionName + raw.slice(tempName.length);
-        await tx.unsafe(`ALTER TABLE ${p.name} RENAME TO "${canonical}"`);
+      // 5b. Rename promoted partitions to their CANONICAL names, derived from each
+      // partition's stored BOUND (not from the temp-name prefix). Prefix-stripping breaks
+      // when partitionName() hash-truncates a long identifier: the temp partition's name no
+      // longer starts with tempName, so a bound-based rename is the only correct approach.
+      if (config) {
+        await this.renamePartitionsToCanonical(collectionName, config, tx);
       }
     });
 
@@ -1408,6 +1421,71 @@ export class SchemaManager {
 
     console.log(`[partitioning] Converted "${collectionName}" ` +
       `(${config ? 'partitioned' : 'plain'} layout). Backup kept as "${backupName}".`);
+  }
+
+  /**
+   * After promoting a copy-and-swap table, rename its partitions to the names the
+   * create/reconcile paths expect. The temp-name-prefix approach is unreliable because
+   * partitionName() hash-truncates long identifiers, so we derive each canonical name from
+   * the partition's stored bound instead.
+   *
+   * Levels are processed top-down: a tenant partition is renamed before its time
+   * sub-partitions, and each child's canonical name is derived from the ALREADY-canonical
+   * parent name. Anything whose bound we can't parse is skipped-with-warn (never aborts the txn).
+   */
+  private async renamePartitionsToCanonical(
+    parentTable: string, config: PartitioningConfig, tx: any
+  ): Promise<void> {
+    // Direct children of `parentTable`, with their stored bound expression.
+    const children = await tx.unsafe(
+      `SELECT c.oid::regclass::text AS name, pg_get_expr(c.relpartbound, c.oid) AS bound
+       FROM pg_inherits i
+       JOIN pg_class c ON c.oid = i.inhrelid
+       WHERE i.inhparent = '"${parentTable}"'::regclass`);
+
+    for (const child of children) {
+      const currentRaw = child.name.replace(/^"|"$/g, '');
+      const bound: string = child.bound;
+      let canonical: string | null = null;
+      let recurse = false;
+
+      // Canonical name is derived from the bound SHAPE, not the strategy, so this works
+      // identically at the first level (tenant list / time range) and, on recursion, at the
+      // tenant+time second level (time range under a tenant partition).
+      const listMatch = bound.match(/FOR VALUES IN \('([0-9a-fA-F-]{36})'\)/);
+      const rangeStart = this.parseRangeStart(bound);
+      if (bound === 'DEFAULT') {
+        canonical = partitionName(parentTable, ['default']);
+      } else if (listMatch) {
+        canonical = tenantPartitionName(parentTable, listMatch[1]);
+        recurse = config.strategy === 'tenant+time'; // its time sub-partitions need renaming too
+      } else if (rangeStart) {
+        canonical = partitionName(parentTable, [timeSuffixForStart(config.interval, rangeStart)]);
+      }
+
+      if (canonical === null) {
+        console.warn(`[partitioning] Could not derive canonical name for partition ${child.name} ` +
+          `(bound: ${bound}) — leaving as-is.`);
+        continue;
+      }
+
+      if (currentRaw !== canonical) {
+        await tx.unsafe(`ALTER TABLE ${child.name} RENAME TO "${canonical}"`);
+      }
+      // Recurse into a tenant partition's time sub-partitions, deriving their names from the
+      // now-canonical tenant partition name.
+      if (recurse) {
+        await this.renamePartitionsToCanonical(canonical, config, tx);
+      }
+    }
+  }
+
+  /** Extract the FROM ('<start>') timestamp of a RANGE partition bound, or null if unparseable. */
+  private parseRangeStart(bound: string): Date | null {
+    const m = bound.match(/FOR VALUES FROM \('([^']+)'\) TO \(/);
+    if (!m) return null;
+    const d = new Date(m[1].replace(' ', 'T'));
+    return isNaN(d.getTime()) ? null : d;
   }
 
   /**
@@ -2496,7 +2574,12 @@ export class SchemaManager {
     // Create/update the Drizzle schema in memory
     await this.createOrUpdateModel(collectionName, schema);
 
-    // Create the actual PostgreSQL table (or convert its layout if partitioning changed)
+    // Create the actual PostgreSQL table (or convert its layout if partitioning changed).
+    // convertTableLayout runs its DDL in a transaction that rolls back on failure (e.g. the
+    // in-txn NULL partition-key pre-check throws APIError(400)). The schema definition, however,
+    // was already written to memory + DB above (outside that txn), so on a rolled-back conversion
+    // we must restore the PREVIOUS definition — otherwise the persisted config would claim the
+    // table is partitioned while it physically isn't, and later createPartitionsForTenant would 500.
     const physicallyPartitioned = await this.isTablePartitioned(collectionName);
     const wantsPartitioned = !!partitionConfig;
     const layoutChanged = physicallyPartitioned !== null && (
@@ -2504,7 +2587,21 @@ export class SchemaManager {
       (wantsPartitioned && JSON.stringify(partitionConfig) !== JSON.stringify(previousConfig))
     );
     if (layoutChanged) {
-      await this.convertTableLayout(collectionName, schema, partitionConfig);
+      try {
+        await this.convertTableLayout(collectionName, schema, partitionConfig);
+      } catch (err) {
+        // Restore the pre-PATCH schema definition (memory + DB) so config and physical layout stay consistent.
+        if (previousEntry !== undefined) {
+          this.schemaDefinitions.set(collectionName, previousEntry);
+          if (existingSchema.length > 0) {
+            await db.update(baasixSchemaDefinition)
+              .set({ schema: previousSchema as any, updatedAt: new Date() } as any)
+              .where(eq(baasixSchemaDefinition.collectionName, collectionName));
+          }
+          await this.createOrUpdateModel(collectionName, previousSchema);
+        }
+        throw err;
+      }
     } else {
       await this.createTableFromSchema(collectionName, schema);
     }
