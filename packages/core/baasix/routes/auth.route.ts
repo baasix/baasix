@@ -54,6 +54,9 @@ const registerEndpoint = (app: Express) => {
     multiTenant: {
       enabled: env.get("MULTI_TENANT") === "true",
     },
+    twoFactor: {
+      enabled: enabledServices.includes("TWOFACTOR"),
+    },
     // Social providers from env - only enable if listed in AUTH_SERVICES_ENABLED
     socialProviders: (() => {
       const providers: Record<string, any> = {};

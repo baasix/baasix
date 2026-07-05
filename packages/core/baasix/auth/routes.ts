@@ -324,7 +324,11 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         ipAddress,
         userAgent,
       });
-      
+
+      if ("twoFactorRequired" in result) {
+        return res.json({ twoFactorRequired: true, twoFactorToken: result.twoFactorToken, code: "TWO_FACTOR_REQUIRED" });
+      }
+
       // Set token in response based on authMode
       const tokenResponse = setTokenInResponse(res, result.token, authMode, options.env);
       
@@ -359,7 +363,81 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       next(error);
     }
   });
-  
+
+  // ==================== Two-Factor ====================
+
+  app.post(`${basePath}/2fa/verify`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { twoFactorToken, code, authMode = "jwt" } = req.body;
+      if (!twoFactorToken || !code) return res.status(400).json({ message: "twoFactorToken and code are required" });
+      const result = await auth.completeTwoFactorSignIn({
+        twoFactorToken,
+        code,
+        ipAddress: req.ip || null,
+        userAgent: req.headers["user-agent"] || null,
+      });
+      const tokenResponse = setTokenInResponse(res, result.token, authMode, options.env);
+      res.json({
+        ...tokenResponse,
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+        },
+        role: result.role,
+        permissions: result.permissions,
+        tenant: result.tenant,
+      });
+    } catch (error: any) {
+      if (error.message.includes("two-factor")) {
+        return res.status(401).json({ message: error.message, code: "INVALID_TWO_FACTOR_CODE" });
+      }
+      next(error);
+    }
+  });
+
+  app.post(`${basePath}/2fa/enable`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!options.twoFactor?.enabled) return res.status(400).json({ message: "Two-factor authentication is not enabled on this server" });
+      const user = await auth.adapter.findUserById(req.accountability.user.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const already = await auth.twoFactorService.isEnabled(user.id);
+      if (already) return res.status(400).json({ message: "Two-factor is already enabled. Disable it first." });
+      res.json(await auth.twoFactorService.generateSetup(user));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post(`${basePath}/2fa/verify-setup`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      const ok = await auth.twoFactorService.activate(req.accountability.user.id, req.body.code);
+      if (!ok) return res.status(401).json({ message: "Invalid code", code: "INVALID_TWO_FACTOR_CODE" });
+      res.json({ enabled: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post(`${basePath}/2fa/disable`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      const { password } = req.body;
+      if (!password) return res.status(400).json({ message: "Password is required" });
+      const user = await auth.adapter.findUserById(req.accountability.user.id);
+      if (!user?.email) return res.status(404).json({ message: "User not found" });
+      const verified = await auth.credentialProvider.signIn({ adapter: auth.adapter, email: user.email, password }).catch(() => null);
+      if (!verified) return res.status(401).json({ message: "Invalid password" });
+      await auth.twoFactorService.disable(user.id);
+      res.json({ disabled: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ==================== Get Current User ====================
   
   app.get(`${basePath}/me`, async (req: Request, res: Response, next: NextFunction) => {

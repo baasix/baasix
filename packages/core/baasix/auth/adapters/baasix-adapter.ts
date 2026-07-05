@@ -229,15 +229,19 @@ export function createBaasixAdapter(): AuthAdapter {
     async createVerification(verification) {
       const service = await getService("baasix_Verification");
       const id = await service.createOne(verification);
-      return service.readOne(id);
+      // includeHidden: `value` (the token/code) is a hidden field; callers of this
+      // adapter method need it back (e.g. to embed it in an email/response).
+      return service.readOne(id, {}, false, undefined, { includeHidden: true });
     },
 
     async findVerificationByIdentifier(identifier) {
       const service = await getService("baasix_Verification");
+      // includeHidden: callers (e.g. two-factor challenge redemption) need the
+      // hidden `value` field to recover the payload they stored.
       const result = await service.readByQuery({
         filter: { identifier: { eq: identifier } },
         limit: 1,
-      });
+      }, false, undefined, { includeHidden: true });
       return result.data?.[0] || null;
     },
 

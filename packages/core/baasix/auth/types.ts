@@ -246,6 +246,12 @@ export interface AuthOptions {
    * Hooks for auth events
    */
   hooks?: AuthHooks;
+  /**
+   * Two-factor authentication configuration
+   */
+  twoFactor?: {
+    enabled?: boolean;
+  };
 }
 
 export interface AuthHooks {
@@ -386,6 +392,18 @@ export interface AuthResponse {
   tenant?: Tenant | null;
   requiresEmailVerification?: boolean;
 }
+
+// ==================== Two-Factor Challenge ====================
+
+/**
+ * Returned by `signIn` in place of an `AuthResponse` when the authenticating
+ * user has an active two-factor enrollment. The caller must complete the
+ * challenge via `completeTwoFactorSignIn` using the `twoFactorToken`.
+ */
+export type TwoFactorChallenge = {
+  twoFactorRequired: true;
+  twoFactorToken: string;
+};
 
 // ==================== JWT Types ====================
 

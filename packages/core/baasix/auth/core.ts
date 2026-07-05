@@ -5,12 +5,14 @@
  */
 
 import argon2 from "argon2";
+import crypto from "crypto";
 import env from "../utils/env.js";
 import type {
   AuthAdapter,
   AuthOptions,
   AuthContext,
   AuthResponse,
+  TwoFactorChallenge,
   OAuthProvider,
   User,
   Account,
@@ -27,6 +29,7 @@ import { createVerificationService } from "./services/verification.js";
 import { credential } from "./providers/credential.js";
 import { providerFactories } from "./providers/index.js";
 import { generateState, generateCodeVerifier } from "./oauth2/utils.js";
+import { createTwoFactorService } from "./plugins/two-factor/service.js";
 import type { SessionService } from "./services/session.js";
 import type { TokenService } from "./services/token.js";
 import type { VerificationService } from "./services/verification.js";
@@ -42,13 +45,23 @@ export interface BaasixAuth {
   tokenService: TokenService;
   verificationService: VerificationService;
   credentialProvider: CredentialProvider;
-  
+  twoFactorService: ReturnType<typeof createTwoFactorService>;
+
   // OAuth Providers
   providers: Map<string, OAuthProvider>;
-  
+
   // Email/Password Auth
   signUp(input: SignUpEmailInput): Promise<AuthResponse>;
-  signIn(input: SignInEmailInput): Promise<AuthResponse>;
+  signIn(input: SignInEmailInput): Promise<AuthResponse | TwoFactorChallenge>;
+
+  // Two-Factor Auth
+  completeTwoFactorSignIn(input: {
+    twoFactorToken: string;
+    code: string;
+    authType?: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }): Promise<AuthResponse>;
   
   // OAuth Auth
   getOAuthUrl(provider: string, redirectURI: string, scopes?: string[]): Promise<{
@@ -130,7 +143,12 @@ export function createAuth(options: AuthOptions): BaasixAuth {
   });
   
   const verificationService = createVerificationService(adapter);
-  
+
+  // Create two-factor service
+  const twoFactorService = createTwoFactorService(adapter, {
+    issuer: env.get("PROJECT_NAME") || "Baasix",
+  });
+
   // Create credential provider
   const passwordFns = options.password || defaultPasswordFunctions;
   const credentialProvider = credential({
@@ -264,6 +282,7 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     tokenService,
     verificationService,
     credentialProvider,
+    twoFactorService,
     providers,
     
     // Email/Password Sign Up
@@ -465,7 +484,20 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       if (!validation.isValid) {
         throw new Error(validation.error);
       }
-      
+
+      // Two-factor challenge: if the user has an active enrollment, don't issue a
+      // session/token yet — hand back a short-lived challenge token that must be
+      // redeemed via completeTwoFactorSignIn.
+      if (options.twoFactor?.enabled && (await twoFactorService.isEnabled(user.id))) {
+        const twoFactorToken = crypto.randomBytes(32).toString("hex");
+        await adapter.createVerification({
+          identifier: `twofactor:${twoFactorToken}`,
+          value: JSON.stringify({ userId: user.id, tenant_Id: tenant?.id || null, authType }),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        });
+        return { twoFactorRequired: true as const, twoFactorToken };
+      }
+
       // Call hook if defined
       if (options.hooks?.onSignIn) {
         const session = await sessionService.createSession({
@@ -476,10 +508,28 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         await options.hooks.onSignIn(user, null, session);
         await sessionService.invalidateSession(session.token);
       }
-      
+
       return createAuthResponse(user, tenant_Id, ipAddress, userAgent, authType);
     },
-    
+
+    // Complete a Two-Factor Sign In (redeem the challenge issued by signIn)
+    async completeTwoFactorSignIn({ twoFactorToken, code, ipAddress, userAgent }) {
+      const identifier = `twofactor:${twoFactorToken}`;
+      const verification = await adapter.findVerificationByIdentifier(identifier);
+      if (!verification || verification.expiresAt < new Date()) {
+        throw new Error("Invalid or expired two-factor token");
+      }
+      const { userId, tenant_Id, authType } = JSON.parse(verification.value);
+      const ok = await twoFactorService.verifyCode(userId, code);
+      if (!ok) {
+        throw new Error("Invalid two-factor code");
+      }
+      await adapter.deleteVerificationByIdentifier(identifier); // single-use, burn only on success
+      const user = await adapter.findUserById(userId);
+      if (!user) throw new Error("User not found");
+      return createAuthResponse(user, tenant_Id, ipAddress, userAgent, authType || "default");
+    },
+
     // Get OAuth URL
     async getOAuthUrl(providerName, redirectURI, scopes) {
       const provider = providers.get(providerName);

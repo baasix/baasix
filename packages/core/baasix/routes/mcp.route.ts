@@ -209,7 +209,11 @@ async function performLogin(email: string, password: string, cacheKey: string, i
     }
 
     const result = await auth.signIn({ email, password, ipAddress: ip });
-    if (!result || !result.user) {
+    if (!result || "twoFactorRequired" in result) {
+      console.error(`[MCP] Login failed for ${email}: ${result ? "two-factor authentication is required and is not supported for MCP login" : "invalid credentials"}`);
+      return null;
+    }
+    if (!result.user) {
       console.error(`[MCP] Login failed for ${email}: invalid credentials`);
       return null;
     }
