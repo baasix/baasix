@@ -68,8 +68,8 @@ This skill has detailed reference files. **Read the relevant file before writing
 | POST | /auth/magiclink | No |
 | POST | /auth/switch-tenant | Yes |
 | POST | /auth/refresh | Yes |
-| POST | /auth/forgot-password | No |
-| POST | /auth/reset-password | No |
+| POST | /auth/password/reset | No |
+| POST | /auth/password/reset/:token | No |
 | GET | /auth/signin/:provider | No |
 | GET | /auth/callback/:provider | No |
 | POST | /auth/2fa/enable | Yes |

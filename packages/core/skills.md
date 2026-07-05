@@ -52,8 +52,8 @@ npm run dev
 | POST | /auth/magiclink | Request magic link login | No |
 | POST | /auth/switch-tenant | Switch to different tenant | Yes |
 | POST | /auth/refresh | Refresh JWT token | Yes |
-| POST | /auth/forgot-password | Request password reset | No |
-| POST | /auth/reset-password | Reset password with token | No |
+| POST | /auth/password/reset | Request password reset | No |
+| POST | /auth/password/reset/:token | Reset password with token | No |
 | GET | /auth/signin/:provider | Start browser OAuth flow; 302 to one of 35 social providers | No |
 | GET | /auth/callback/:provider | OAuth provider callback; 302 back to the app with `?token=` or `?error=` | No |
 | POST | /auth/2fa/enable | Enable 2FA; returns `{ secret, otpauthUrl, backupCodes[10] }` (requires a password credential) | Yes |
