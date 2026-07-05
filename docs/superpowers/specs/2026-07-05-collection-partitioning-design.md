@@ -38,17 +38,17 @@ per-tenant drop).
 ## Collection setting
 
 New collection-level option in the schema definition JSON (stored in
-`baasix_SchemaDefinition`), replacing nothing (net-new):
+`baasix_SchemaDefinition`), replacing nothing (net-new). It lives at the **top level**
+of the collection schema, alongside `tenantScoped`/`timestamps` (the codebase has no
+user-facing `options` wrapper):
 
 ```jsonc
 {
-  "options": {
-    "partitioning": {
-      "strategy": "tenant" | "time" | "tenant+time",
-      "timeField": "createdAt",   // time strategies; any NOT NULL DateTime field; default "createdAt"
-      "interval": "month" | "quarter" | "year",  // time strategies; default "year"
-      "premake": 1                // time strategies; future periods to pre-create; default 1
-    }
+  "partitioning": {
+    "strategy": "tenant" | "time" | "tenant+time",
+    "timeField": "createdAt",   // time strategies; any NOT NULL DateTime field; default "createdAt"
+    "interval": "month" | "quarter" | "year",  // time strategies; default "year"
+    "premake": 1                // time strategies; future periods to pre-create; default 1
   }
 }
 ```
