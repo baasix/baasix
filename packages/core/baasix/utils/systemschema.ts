@@ -477,6 +477,62 @@ export const systemSchemas = {
             },
         },
         {
+            collectionName: "baasix_TwoFactor",
+            schema: {
+                name: "TwoFactor",
+                timestamps: true,
+                fields: {
+                    id: {
+                        type: "UUID",
+                        primaryKey: true,
+                        defaultValue: { type: "UUIDV4" },
+                        SystemGenerated: "true",
+                    },
+                    user_Id: {
+                        type: "UUID",
+                        allowNull: false,
+                        SystemGenerated: "true",
+                    },
+                    secret: {
+                        type: "String",
+                        allowNull: false,
+                        SystemGenerated: "true",
+                        hidden: true,
+                    },
+                    backupCodes: {
+                        type: "JSON",
+                        allowNull: false,
+                        SystemGenerated: "true",
+                        hidden: true,
+                        description: "Argon2-hashed one-time backup codes",
+                    },
+                    enabled: {
+                        type: "Boolean",
+                        allowNull: false,
+                        defaultValue: false,
+                        SystemGenerated: "true",
+                    },
+                    user: {
+                        relType: "BelongsTo",
+                        target: "baasix_User",
+                        foreignKey: "user_Id",
+                        as: "user",
+                        SystemGenerated: "true",
+                        description: "M2O",
+                        onDelete: "CASCADE",
+                    },
+                },
+                indexes: [
+                    {
+                        fields: ["user_Id"],
+                        unique: true,
+                        name: "baasix_TwoFactor_user_unique",
+                        SystemGenerated: "true",
+                    },
+                ],
+            },
+        },
+        {
             collectionName: "baasix_File",
             schema: {
                 name: "File",

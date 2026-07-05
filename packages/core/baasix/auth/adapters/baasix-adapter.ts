@@ -7,6 +7,23 @@ import type {
   AuthAdapter,
 } from "../types.js";
 
+// JSON columns are expected to deserialize to arrays via ItemsService/Drizzle, but
+// normalize defensively in case a raw string ever slips through (e.g. driver-level
+// row parsing changes) so callers always see a plain array with `null`-burned
+// backup codes intact.
+function normalizeBackupCodes(value: unknown): string[] {
+  if (Array.isArray(value)) return value as string[];
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // Lazy import for PermissionService to avoid circular dependencies
 let _permissionService: any = null;
 async function getPermissionService() {
@@ -250,6 +267,35 @@ export function createBaasixAdapter(): AuthAdapter {
       if (result.data?.[0]) {
         await service.updateOne(result.data[0].id, data);
       }
+    },
+
+    // ==================== Two-Factor Operations ====================
+
+    async findTwoFactorByUserId(userId) {
+      const service = await getService("baasix_TwoFactor");
+      const result = await service.readByQuery({
+        filter: { user_Id: { eq: userId } },
+        limit: 1,
+      }, false, undefined, { includeHidden: true });
+      const row = result.data?.[0] || null;
+      return row ? { ...row, backupCodes: normalizeBackupCodes(row.backupCodes) } : null;
+    },
+
+    async createTwoFactor(data) {
+      const service = await getService("baasix_TwoFactor");
+      const id = await service.createOne(data);
+      const row = await service.readOne(id, {}, false, undefined, { includeHidden: true });
+      return { ...row, backupCodes: normalizeBackupCodes(row.backupCodes) };
+    },
+
+    async updateTwoFactor(id, data) {
+      const service = await getService("baasix_TwoFactor");
+      await service.updateOne(id, data);
+    },
+
+    async deleteTwoFactor(id) {
+      const service = await getService("baasix_TwoFactor");
+      await service.deleteOne(id);
     },
 
     // ==================== Role Operations ====================

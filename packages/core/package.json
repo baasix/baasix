@@ -71,6 +71,7 @@
         "morgan": "^1.10.0",
         "node-schedule": "^2.1.1",
         "nodemailer": "^6.9.14",
+        "otpauth": "^9.5.1",
         "pg": "^8.13.0",
         "pg-logical-replication": "^2.3.0",
         "pino": "^10.1.0",

@@ -72,6 +72,18 @@ export interface Verification {
   updatedAt: Date;
 }
 
+// ==================== Two-Factor Types ====================
+
+export interface TwoFactor {
+  id: string;
+  user_Id: string;
+  secret: string;
+  backupCodes: string[];
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // ==================== Role & Permission Types ====================
 
 export interface Role {
@@ -288,7 +300,13 @@ export interface AuthAdapter {
   updateVerificationByIdentifier(identifier: string, data: Partial<Verification>): Promise<void>;
   deleteVerification(verificationId: string): Promise<void>;
   deleteVerificationByIdentifier(identifier: string): Promise<void>;
-  
+
+  // Two-factor operations
+  findTwoFactorByUserId(userId: string): Promise<{ id: string; user_Id: string; secret: string; backupCodes: string[]; enabled: boolean } | null>;
+  createTwoFactor(data: { user_Id: string; secret: string; backupCodes: string[]; enabled: boolean }): Promise<any>;
+  updateTwoFactor(id: string, data: Partial<{ secret: string; backupCodes: string[]; enabled: boolean }>): Promise<void>;
+  deleteTwoFactor(id: string): Promise<void>;
+
   // Role operations
   findRoleByName(name: string): Promise<Role | null>;
   findRoleById(roleId: string): Promise<Role | null>;
