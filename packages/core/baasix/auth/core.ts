@@ -25,10 +25,7 @@ import { createSessionService, validateSessionLimits } from "./services/session.
 import { createTokenService } from "./services/token.js";
 import { createVerificationService } from "./services/verification.js";
 import { credential } from "./providers/credential.js";
-import { google } from "./providers/google.js";
-import { facebook } from "./providers/facebook.js";
-import { apple } from "./providers/apple.js";
-import { github } from "./providers/github.js";
+import { providerFactories } from "./providers/index.js";
 import { generateState, generateCodeVerifier } from "./oauth2/utils.js";
 import type { SessionService } from "./services/session.js";
 import type { TokenService } from "./services/token.js";
@@ -148,22 +145,13 @@ export function createAuth(options: AuthOptions): BaasixAuth {
   
   if (options.socialProviders) {
     for (const [name, config] of Object.entries(options.socialProviders)) {
-      if (!config.clientId || !config.clientSecret) continue;
-      
-      switch (name.toLowerCase()) {
-        case "google":
-          providers.set("google", google(config as any));
-          break;
-        case "facebook":
-          providers.set("facebook", facebook(config as any));
-          break;
-        case "apple":
-          providers.set("apple", apple(config as any));
-          break;
-        case "github":
-          providers.set("github", github(config as any));
-          break;
+      if (!config.clientId) continue;
+      const factory = providerFactories[name.toLowerCase()];
+      if (!factory) {
+        console.warn(`[auth] Unknown social provider '${name}' — skipping`);
+        continue;
       }
+      providers.set(name.toLowerCase(), factory(config as any));
     }
   }
   

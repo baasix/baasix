@@ -13,6 +13,18 @@ import mailService from "../services/MailService.js";
 import settingsService from "../services/SettingsService.js";
 import ItemsService from "../services/ItemsService.js";
 import { APIError } from "../utils/errorHandler.js";
+import { PROVIDER_IDS } from "../auth/providers/index.js";
+
+// Providers that need more than CLIENT_ID/CLIENT_SECRET from env
+const PROVIDER_EXTRA_ENV: Record<string, () => Record<string, any>> = {
+  apple: () => ({
+    teamId: env.get("APPLE_TEAM_ID"),
+    keyId: env.get("APPLE_KEY_ID"),
+    privateKey: env.get("APPLE_PRIVATE_KEY"),
+  }),
+  microsoft: () => ({ tenantId: env.get("MICROSOFT_TENANT_ID") || "common" }),
+  tiktok: () => ({ clientKey: env.get("TIKTOK_CLIENT_KEY") }),
+};
 
 // Store the auth instance for use in other parts of the app
 let authInstance: BaasixAuth | null = null;
@@ -42,43 +54,19 @@ const registerEndpoint = (app: Express) => {
     // Social providers from env - only enable if listed in AUTH_SERVICES_ENABLED
     socialProviders: (() => {
       const providers: Record<string, any> = {};
-      
-      // Google
-      if (enabledServices.includes("GOOGLE") && env.get("GOOGLE_CLIENT_ID")) {
-        providers.google = {
-          clientId: env.get("GOOGLE_CLIENT_ID")!,
-          clientSecret: env.get("GOOGLE_CLIENT_SECRET")!,
-          scope: ["email", "profile"],
+      for (const id of PROVIDER_IDS) {
+        if (!enabledServices.includes(id.toUpperCase())) continue;
+        const clientId = env.get(`${id.toUpperCase()}_CLIENT_ID`);
+        if (!clientId) {
+          console.warn(`[auth] ${id} enabled in AUTH_SERVICES_ENABLED but ${id.toUpperCase()}_CLIENT_ID is not set — skipping`);
+          continue;
+        }
+        providers[id] = {
+          clientId,
+          clientSecret: env.get(`${id.toUpperCase()}_CLIENT_SECRET`) || "",
+          ...(PROVIDER_EXTRA_ENV[id]?.() || {}),
         };
       }
-      
-      // Facebook
-      if (enabledServices.includes("FACEBOOK") && env.get("FACEBOOK_CLIENT_ID")) {
-        providers.facebook = {
-          clientId: env.get("FACEBOOK_CLIENT_ID")!,
-          clientSecret: env.get("FACEBOOK_CLIENT_SECRET")!,
-        };
-      }
-      
-      // Apple
-      if (enabledServices.includes("APPLE") && env.get("APPLE_CLIENT_ID")) {
-        providers.apple = {
-          clientId: env.get("APPLE_CLIENT_ID")!,
-          clientSecret: env.get("APPLE_CLIENT_SECRET") || "",
-          teamId: env.get("APPLE_TEAM_ID")!,
-          keyId: env.get("APPLE_KEY_ID")!,
-          privateKey: env.get("APPLE_PRIVATE_KEY")!,
-        };
-      }
-      
-      // GitHub
-      if (enabledServices.includes("GITHUB") && env.get("GITHUB_CLIENT_ID")) {
-        providers.github = {
-          clientId: env.get("GITHUB_CLIENT_ID")!,
-          clientSecret: env.get("GITHUB_CLIENT_SECRET")!,
-        };
-      }
-      
       return providers;
     })(),
     mailService: {

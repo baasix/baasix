@@ -3,6 +3,12 @@
  * Export all auth providers
  */
 
+import { google } from "./google.js";
+import { facebook } from "./facebook.js";
+import { apple } from "./apple.js";
+import { github } from "./github.js";
+import type { OAuthProvider } from "../types.js";
+
 export { google } from "./google.js";
 export type { GoogleOptions, GoogleProfile } from "./google.js";
 
@@ -18,12 +24,17 @@ export type { GitHubOptions, GitHubProfile } from "./github.js";
 export { credential } from "./credential.js";
 export type { CredentialProvider, CredentialProviderOptions } from "./credential.js";
 
-// Provider registry
-export const socialProviders = {
-  google: () => import("./google.js").then((m) => m.google),
-  facebook: () => import("./facebook.js").then((m) => m.facebook),
-  apple: () => import("./apple.js").then((m) => m.apple),
-  github: () => import("./github.js").then((m) => m.github),
-} as const;
+/**
+ * All social provider factories, keyed by provider id.
+ * Tasks porting new providers append here.
+ */
+export const providerFactories: Record<string, (options: any) => OAuthProvider> = {
+  google,
+  facebook,
+  apple,
+  github,
+};
 
-export type SocialProviderName = keyof typeof socialProviders;
+export const PROVIDER_IDS = Object.keys(providerFactories);
+
+export type SocialProviderName = keyof typeof providerFactories;
