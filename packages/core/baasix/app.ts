@@ -22,6 +22,7 @@ import { db, initializeDatabaseWithCache } from "./utils/db.js";
 import { schemaManager } from "./utils/schemaManager.js";
 import { startSessionCleanup } from "./utils/sessionCleanup.js";
 import { startLogCleanup } from "./utils/logCleanup.js";
+import { startPartitionMaintenance } from "./utils/partitionMaintenance.js";
 import schedule from "node-schedule";
 import { rateLimit } from "express-rate-limit";
 import socketService from "./services/SocketService.js";
@@ -487,6 +488,7 @@ export async function startServer(options?: StartServerOptions | number) {
     // Start log cleanup (audit logs and email logs)
     if (env.get("TEST_MODE") !== "true") {
       startLogCleanup();
+      startPartitionMaintenance();
     }
 
     // Initialize Socket.IO if enabled
@@ -593,6 +595,7 @@ export async function startServerForTesting(options?: {
     // Start log cleanup (audit logs and email logs)
     if (env.get("TEST_MODE") !== "true") {
       startLogCleanup();
+      startPartitionMaintenance();
     }
 
     // Attach the server to the app for proper cleanup later

@@ -2,6 +2,7 @@ import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 import { beforeAll, test, expect, describe } from "@jest/globals";
 import { getSqlClient } from "../baasix/utils/db.js";
+import { schemaManager } from "../baasix/utils/schemaManager.js";
 
 let app;
 let adminToken;
@@ -261,5 +262,20 @@ describe("tenant lifecycle partitions", () => {
     expect(rows.length).toBe(0);
     const after = await sql`SELECT COUNT(*)::int AS c FROM "part_orders"`;
     expect(after[0].c).toBe(before[0].c);
+  });
+});
+
+describe("partition reconciliation", () => {
+  test("recreates a missing tenant partition", async () => {
+    const sql = getSqlClient();
+    const partName = `part_orders__t_${tenantB.replace(/-/g, "").slice(0, 8)}`;
+    await sql.unsafe(`DROP TABLE IF EXISTS "${partName}"`); // simulate drift (partition empty? then re-add data)
+    let rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(0);
+
+    await schemaManager.reconcilePartitions();
+
+    rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(1);
   });
 });

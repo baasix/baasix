@@ -135,6 +135,9 @@ export class SchemaManager {
       // Step 4: Load all schemas into memory (pass needSyncing to skip unnecessary sync for unchanged schemas)
       await this.loadAllSchemas(needSyncing);
 
+      // Step 5: Reconcile partitions (heal drift, pre-create time periods)
+      await this.reconcilePartitions();
+
       this.initialized = true;
       console.log('Schema Manager initialized successfully');
     } catch (error) {
@@ -1084,6 +1087,40 @@ export class SchemaManager {
       WHERE relname = ${tableName} AND relnamespace = 'public'::regnamespace`;
     if (rows.length === 0) return null;
     return rows[0].relkind === 'p';
+  }
+
+  /** Ensure the full expected partition set exists for every partitioned collection. */
+  async reconcilePartitions(): Promise<void> {
+    for (const [name, defEntry] of this.schemaDefinitions) {
+      const schema = (defEntry as any)?.schema ?? defEntry;
+      let config: PartitioningConfig | null = null;
+      try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
+      if (!config) continue;
+      try {
+        const partitioned = await this.isTablePartitioned(name);
+        if (partitioned === null) continue;
+        if (partitioned === false) {
+          console.warn(`[partitioning] "${name}" has a partitioning config but the table is not partitioned. ` +
+            `Update the collection via PATCH /schemas/${name} to convert it.`);
+          continue;
+        }
+        await this.ensurePartitions(name, schema);
+        // Non-empty DEFAULT partitions signal rows that missed their partition
+        const sql = getSqlClient();
+        const defaults = await sql`
+          SELECT relid::regclass::text AS part FROM pg_partition_tree(${'"' + name + '"'}::regclass)
+          WHERE isleaf AND relid::regclass::text LIKE '%__default%'`;
+        for (const d of defaults) {
+          const [{ count }] = await sql.unsafe(`SELECT COUNT(*)::int AS count FROM ${d.part}`);
+          if (count > 0) {
+            console.warn(`[partitioning] Default partition ${d.part} holds ${count} rows — ` +
+              `these rows missed their tenant/time partition.`);
+          }
+        }
+      } catch (error) {
+        console.error(`[partitioning] Reconciliation failed for "${name}":`, error);
+      }
+    }
   }
 
   /**
