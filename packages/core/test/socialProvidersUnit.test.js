@@ -14,6 +14,59 @@ export const PROVIDER_URL_CASES = [
         authHost: "discord.com",
         expectInUrl: ["client_id=cid", "state=st-1", "response_type=code"],
     },
+    {
+        id: "atlassian",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "auth.atlassian.com",
+        expectInUrl: ["client_id=cid", "state=st-1", "audience=api.atlassian.com"],
+    },
+    {
+        id: "cognito",
+        options: {
+            clientId: "cid",
+            clientSecret: "sec",
+            domain: "test.auth.us-east-1.amazoncognito.com",
+            region: "us-east-1",
+        },
+        authHost: "test.auth.us-east-1.amazoncognito.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "dropbox",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "www.dropbox.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "figma",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "www.figma.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "gitlab",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "gitlab.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "huggingface",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "huggingface.co",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "kakao",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "kauth.kakao.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "kick",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "id.kick.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
 ];
 
 describe.each(PROVIDER_URL_CASES)("provider $id", ({ id, options, authHost, expectInUrl }) => {

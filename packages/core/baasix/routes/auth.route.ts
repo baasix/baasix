@@ -24,6 +24,7 @@ const PROVIDER_EXTRA_ENV: Record<string, () => Record<string, any>> = {
   }),
   microsoft: () => ({ tenantId: env.get("MICROSOFT_TENANT_ID") || "common" }),
   tiktok: () => ({ clientKey: env.get("TIKTOK_CLIENT_KEY") }),
+  cognito: () => ({ domain: env.get("COGNITO_DOMAIN"), region: env.get("COGNITO_REGION") }),
 };
 
 // Store the auth instance for use in other parts of the app
