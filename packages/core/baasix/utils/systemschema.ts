@@ -533,6 +533,96 @@ export const systemSchemas = {
             },
         },
         {
+            collectionName: "baasix_Passkey",
+            schema: {
+                name: "Passkey",
+                timestamps: true,
+                fields: {
+                    id: {
+                        type: "UUID",
+                        primaryKey: true,
+                        defaultValue: { type: "UUIDV4" },
+                        SystemGenerated: "true",
+                    },
+                    user_Id: {
+                        type: "UUID",
+                        allowNull: false,
+                        SystemGenerated: "true",
+                    },
+                    name: {
+                        type: "String",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                    },
+                    credentialID: {
+                        type: "String",
+                        allowNull: false,
+                        SystemGenerated: "true",
+                    },
+                    publicKey: {
+                        type: "Text",
+                        allowNull: false,
+                        SystemGenerated: "true",
+                        hidden: true,
+                    },
+                    counter: {
+                        type: "Integer",
+                        allowNull: false,
+                        defaultValue: 0,
+                        SystemGenerated: "true",
+                    },
+                    deviceType: {
+                        type: "String",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                    },
+                    backedUp: {
+                        type: "Boolean",
+                        allowNull: false,
+                        defaultValue: false,
+                        SystemGenerated: "true",
+                    },
+                    transports: {
+                        type: "JSON",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                    },
+                    aaguid: {
+                        type: "String",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                    },
+                    lastUsedAt: {
+                        type: "DateTime",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                    },
+                    user: {
+                        relType: "BelongsTo",
+                        target: "baasix_User",
+                        foreignKey: "user_Id",
+                        as: "user",
+                        SystemGenerated: "true",
+                        description: "M2O",
+                        onDelete: "CASCADE",
+                    },
+                },
+                indexes: [
+                    {
+                        fields: ["credentialID"],
+                        unique: true,
+                        name: "baasix_Passkey_credential_unique",
+                        SystemGenerated: "true",
+                    },
+                    {
+                        fields: ["user_Id"],
+                        name: "baasix_Passkey_user",
+                        SystemGenerated: "true",
+                    },
+                ],
+            },
+        },
+        {
             collectionName: "baasix_File",
             schema: {
                 name: "File",

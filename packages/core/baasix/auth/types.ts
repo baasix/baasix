@@ -84,6 +84,24 @@ export interface TwoFactor {
   updatedAt: Date;
 }
 
+// ==================== Passkey Types ====================
+
+export interface Passkey {
+  id: string;
+  user_Id: string;
+  name: string | null;
+  credentialID: string;
+  publicKey: string;
+  counter: number;
+  deviceType: string | null;
+  backedUp: boolean;
+  transports: string[] | null;
+  aaguid: string | null;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // ==================== Role & Permission Types ====================
 
 export interface Role {
@@ -252,6 +270,14 @@ export interface AuthOptions {
   twoFactor?: {
     enabled?: boolean;
   };
+  /**
+   * Passkey (WebAuthn) configuration
+   */
+  passkey?: {
+    rpId: string;
+    rpName: string;
+    origins: string[];
+  };
 }
 
 export interface AuthHooks {
@@ -312,6 +338,13 @@ export interface AuthAdapter {
   createTwoFactor(data: { user_Id: string; secret: string; backupCodes: string[]; enabled: boolean }): Promise<any>;
   updateTwoFactor(id: string, data: Partial<{ secret: string; backupCodes: string[]; enabled: boolean }>): Promise<void>;
   deleteTwoFactor(id: string): Promise<void>;
+
+  // Passkey operations
+  createPasskey(data: { user_Id: string; name: string | null; credentialID: string; publicKey: string; counter: number; deviceType: string; backedUp: boolean; transports: string[] | null; aaguid: string | null }): Promise<any>;
+  findPasskeysByUserId(userId: string): Promise<any[]>;
+  findPasskeyByCredentialId(credentialID: string): Promise<any | null>;
+  updatePasskey(id: string, data: Partial<{ counter: number; name: string; lastUsedAt: Date }>): Promise<void>;
+  deletePasskey(id: string): Promise<void>;
 
   // Role operations
   findRoleByName(name: string): Promise<Role | null>;

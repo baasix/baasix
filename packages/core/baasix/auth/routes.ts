@@ -11,6 +11,7 @@ import { getCache } from "../utils/cache.js";
 import { isAdmin, getPublicRole } from "../utils/auth.js";
 import { rateLimit } from "express-rate-limit";
 import crypto from "crypto";
+import { createPasskeyService } from "./plugins/passkey/service.js";
 
 /**
  * Generate a human-typeable one-time code from a CSPRNG. Uses an unambiguous
@@ -109,6 +110,17 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   const basePath = options.basePath || "/auth";
   const auth = createAuth(options);
   const cache = getCache();
+
+  // Passkey (WebAuthn) service — only constructed when the server has a valid
+  // rpId/rpName/origins config (see routes/auth.route.ts env wiring).
+  const passkeyService = options.passkey ? createPasskeyService(auth.adapter, options.passkey) : null;
+  function requirePasskey(res: Response): boolean {
+    if (!passkeyService) {
+      res.status(400).json({ code: "PASSKEY_NOT_ENABLED", message: "Passkey authentication is not enabled on this server" });
+      return false;
+    }
+    return true;
+  }
 
   // Dedicated brute-force limiter for credential/secret-sensitive auth endpoints
   // (login, magic-link, password reset). Much stricter than the global API limiter.
@@ -441,6 +453,127 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (!verified) return res.status(401).json({ message: "Invalid password" });
       await auth.twoFactorService.disable(user.id);
       res.json({ disabled: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== Passkey (WebAuthn) ====================
+
+  app.post(`${basePath}/passkey/register/options`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!requirePasskey(res)) return;
+      const user = await auth.adapter.findUserById(req.accountability.user.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const options = await passkeyService!.registrationOptions(user);
+      res.json(options);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post(`${basePath}/passkey/register/verify`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!requirePasskey(res)) return;
+      const { response, name } = req.body;
+      if (!response) return res.status(400).json({ message: "response is required" });
+      const passkey = await passkeyService!.verifyRegistration(
+        { id: req.accountability.user.id },
+        response,
+        name || null
+      );
+      res.json({ verified: true, passkey: { id: passkey.id, name: passkey.name } });
+    } catch (error: any) {
+      if (error.message?.includes("challenge") || error.message?.includes("Passkey verification failed")) {
+        return res.status(401).json({ message: error.message, code: "INVALID_PASSKEY_RESPONSE" });
+      }
+      next(error);
+    }
+  });
+
+  app.post(`${basePath}/passkey/authenticate/options`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!requirePasskey(res)) return;
+      const result = await passkeyService!.authenticationOptions();
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post(`${basePath}/passkey/authenticate/verify`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!requirePasskey(res)) return;
+      const { challengeId, response, authMode = "jwt", tenant_Id } = req.body;
+      if (!challengeId || !response) {
+        return res.status(400).json({ message: "challengeId and response are required" });
+      }
+
+      let passkey;
+      try {
+        passkey = await passkeyService!.verifyAuthentication(challengeId, response);
+      } catch (error: any) {
+        return res.status(401).json({ message: error.message, code: "INVALID_PASSKEY_RESPONSE" });
+      }
+
+      const user = await auth.adapter.findUserById(passkey.user_Id);
+      if (!user) return res.status(401).json({ message: "User not found", code: "INVALID_PASSKEY_RESPONSE" });
+
+      const ipAddress = req.ip || (req.connection as any)?.remoteAddress || null;
+      const userAgent = req.headers["user-agent"] || null;
+
+      const result = await auth.createAuthResponseForUser(user, tenant_Id, ipAddress, userAgent);
+
+      const tokenResponse = setTokenInResponse(res, result.token, authMode, options.env);
+
+      res.json({
+        ...tokenResponse,
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+        },
+        role: result.role,
+        permissions: result.permissions,
+        tenant: result.tenant,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get(`${basePath}/passkey`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!requirePasskey(res)) return;
+      const passkeys = await auth.adapter.findPasskeysByUserId(req.accountability.user.id);
+      res.json({
+        passkeys: passkeys.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          deviceType: p.deviceType,
+          backedUp: p.backedUp,
+          createdAt: p.createdAt,
+          lastUsedAt: p.lastUsedAt,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete(`${basePath}/passkey/:id`, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.accountability?.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!requirePasskey(res)) return;
+      const passkeys = await auth.adapter.findPasskeysByUserId(req.accountability.user.id);
+      const passkey = passkeys.find((p: any) => p.id === req.params.id);
+      if (!passkey) return res.status(404).json({ message: "Passkey not found" });
+      await auth.adapter.deletePasskey(passkey.id);
+      res.json({ deleted: true });
     } catch (error) {
       next(error);
     }

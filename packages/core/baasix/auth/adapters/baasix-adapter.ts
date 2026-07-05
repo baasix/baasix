@@ -302,6 +302,43 @@ export function createBaasixAdapter(): AuthAdapter {
       await service.deleteOne(id);
     },
 
+    // ==================== Passkey Operations ====================
+
+    async createPasskey(data) {
+      const service = await getService("baasix_Passkey");
+      const id = await service.createOne(data);
+      // includeHidden: `publicKey` is a hidden field the auth layer needs back
+      // for later authentication ceremonies.
+      return service.readOne(id, {}, false, undefined, { includeHidden: true });
+    },
+
+    async findPasskeysByUserId(userId) {
+      const service = await getService("baasix_Passkey");
+      const result = await service.readByQuery({
+        filter: { user_Id: { eq: userId } },
+      }, false, undefined, { includeHidden: true });
+      return result.data || [];
+    },
+
+    async findPasskeyByCredentialId(credentialID) {
+      const service = await getService("baasix_Passkey");
+      const result = await service.readByQuery({
+        filter: { credentialID: { eq: credentialID } },
+        limit: 1,
+      }, false, undefined, { includeHidden: true });
+      return result.data?.[0] || null;
+    },
+
+    async updatePasskey(id, data) {
+      const service = await getService("baasix_Passkey");
+      await service.updateOne(id, data);
+    },
+
+    async deletePasskey(id) {
+      const service = await getService("baasix_Passkey");
+      await service.deleteOne(id);
+    },
+
     // ==================== Role Operations ====================
 
     async findRoleByName(name) {

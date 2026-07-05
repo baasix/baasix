@@ -112,6 +112,17 @@ export interface BaasixAuth {
     ipAddress?: string | null;
     userAgent?: string | null;
   }): Promise<AuthResponse>;
+
+  // Create a login-shaped AuthResponse for an already-authenticated user (e.g.
+  // after a successful passkey ceremony). Thin public wrapper around the
+  // internal createAuthResponse used by signIn/signUp/etc.
+  createAuthResponseForUser(
+    user: User,
+    tenantId?: string | null,
+    ipAddress?: string | null,
+    userAgent?: string | null,
+    sessionType?: string
+  ): Promise<AuthResponse>;
 }
 
 /**
@@ -884,6 +895,11 @@ export function createAuth(options: AuthOptions): BaasixAuth {
         throw new Error("User not found");
       }
 
+      return createAuthResponse(user, tenantId, ipAddress, userAgent, sessionType);
+    },
+
+    // Create Auth Response for an already-authenticated user (e.g. passkey)
+    async createAuthResponseForUser(user, tenantId, ipAddress, userAgent, sessionType = "default") {
       return createAuthResponse(user, tenantId, ipAddress, userAgent, sessionType);
     },
   };

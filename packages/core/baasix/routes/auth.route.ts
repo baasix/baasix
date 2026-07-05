@@ -57,6 +57,19 @@ const registerEndpoint = (app: Express) => {
     twoFactor: {
       enabled: enabledServices.includes("TWOFACTOR"),
     },
+    passkey: (() => {
+      if (!enabledServices.includes("PASSKEY")) return undefined;
+      const rpId = env.get("PASSKEY_RP_ID");
+      if (!rpId) {
+        console.warn("[auth] PASSKEY enabled but PASSKEY_RP_ID is not set — passkey disabled");
+        return undefined;
+      }
+      return {
+        rpId,
+        rpName: env.get("PASSKEY_RP_NAME") || "Baasix",
+        origins: (env.get("PASSKEY_ORIGIN") || "").split(",").map((s) => s.trim()).filter(Boolean),
+      };
+    })(),
     // Social providers from env - only enable if listed in AUTH_SERVICES_ENABLED
     socialProviders: (() => {
       const providers: Record<string, any> = {};
@@ -99,8 +112,8 @@ const registerEndpoint = (app: Express) => {
     registration: env.get("PUBLIC_REGISTRATION") !== "false",
     emailPassword: enabledServices.includes("LOCAL"),
     magicLink: enabledServices.includes("LOCAL"), // AND smtp — finalized in getProjectInfo
-    passkey: enabledServices.includes("PASSKEY"), // refined in Task 11
-    twoFactor: enabledServices.includes("TWOFACTOR"), // refined in Task 12
+    passkey: !!authOptions.passkey,
+    twoFactor: enabledServices.includes("TWOFACTOR"),
     socialProviders: Array.from(authInstance.providers.keys()),
   });
 
