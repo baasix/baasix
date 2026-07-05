@@ -1156,15 +1156,35 @@ export class SchemaManager {
           await sql.unsafe(`ALTER TABLE "${collectionName}" DROP CONSTRAINT "${constraintName}"`);
         }
 
-        // Create the foreign key constraint
-        const fkSQL = createForeignKeySQL(
-          collectionName,
-          foreignKey,
-          targetTable,
-          targetKey,
-          onDelete,
-          onUpdate
-        );
+        // Partitioned targets need the partition key in the FK (or no FK at all)
+        const targetDefEntry: any = this.schemaDefinitions.get(assoc.target);
+        const targetSchema = targetDefEntry?.schema ?? targetDefEntry;
+        let targetPartitioning: PartitioningConfig | null = null;
+        try { targetPartitioning = normalizePartitioning(targetSchema?.partitioning); } catch { targetPartitioning = null; }
+
+        let fkSQL: string;
+        if (targetPartitioning) {
+          if (targetPartitioning.strategy !== 'tenant') {
+            console.warn(`[partitioning] Skipping FK ${constraintName}: target "${assoc.target}" is time-partitioned (children cannot reference (id, ${targetPartitioning.timeField}))`);
+            continue;
+          }
+          if (!schema.fields?.tenant_Id) {
+            console.warn(`[partitioning] Skipping FK ${constraintName}: "${collectionName}" has no tenant_Id column to reference partitioned "${assoc.target}"`);
+            continue;
+          }
+          fkSQL = `ALTER TABLE "${collectionName}" ADD CONSTRAINT "${constraintName}" ` +
+            `FOREIGN KEY ("${foreignKey}", "tenant_Id") REFERENCES "${assoc.target}"("id", "tenant_Id") ` +
+            `ON DELETE ${onDelete} ON UPDATE ${onUpdate}`;
+        } else {
+          fkSQL = createForeignKeySQL(
+            collectionName,
+            foreignKey,
+            targetTable,
+            targetKey,
+            onDelete,
+            onUpdate
+          );
+        }
 
         await sql.unsafe(fkSQL);
         console.log(`Created foreign key constraint: ${constraintName}`);

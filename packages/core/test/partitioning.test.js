@@ -198,3 +198,46 @@ describe("tenant+time composite partitioning", () => {
     expect(rows.length).toBe(0); // parent AND its time sub-partitions gone (DROP ... CASCADE)
   });
 });
+
+describe("FKs to partitioned collections", () => {
+  beforeAll(async () => {
+    const res = await authed(request(app).post("/schemas")).send({
+      collectionName: "part_order_lines",
+      schema: {
+        name: "PartOrderLine",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          qty: { type: "Integer" },
+          // order_Id is declared explicitly (not just inferred from the relation) so it is
+          // a first-class writable column: relying on relation-only inference to backfill
+          // the FK column into schema.fields is a separate, pre-existing gap unrelated to
+          // partitioning and out of scope here.
+          order_Id: { type: "UUID", allowNull: true },
+          order: { relType: "BelongsTo", target: "part_orders", foreignKey: "order_Id", as: "order" },
+        },
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+  });
+
+  test("FK is composite on (order_Id, tenant_Id)", async () => {
+    const sql = getSqlClient();
+    const [fk] = await sql`
+      SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+      WHERE conname = 'fk_part_order_lines_order_Id'`;
+    expect(fk).toBeDefined();
+    expect(fk.def).toContain('"order_Id"');
+    expect(fk.def).toContain('"tenant_Id"');
+    // pg_get_constraintdef only re-quotes identifiers that need it, so plain
+    // lowercase names like "id" and "part_orders" come back unquoted.
+    expect(fk.def).toContain('REFERENCES part_orders(id, "tenant_Id")');
+  });
+
+  test("cross-tenant reference is rejected by the FK", async () => {
+    const orders = await authed(request(app).get("/items/part_orders")).query({ limit: 50 });
+    const anOrder = (orders.body.data ?? orders.body).find((o) => o.tenant_Id === tenantA);
+    const res = await authed(request(app).post("/items/part_order_lines"))
+      .send({ qty: 1, order_Id: anOrder.id, tenant_Id: tenantB });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
