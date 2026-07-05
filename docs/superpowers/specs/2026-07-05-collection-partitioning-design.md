@@ -60,7 +60,7 @@ user-facing `options` wrapper):
   (for tenant strategies — no `tenant_Id` to partition by).
 - `timeField` must resolve to a `DateTime`/`DateTime_NO_TZ` column that is `NOT NULL`
   or has a non-null default (`NOW`); `createdAt` (timestamps) qualifies.
-- Postgres `server_version` must be ≥ 13; otherwise reject with a clear error.
+- Postgres `server_version` must be ≥ 12 (every feature used — LIST/RANGE sub-partitioning, DEFAULT partitions, inbound composite FKs, pg_partition_tree — is PG12+); otherwise reject with a clear error.
 - Changing `strategy`/`interval`/`timeField` on an existing partitioned collection is
   a conversion (see below) — done via the same copy-and-swap.
 
