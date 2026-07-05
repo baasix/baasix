@@ -539,6 +539,13 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       await adapter.deleteVerificationByIdentifier(identifier); // single-use, burn only on success
       const user = await adapter.findUserById(userId);
       if (!user) throw new Error("User not found");
+      // Re-check account status at redemption time: the account may have been
+      // suspended/disabled in the window between signIn issuing the challenge
+      // and this call. Mirrors signIn's password-login status check so 2FA
+      // can't be used to bypass it.
+      if (user.status !== "active") {
+        throw new Error(`Account is ${user.status}`);
+      }
       return createAuthResponse(user, tenant_Id, ipAddress, userAgent, authType || "default");
     },
 
@@ -901,6 +908,14 @@ export function createAuth(options: AuthOptions): BaasixAuth {
 
     // Create Auth Response for an already-authenticated user (e.g. passkey)
     async createAuthResponseForUser(user, tenantId, ipAddress, userAgent, sessionType = "default") {
+      // Mirror signIn's account-status check so alternate login paths (e.g.
+      // passkey) can't bypass suspension/disablement. The caller (passkey
+      // route) maps this to the same generic 401 as any other verification
+      // failure so the status can't be probed from the response.
+      if (user.status !== "active") {
+        throw new Error(`Account is ${user.status}`);
+      }
+
       // Mirror signIn's session-limit enforcement so alternate login paths
       // (e.g. passkey) can't bypass per-session-type limits.
       const { role, tenant } = await getUserRoleAndPermissions(user.id, tenantId);

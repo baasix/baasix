@@ -66,6 +66,43 @@ describe("2FA end-to-end", () => {
         expect(replay.status).toBe(401);
     });
 
+    test("verify rejects a suspended account the same way password login does", async () => {
+        const auth = getAuthInstance();
+        const suspendedEmail = "2fasuspended@example.com";
+        const suspendedPassword = "password@123";
+        await request(app).post("/auth/register").send({ email: suspendedEmail, password: suspendedPassword, firstName: "Suspended" });
+        const login1 = await request(app).post("/auth/login").send({ email: suspendedEmail, password: suspendedPassword });
+        const suspendedToken = login1.body.token;
+
+        const enableRes = await request(app).post("/auth/2fa/enable")
+            .set("Authorization", `Bearer ${suspendedToken}`).send({});
+        const suspendedSecret = enableRes.body.secret;
+        await request(app).post("/auth/2fa/verify-setup")
+            .set("Authorization", `Bearer ${suspendedToken}`)
+            .send({ code: totpFor(suspendedSecret).generate() });
+
+        // Trigger the 2FA challenge for a fresh login, then suspend the
+        // account before redeeming it — mirrors an admin suspending a user
+        // mid-login.
+        const login2 = await request(app).post("/auth/login").send({ email: suspendedEmail, password: suspendedPassword });
+        expect(login2.body.twoFactorRequired).toBe(true);
+
+        const suspendedUser = await auth.adapter.findUserByEmail(suspendedEmail);
+        await auth.adapter.updateUser(suspendedUser.id, { status: "suspended" });
+
+        // Sanity check: password login on the now-suspended account gives
+        // a 403 "Account is suspended" — this is the shape 2FA must match.
+        const passwordAttempt = await request(app).post("/auth/login").send({ email: suspendedEmail, password: suspendedPassword });
+        expect(passwordAttempt.status).toBe(403);
+        expect(passwordAttempt.body.message).toBe("Account is suspended");
+
+        const res = await request(app).post("/auth/2fa/verify")
+            .send({ twoFactorToken: login2.body.twoFactorToken, code: totpFor(suspendedSecret).generate() });
+        expect(res.status).toBe(403);
+        expect(res.body.message).toBe("Account is suspended");
+        expect(res.body.token).toBeUndefined();
+    });
+
     test("disable requires the password and restores plain login", async () => {
         const login2 = await request(app).post("/auth/2fa/verify") // still enabled — get a session first
             .send({ twoFactorToken: (await request(app).post("/auth/login").send({ email, password })).body.twoFactorToken,

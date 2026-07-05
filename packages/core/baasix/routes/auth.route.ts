@@ -64,10 +64,15 @@ const registerEndpoint = (app: Express) => {
         console.warn("[auth] PASSKEY enabled but PASSKEY_RP_ID is not set — passkey disabled");
         return undefined;
       }
+      const origins = (env.get("PASSKEY_ORIGIN") || "").split(",").map((s) => s.trim()).filter(Boolean);
+      if (origins.length === 0) {
+        console.warn("[auth] PASSKEY enabled but PASSKEY_ORIGIN is not set — passkey disabled");
+        return undefined;
+      }
       return {
         rpId,
         rpName: env.get("PASSKEY_RP_NAME") || "Baasix",
-        origins: (env.get("PASSKEY_ORIGIN") || "").split(",").map((s) => s.trim()).filter(Boolean),
+        origins,
       };
     })(),
     // Social providers from env - only enable if listed in AUTH_SERVICES_ENABLED

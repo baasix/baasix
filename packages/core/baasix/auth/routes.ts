@@ -405,6 +405,12 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (error.message.includes("two-factor")) {
         return res.status(401).json({ message: error.message, code: "INVALID_TWO_FACTOR_CODE" });
       }
+      // 2FA redemption follows an earlier password check, so mirror /login's
+      // account-status handling (403, same message) rather than the generic
+      // 401 used for a bad code.
+      if (error.message.includes("Account is")) {
+        return res.status(403).json({ message: error.message });
+      }
       next(error);
     }
   });
@@ -545,6 +551,13 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         }
         if (error.message.includes("Invalid session type")) {
           return res.status(403).json({ message: error.message });
+        }
+        if (error.message.includes("Account is")) {
+          // Don't leak account status to the client — collapse to the same
+          // generic failure as a bad credential/challenge, but log the real
+          // reason server-side.
+          console.warn("[auth] Passkey authentication rejected for non-active user:", user.id, error.message);
+          return genericAuthFailure();
         }
         throw error;
       }
@@ -1032,7 +1045,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     }
   });
   
-  app.get(`${basePath}/magiclink/:token`, async (req: Request, res: Response, next: NextFunction) => {
+  app.get(`${basePath}/magiclink/:token`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { token } = req.params;
       const authMode = (req.query.authMode as string) || "jwt";

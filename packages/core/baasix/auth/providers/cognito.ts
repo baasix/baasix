@@ -204,7 +204,10 @@ export function cognito(options: CognitoOptions): OAuthProvider<CognitoProfile, 
           user: {
             id: profile.sub,
             email: profile.email,
-            emailVerified: profile.email_verified,
+            // Cognito's userinfo endpoint (unlike the ID token) returns
+            // email_verified as the string "true"/"false" rather than a
+            // boolean, so a plain truthy check would treat "false" as verified.
+            emailVerified: profile.email_verified === true || (profile.email_verified as unknown) === "true",
             name: displayName,
             image: profile.picture,
             firstName: (mapped as any).firstName || profile.given_name || displayName,
