@@ -200,6 +200,7 @@ export interface AuthOptions {
     requireEmailVerification?: boolean;
     minPasswordLength?: number;
     maxPasswordLength?: number;
+    publicRegistration?: boolean;
   };
   /**
    * Social providers configuration

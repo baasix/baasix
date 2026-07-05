@@ -222,6 +222,10 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   app.post(`${basePath}/register`, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (options.emailAndPassword?.publicRegistration === false && !req.body.inviteToken) {
+        return res.status(403).json({ message: "Public registration is disabled", code: "REGISTRATION_DISABLED" });
+      }
+
       const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, authMode = "jwt", ...customFields } = req.body;
 
       if (!email || !password || !firstName) {

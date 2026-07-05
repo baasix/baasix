@@ -48,6 +48,7 @@ const registerEndpoint = (app: Express) => {
       requireEmailVerification: env.get("REQUIRE_EMAIL_VERIFICATION") === "true", // Default false
       minPasswordLength: 8,
       maxPasswordLength: 128,
+      publicRegistration: env.get("PUBLIC_REGISTRATION") !== "false", // Default true
     },
     multiTenant: {
       enabled: env.get("MULTI_TENANT") === "true",
