@@ -6,7 +6,9 @@
  * 
  * Features:
  * - Email/Password authentication
- * - OAuth2 social authentication (Google, Facebook, Apple, GitHub)
+ * - OAuth2 social authentication (35 providers — see providers/index.ts)
+ * - Passkey (WebAuthn) authentication
+ * - Two-factor authentication (TOTP + backup codes)
  * - Session management
  * - JWT token handling
  * - Email verification
