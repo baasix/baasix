@@ -157,10 +157,14 @@ global-admin reads) scan every partition's id index — negligible at tens of pa
   for a key that already has matching rows sitting in the `DEFAULT` partition — the new
   partition's bound would conflict with existing default rows, so the CREATE errors.
   Reconciliation therefore logs an error for that collection on **every** pass until the
-  stranded rows are moved out of the default by hand. Runbook: during a maintenance
-  window, `INSERT INTO "parent" SELECT * FROM "parent__default" WHERE "tenant_Id" = '<id>'`
-  (this re-routes the rows into the now-creatable partition — create it first, or move
-  then let reconciliation create it), then `DELETE FROM "parent__default" WHERE "tenant_Id" = '<id>'`.
+  stranded rows are moved out of the default by hand. Runbook (one transaction, in a
+  maintenance window — order matters, since the partition cannot be created while
+  matching rows sit in the default):
+  1. `CREATE TEMP TABLE stranded AS SELECT * FROM "parent__default" WHERE "tenant_Id" = '<id>';`
+  2. `DELETE FROM "parent__default" WHERE "tenant_Id" = '<id>';`
+  3. Create the partition (`CREATE TABLE "<canonical name>" PARTITION OF "parent" FOR VALUES IN ('<id>')`,
+     or commit and let reconciliation create it);
+  4. `INSERT INTO "parent" SELECT * FROM stranded;` — rows now route into the new partition.
 
 ## Converting an existing populated table (flag added/changed/removed)
 
