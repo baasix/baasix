@@ -42,7 +42,7 @@ export function validatePartitioning(
   const config = normalizePartitioning(schema?.partitioning);
   if (!config) return null;
   if (!ctx.pgOk) {
-    throw new APIError("Partitioning requires PostgreSQL 13 or newer", 400);
+    throw new APIError("Partitioning requires PostgreSQL 12 or newer", 400);
   }
   if (collectionName.startsWith("baasix_")) {
     throw new APIError("Partitioning is not supported on system collections", 400);

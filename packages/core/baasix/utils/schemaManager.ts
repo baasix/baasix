@@ -2124,7 +2124,7 @@ export class SchemaManager {
     // Validate partitioning config before persisting anything (throws APIError on bad config)
     const partitionConfig = validatePartitioning(collectionName, schema, {
       isMultiTenant,
-      pgOk: await isPgVersionAtLeast(13),
+      pgOk: await isPgVersionAtLeast(12),
     });
     if (partitionConfig) {
       appendPartitionKeysToUniqueIndexes(schema, getPartitionKeyColumns(partitionConfig));

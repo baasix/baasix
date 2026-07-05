@@ -70,7 +70,7 @@ describe("partitionUtils", () => {
     expect(() => validatePartitioning("orders",
       { ...base, timestamps: false, partitioning: { strategy: "time" } }, ctx)).toThrow(/timeField/i);
     expect(() => validatePartitioning("orders", { ...base, partitioning: { strategy: "time" } },
-      { isMultiTenant: false, pgOk: false })).toThrow(/PostgreSQL 13/);
+      { isMultiTenant: false, pgOk: false })).toThrow(/PostgreSQL 12/);
     expect(validatePartitioning("orders", base, ctx)).toBeNull();
   });
 });

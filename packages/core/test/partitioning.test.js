@@ -49,4 +49,32 @@ describe("partitioning validation", () => {
     expect(res.status).toBe(400);
     expect(JSON.stringify(res.body)).toMatch(/timeField/i);
   });
+
+  test("PATCH with invalid partitioning is rejected and not persisted", async () => {
+    // Create a valid collection first
+    const createRes = await authed(request(app).post("/schemas")).send({
+      collectionName: "good_part",
+      schema: {
+        name: "GoodPart",
+        fields: { id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } } },
+      },
+    });
+    expect(createRes.status).toBe(201);
+
+    // Attempt to PATCH in an invalid partitioning strategy
+    const patchRes = await authed(request(app).patch("/schemas/good_part")).send({
+      schema: {
+        name: "GoodPart",
+        fields: { id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } } },
+        partitioning: { strategy: "hash" },
+      },
+    });
+    expect(patchRes.status).toBe(400);
+    expect(JSON.stringify(patchRes.body)).toMatch(/strategy/i);
+
+    // The invalid config must not have been persisted
+    const getRes = await authed(request(app).get("/schemas/good_part"));
+    expect(getRes.status).toBe(200);
+    expect(JSON.stringify(getRes.body.data.schema)).not.toMatch(/hash/);
+  });
 });
