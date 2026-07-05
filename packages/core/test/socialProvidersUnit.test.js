@@ -163,6 +163,42 @@ export const PROVIDER_URL_CASES = [
         authHost: "www.tiktok.com",
         expectInUrl: ["client_key=ckey", "state=st-1"],
     },
+    {
+        id: "twitch",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "id.twitch.tv",
+        expectInUrl: ["client_id=cid", "state=st-1", "response_type=code"],
+    },
+    {
+        id: "twitter",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "x.com",
+        expectInUrl: ["client_id=cid", "state=st-1", "code_challenge"],
+    },
+    {
+        id: "vercel",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "vercel.com",
+        expectInUrl: ["client_id=cid", "state=st-1", "code_challenge"],
+    },
+    {
+        id: "vk",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "id.vk.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "wechat",
+        options: { clientId: "appid", clientSecret: "sec" },
+        authHost: "open.weixin.qq.com",
+        expectInUrl: ["appid=appid", "state=st-1"],
+    },
+    {
+        id: "zoom",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "zoom.us",
+        expectInUrl: ["client_id=cid", "state=st-1", "code_challenge"],
+    },
 ];
 
 describe.each(PROVIDER_URL_CASES)("provider $id", ({ id, options, authHost, expectInUrl }) => {

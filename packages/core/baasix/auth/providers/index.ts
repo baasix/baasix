@@ -32,6 +32,12 @@ import { salesforce } from "./salesforce.js";
 import { slack } from "./slack.js";
 import { spotify } from "./spotify.js";
 import { tiktok } from "./tiktok.js";
+import { twitch } from "./twitch.js";
+import { twitter } from "./twitter.js";
+import { vercel } from "./vercel.js";
+import { vk } from "./vk.js";
+import { wechat } from "./wechat.js";
+import { zoom } from "./zoom.js";
 import type { OAuthProvider } from "../types.js";
 
 export { google } from "./google.js";
@@ -121,6 +127,24 @@ export type { SpotifyOptions, SpotifyProfile } from "./spotify.js";
 export { tiktok } from "./tiktok.js";
 export type { TikTokOptions, TikTokProfile } from "./tiktok.js";
 
+export { twitch } from "./twitch.js";
+export type { TwitchOptions, TwitchProfile } from "./twitch.js";
+
+export { twitter } from "./twitter.js";
+export type { TwitterOption, TwitterProfile } from "./twitter.js";
+
+export { vercel } from "./vercel.js";
+export type { VercelOptions, VercelProfile } from "./vercel.js";
+
+export { vk } from "./vk.js";
+export type { VkOption, VkProfile } from "./vk.js";
+
+export { wechat } from "./wechat.js";
+export type { WeChatOptions, WeChatProfile } from "./wechat.js";
+
+export { zoom } from "./zoom.js";
+export type { ZoomOptions, ZoomProfile } from "./zoom.js";
+
 export { credential } from "./credential.js";
 export type { CredentialProvider, CredentialProviderOptions } from "./credential.js";
 
@@ -158,6 +182,12 @@ export const providerFactories: Record<string, (options: any) => OAuthProvider> 
   slack,
   spotify,
   tiktok,
+  twitch,
+  twitter,
+  vercel,
+  vk,
+  wechat,
+  zoom,
 };
 
 export const PROVIDER_IDS = Object.keys(providerFactories);
