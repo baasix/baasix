@@ -1,7 +1,7 @@
 # Collection Partitioning (Tenant / Time) — Design
 
 **Date:** 2026-07-05
-**Status:** Approved pending spec review
+**Status:** Implemented (see docs/superpowers/plans/2026-07-05-collection-partitioning.md)
 **Scope:** `packages/core` (SchemaManager, tenant lifecycle, schema API validation)
 
 ## Motivation
