@@ -24,6 +24,14 @@ import { naver } from "./naver.js";
 import { notion } from "./notion.js";
 import { paybin } from "./paybin.js";
 import { paypal } from "./paypal.js";
+import { polar } from "./polar.js";
+import { railway } from "./railway.js";
+import { reddit } from "./reddit.js";
+import { roblox } from "./roblox.js";
+import { salesforce } from "./salesforce.js";
+import { slack } from "./slack.js";
+import { spotify } from "./spotify.js";
+import { tiktok } from "./tiktok.js";
 import type { OAuthProvider } from "../types.js";
 
 export { google } from "./google.js";
@@ -89,6 +97,30 @@ export type { PaybinOptions, PaybinProfile } from "./paybin.js";
 export { paypal } from "./paypal.js";
 export type { PayPalOptions, PayPalProfile } from "./paypal.js";
 
+export { polar } from "./polar.js";
+export type { PolarOptions, PolarProfile } from "./polar.js";
+
+export { railway } from "./railway.js";
+export type { RailwayOptions, RailwayProfile } from "./railway.js";
+
+export { reddit } from "./reddit.js";
+export type { RedditOptions, RedditProfile } from "./reddit.js";
+
+export { roblox } from "./roblox.js";
+export type { RobloxOptions, RobloxProfile } from "./roblox.js";
+
+export { salesforce } from "./salesforce.js";
+export type { SalesforceOptions, SalesforceProfile } from "./salesforce.js";
+
+export { slack } from "./slack.js";
+export type { SlackOptions, SlackProfile } from "./slack.js";
+
+export { spotify } from "./spotify.js";
+export type { SpotifyOptions, SpotifyProfile } from "./spotify.js";
+
+export { tiktok } from "./tiktok.js";
+export type { TikTokOptions, TikTokProfile } from "./tiktok.js";
+
 export { credential } from "./credential.js";
 export type { CredentialProvider, CredentialProviderOptions } from "./credential.js";
 
@@ -118,6 +150,14 @@ export const providerFactories: Record<string, (options: any) => OAuthProvider> 
   notion,
   paybin,
   paypal,
+  polar,
+  railway,
+  reddit,
+  roblox,
+  salesforce,
+  slack,
+  spotify,
+  tiktok,
 };
 
 export const PROVIDER_IDS = Object.keys(providerFactories);

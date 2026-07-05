@@ -115,6 +115,54 @@ export const PROVIDER_URL_CASES = [
         authHost: "www.sandbox.paypal.com",
         expectInUrl: ["client_id=cid", "state=st-1"],
     },
+    {
+        id: "polar",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "polar.sh",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "railway",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "backboard.railway.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "reddit",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "www.reddit.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "roblox",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "apis.roblox.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "salesforce",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "login.salesforce.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "slack",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "slack.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "spotify",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "accounts.spotify.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "tiktok",
+        options: { clientId: "cid", clientKey: "ckey", clientSecret: "sec" },
+        authHost: "www.tiktok.com",
+        expectInUrl: ["client_key=ckey", "state=st-1"],
+    },
 ];
 
 describe.each(PROVIDER_URL_CASES)("provider $id", ({ id, options, authHost, expectInUrl }) => {
