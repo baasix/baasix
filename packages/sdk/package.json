@@ -106,6 +106,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@baasix/types": "^1.0.8"
+    "@baasix/types": "^1.0.8",
+    "@simplewebauthn/browser": "^13.3.0"
   }
 }

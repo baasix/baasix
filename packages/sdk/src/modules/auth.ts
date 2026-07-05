@@ -62,6 +62,15 @@ export interface VerifyInviteResult {
   roleId?: string;
 }
 
+export interface Passkey {
+  id: string;
+  name: string | null;
+  deviceType: string;
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export interface AuthModuleConfig {
   client: HttpClient;
   storage: StorageAdapter;
@@ -117,6 +126,66 @@ export class AuthModule {
     disable(password: string): Promise<{ disabled: boolean }>;
   };
 
+  /**
+   * Passkey (WebAuthn) registration and authentication helpers.
+   * Browser-only: throws a `BaasixError` when called outside a browser
+   * environment (no `window`/`PublicKeyCredential`).
+   *
+   * @example
+   * ```typescript
+   * // Register a passkey for the currently logged-in user
+   * await baasix.auth.passkey.register("My Laptop");
+   *
+   * // Authenticate with a passkey (no prior login required)
+   * const { user, token } = await baasix.auth.passkey.authenticate();
+   *
+   * // List and remove registered passkeys
+   * const passkeys = await baasix.auth.passkey.list();
+   * await baasix.auth.passkey.remove(passkeys[0].id);
+   * ```
+   */
+  public passkey = {
+    register: async (name?: string): Promise<{ verified: boolean }> => {
+      this.assertBrowser();
+      const { startRegistration } = await import("@simplewebauthn/browser");
+      const options = await this.client.post<any>("/auth/passkey/register/options", {});
+      const attestation = await startRegistration({ optionsJSON: options });
+      await this.client.post("/auth/passkey/register/verify", {
+        response: attestation,
+        name: name || null,
+      });
+      return { verified: true };
+    },
+
+    authenticate: async (opts?: { authMode?: AuthMode }): Promise<AuthResponse> => {
+      this.assertBrowser();
+      const { startAuthentication } = await import("@simplewebauthn/browser");
+      const { options, challengeId } = await this.client.post<any>(
+        "/auth/passkey/authenticate/options",
+        {},
+        { skipAuth: true }
+      );
+      const assertion = await startAuthentication({ optionsJSON: options });
+      const response = await this.client.post<AuthResponse>(
+        "/auth/passkey/authenticate/verify",
+        { challengeId, response: assertion, authMode: opts?.authMode },
+        { skipAuth: true }
+      );
+
+      await this.storeTokens(response);
+      this.emitAuthStateChange("SIGNED_IN", response.user);
+
+      return response;
+    },
+
+    list: async (): Promise<Passkey[]> =>
+      (await this.client.get<{ passkeys: Passkey[] }>("/auth/passkey")).passkeys,
+
+    remove: async (id: string): Promise<void> => {
+      await this.client.delete(`/auth/passkey/${encodeURIComponent(id)}`);
+    },
+  };
+
   constructor(config: AuthModuleConfig) {
     this.client = config.client;
     this.storage = config.storage;
@@ -162,6 +231,16 @@ export class AuthModule {
         });
       },
     };
+  }
+
+  /**
+   * Assert that we're running in a browser environment with WebAuthn support.
+   * Throws a `BaasixError` otherwise.
+   */
+  private assertBrowser(): void {
+    if (typeof window === "undefined" || !(window as any).PublicKeyCredential) {
+      throw new BaasixError("Passkeys are only available in a browser", 400);
+    }
   }
 
   /**
