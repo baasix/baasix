@@ -6,6 +6,8 @@ import { mapJsonTypeToDrizzle, isRelationField } from './typeMapper.js';
 import { relationBuilder, createForeignKeySQL } from './relationUtils.js';
 import systemSchemaModule from './systemschema.js';
 import env from './env.js';
+import { validatePartitioning, normalizePartitioning, getPartitionKeyColumns, partitionName, tenantPartitionName, periodsToEnsure, PartitioningConfig } from './partitionUtils.js';
+import { APIError } from './errorHandler.js';
 import type { SchemaDefinition, IndexDefinition, AssociationDefinition } from '@baasix/types';
 import type { PluginSchemaDefinition } from '../types/plugin.js';
 
@@ -2119,6 +2121,15 @@ export class SchemaManager {
     const envValue = env.get('MULTI_TENANT');
     const isMultiTenant = envValue === 'true';
 
+    // Validate partitioning config before persisting anything (throws APIError on bad config)
+    const partitionConfig = validatePartitioning(collectionName, schema, {
+      isMultiTenant,
+      pgOk: await isPgVersionAtLeast(13),
+    });
+    if (partitionConfig) {
+      appendPartitionKeysToUniqueIndexes(schema, getPartitionKeyColumns(partitionConfig));
+    }
+
     if (isMultiTenant && !isSystemSchema && !schema.fields?.tenant_Id) {
       console.log(`[updateModel] Adding tenant fields to schema for ${collectionName}`);
       schema.fields = {
@@ -2723,6 +2734,18 @@ export class SchemaManager {
 
     console.log(`Index migration complete: ${result.created.length} created, ${result.skipped.length} skipped, ${result.errors.length} errors`);
     return result;
+  }
+}
+
+/** Unique constraints on a partitioned table must contain all partition key columns. */
+function appendPartitionKeysToUniqueIndexes(schema: any, keys: string[]): void {
+  for (const holder of [schema, schema.options]) {
+    if (!holder?.indexes || !Array.isArray(holder.indexes)) continue;
+    holder.indexes = holder.indexes.map((index: any) => {
+      if (!index.unique) return index;
+      const missing = keys.filter((k) => !index.fields.includes(k));
+      return missing.length ? { ...index, fields: [...index.fields, ...missing] } : index;
+    });
   }
 }
 

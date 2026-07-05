@@ -401,6 +401,7 @@ const registerEndpoint = (app: Express, context?: any) => {
             res.status(201).json({ message: "Schema created successfully" });
         } catch (error) {
             console.error("Error creating schema:", error);
+            if (error instanceof APIError) return next(error);
             next(new APIError("Error creating schema", 500, error.message));
         }
     });
@@ -447,6 +448,7 @@ const registerEndpoint = (app: Express, context?: any) => {
             res.status(200).json({ message: "Schema updated successfully" });
         } catch (error) {
             console.error("Error updating schema:", error);
+            if (error instanceof APIError) return next(error);
             next(new APIError("Error updating schema", 500, error.message));
         }
     });
