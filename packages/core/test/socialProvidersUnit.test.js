@@ -67,6 +67,54 @@ export const PROVIDER_URL_CASES = [
         authHost: "id.kick.com",
         expectInUrl: ["client_id=cid", "state=st-1"],
     },
+    {
+        id: "line",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "access.line.me",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "linear",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "linear.app",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "linkedin",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "www.linkedin.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "microsoft",
+        options: { clientId: "cid", clientSecret: "sec", tenantId: "common" },
+        authHost: "login.microsoftonline.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "naver",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "nid.naver.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "notion",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "api.notion.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "paybin",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "idp.paybin.io",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
+    {
+        id: "paypal",
+        options: { clientId: "cid", clientSecret: "sec" },
+        authHost: "www.sandbox.paypal.com",
+        expectInUrl: ["client_id=cid", "state=st-1"],
+    },
 ];
 
 describe.each(PROVIDER_URL_CASES)("provider $id", ({ id, options, authHost, expectInUrl }) => {

@@ -16,6 +16,14 @@ import { gitlab } from "./gitlab.js";
 import { huggingface } from "./huggingface.js";
 import { kakao } from "./kakao.js";
 import { kick } from "./kick.js";
+import { line } from "./line.js";
+import { linear } from "./linear.js";
+import { linkedin } from "./linkedin.js";
+import { microsoft } from "./microsoft-entra-id.js";
+import { naver } from "./naver.js";
+import { notion } from "./notion.js";
+import { paybin } from "./paybin.js";
+import { paypal } from "./paypal.js";
 import type { OAuthProvider } from "../types.js";
 
 export { google } from "./google.js";
@@ -57,6 +65,30 @@ export type { KakaoOptions, KakaoProfile } from "./kakao.js";
 export { kick } from "./kick.js";
 export type { KickOptions, KickProfile } from "./kick.js";
 
+export { line } from "./line.js";
+export type { LineOptions, LineUserInfo, LineIdTokenPayload } from "./line.js";
+
+export { linear } from "./linear.js";
+export type { LinearOptions, LinearUser } from "./linear.js";
+
+export { linkedin } from "./linkedin.js";
+export type { LinkedInOptions, LinkedInProfile } from "./linkedin.js";
+
+export { microsoft } from "./microsoft-entra-id.js";
+export type { MicrosoftOptions, MicrosoftEntraIDProfile } from "./microsoft-entra-id.js";
+
+export { naver } from "./naver.js";
+export type { NaverOptions, NaverProfile } from "./naver.js";
+
+export { notion } from "./notion.js";
+export type { NotionOptions, NotionProfile } from "./notion.js";
+
+export { paybin } from "./paybin.js";
+export type { PaybinOptions, PaybinProfile } from "./paybin.js";
+
+export { paypal } from "./paypal.js";
+export type { PayPalOptions, PayPalProfile } from "./paypal.js";
+
 export { credential } from "./credential.js";
 export type { CredentialProvider, CredentialProviderOptions } from "./credential.js";
 
@@ -78,6 +110,14 @@ export const providerFactories: Record<string, (options: any) => OAuthProvider> 
   huggingface,
   kakao,
   kick,
+  line,
+  linear,
+  linkedin,
+  microsoft,
+  naver,
+  notion,
+  paybin,
+  paypal,
 };
 
 export const PROVIDER_IDS = Object.keys(providerFactories);
