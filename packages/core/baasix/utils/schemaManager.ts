@@ -1,5 +1,5 @@
 import { pgTable, text, jsonb, timestamp } from 'drizzle-orm/pg-core';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql as drizzleSql } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { getDatabase, getSqlClient, isPgVersionAtLeast } from './db.js';
 import { mapJsonTypeToDrizzle, isRelationField } from './typeMapper.js';
@@ -952,11 +952,43 @@ export class SchemaManager {
           await this.createIndex(collectionName, index);
         }
       }
-      await this.ensurePartitions(collectionName, schema);
+      // Only ensure partitions when the table is PHYSICALLY partitioned. A stored schema
+      // can claim partitioning over a plain table (mid-conversion crash, hand-edit) — calling
+      // ensurePartitions there throws "X is not partitioned" and, on the startup path
+      // (loadAllSchemas has no per-schema catch), would take initialize() down in a crash
+      // loop and make the server unbootable. Guard + try/catch: warn and continue instead.
+      try {
+        // wantsPartitioning may itself throw on a corrupted stored config — treat as non-partitioned.
+        let wantsPartitioning = false;
+        try { wantsPartitioning = !!normalizePartitioning(schema?.partitioning); } catch { wantsPartitioning = false; }
+        const physicallyPartitioned = await this.isTablePartitioned(collectionName);
+        if (physicallyPartitioned === true) {
+          await this.ensurePartitions(collectionName, schema);
+        } else if (wantsPartitioning && physicallyPartitioned === false) {
+          console.warn(`[partitioning] "${collectionName}" has a partitioning config but its table is ` +
+            `not partitioned — skipping partition sync. PATCH /schemas/${collectionName} to convert it.`);
+        }
+      } catch (error) {
+        console.warn(`[partitioning] ensurePartitions failed for existing table "${collectionName}" ` +
+          `(config/physical drift?) — continuing:`, error);
+      }
       return;
     }
 
-    const createTableSQL = this.buildCreateTableSQL(collectionName, schema);
+    // Build the CREATE TABLE SQL. buildCreateTableSQL → normalizePartitioning THROWS on a
+    // corrupted stored partitioning config; on the STARTUP path (loadAllSchemas has no
+    // per-schema catch) that would propagate to initialize() and make the server unbootable.
+    // Guard it so a bad config degrades to a non-partitioned create (logged) instead of a crash.
+    // The API path is unaffected: updateModel runs validatePartitioning (which throws the
+    // APIError to the caller) BEFORE reaching here, so any config that gets this far is valid.
+    let createTableSQL: string | null;
+    try {
+      createTableSQL = this.buildCreateTableSQL(collectionName, schema);
+    } catch (error) {
+      console.error(`[partitioning] Invalid stored partitioning config for "${collectionName}"; ` +
+        `creating it as a non-partitioned table:`, error);
+      createTableSQL = this.buildCreateTableSQL(collectionName, { ...schema, partitioning: undefined });
+    }
     if (!createTableSQL) {
       console.warn(`No columns to create for table ${collectionName}`);
       return;
@@ -1077,16 +1109,28 @@ export class SchemaManager {
     }
   }
 
-  /** Drop a deleted tenant's partitions (irreversible bulk erase, per design). */
-  async dropPartitionsForTenant(tenantId: string): Promise<void> {
+  /**
+   * Drop a deleted tenant's partitions (irreversible bulk erase, per design).
+   *
+   * When a Drizzle delete `transaction` is provided, the DROP DDL runs THROUGH that
+   * transaction (PG DDL is transactional), so a delete that later fails — 403/404, an
+   * ON DELETE RESTRICT FK, etc. — rolls the drops back and the partitions survive.
+   * Without a transaction it falls back to the pooled porsager client (auto-commit),
+   * which is only used by non-transactional callers.
+   */
+  async dropPartitionsForTenant(tenantId: string, transaction?: any): Promise<void> {
     const sql = getSqlClient();
+    // Drizzle tx exposes .execute(sql`…`); porsager pool exposes .unsafe(`…`).
+    const runDDL = transaction
+      ? (ddl: string) => transaction.execute(drizzleSql.raw(ddl))
+      : (ddl: string) => sql.unsafe(ddl);
     for (const [name, defEntry] of this.schemaDefinitions) {
       const schema = (defEntry as any)?.schema ?? defEntry;
       let config: PartitioningConfig | null = null;
       try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
       if (!config || config.strategy === 'time') continue;
       const tName = tenantPartitionName(name, tenantId); // validates UUID
-      await sql.unsafe(`DROP TABLE IF EXISTS "${tName}" CASCADE`);
+      await runDDL(`DROP TABLE IF EXISTS "${tName}" CASCADE`);
       console.log(`[partitioning] Dropped partition "${tName}" for deleted tenant ${tenantId}`);
     }
   }
@@ -2597,13 +2641,32 @@ export class SchemaManager {
     // table is partitioned while it physically isn't, and later createPartitionsForTenant would 500.
     const physicallyPartitioned = await this.isTablePartitioned(collectionName);
     const wantsPartitioned = !!partitionConfig;
+    // Only the PHYSICAL layout keys — strategy, interval, timeField — trigger a copy-and-swap
+    // conversion. `premake` (how many future periods to pre-create) does NOT change the table's
+    // partition scheme: a premake 1→2 bump just needs one extra period table, which the normal
+    // sync path (createTableFromSchema → ensurePartitions) creates idempotently. Comparing full
+    // configs here would needlessly convert (and leave a __preparted backup) on a premake change.
+    const layoutSig = (c: PartitioningConfig | null) =>
+      c ? JSON.stringify({ strategy: c.strategy, interval: c.interval, timeField: c.timeField }) : null;
     const layoutChanged = physicallyPartitioned !== null && (
       physicallyPartitioned !== wantsPartitioned ||
-      (wantsPartitioned && JSON.stringify(partitionConfig) !== JSON.stringify(previousConfig))
+      (wantsPartitioned && layoutSig(partitionConfig) !== layoutSig(previousConfig))
     );
     if (layoutChanged) {
       try {
         await this.convertTableLayout(collectionName, schema, partitionConfig);
+        // Re-ensure partitions once, post-conversion: a tenant created DURING the conversion
+        // (its partition provisioned on the OLD/backup table, which was renamed aside) would
+        // otherwise be missing on the freshly-promoted table until reconciliation. Idempotent
+        // and cheap — closes most of that race window. Only meaningful for a partitioned target.
+        if (partitionConfig) {
+          try {
+            await this.ensurePartitions(collectionName, schema);
+          } catch (ensureErr) {
+            console.warn(`[partitioning] post-conversion ensurePartitions for "${collectionName}" ` +
+              `failed (reconciliation will heal) — continuing:`, ensureErr);
+          }
+        }
       } catch (err) {
         // Restore the pre-PATCH schema definition (memory + DB) so config and physical layout stay consistent.
         if (previousEntry !== undefined) {

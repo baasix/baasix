@@ -20,6 +20,20 @@ describe("partitionUtils", () => {
     expect(() => normalizePartitioning({ strategy: "time", premake: 99 })).toThrow(/premake/i);
   });
 
+  test("normalize rejects a timeField that is not a plain SQL identifier (DDL-injection guard)", () => {
+    // timeField is interpolated into PARTITION BY RANGE ("<timeField>") DDL, so it must match
+    // /^[A-Za-z_][A-Za-z0-9_]*$/.
+    expect(() => normalizePartitioning({ strategy: "time", timeField: 'evil") ; DROP TABLE x --' }))
+      .toThrow(/timeField/i);
+    expect(() => normalizePartitioning({ strategy: "time", timeField: "has space" })).toThrow(/timeField/i);
+    expect(() => normalizePartitioning({ strategy: "time", timeField: "1startsWithDigit" })).toThrow(/timeField/i);
+    expect(() => normalizePartitioning({ strategy: "time", timeField: "" })).toThrow(/timeField/i);
+    expect(() => normalizePartitioning({ strategy: "time", timeField: "with-dash" })).toThrow(/timeField/i);
+    // valid identifiers pass through
+    expect(normalizePartitioning({ strategy: "time", timeField: "loggedAt" }).timeField).toBe("loggedAt");
+    expect(normalizePartitioning({ strategy: "time", timeField: "_private_ts9" }).timeField).toBe("_private_ts9");
+  });
+
   test("partition key columns per strategy", () => {
     expect(getPartitionKeyColumns(normalizePartitioning({ strategy: "tenant" }))).toEqual(["tenant_Id"]);
     expect(getPartitionKeyColumns(normalizePartitioning({ strategy: "time" }))).toEqual(["createdAt"]);

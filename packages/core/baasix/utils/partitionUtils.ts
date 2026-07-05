@@ -10,6 +10,7 @@ export interface PartitioningConfig {
 
 const STRATEGIES = ["tenant", "time", "tenant+time"];
 const INTERVALS = ["month", "quarter", "year"];
+const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const PG_MAX_IDENTIFIER = 63;
 
@@ -31,7 +32,14 @@ export function normalizePartitioning(raw: any): PartitioningConfig | null {
   if (!Number.isInteger(premake) || premake < 0 || premake > 12) {
     throw new APIError("Invalid partitioning premake", 400, "premake must be an integer between 0 and 12");
   }
-  return { strategy: raw.strategy, timeField: raw.timeField ?? "createdAt", interval, premake };
+  const timeField = raw.timeField ?? "createdAt";
+  // timeField is interpolated straight into PARTITION BY RANGE ("<timeField>") DDL, so it must be
+  // a plain SQL identifier (charset guard against DDL injection / malformed identifiers).
+  if (!IDENTIFIER_RE.test(timeField)) {
+    throw new APIError("Invalid partitioning timeField", 400,
+      `timeField "${timeField}" must be a valid identifier (letters, digits, underscore; not starting with a digit)`);
+  }
+  return { strategy: raw.strategy, timeField, interval, premake };
 }
 
 export function validatePartitioning(

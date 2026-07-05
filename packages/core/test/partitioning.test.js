@@ -295,6 +295,88 @@ describe("tenant lifecycle partitions", () => {
   });
 });
 
+describe("tenant delete authorization (B1: auth bypass + transactional drop)", () => {
+  // B1 CRITICAL: 'items.delete' before-hooks fire in deleteOneCore BEFORE the permission
+  // check, so an authenticated NON-ADMIN sending DELETE /items/baasix_Tenant/<uuid> used to
+  // trigger dropPartitionsForTenant (irreversible DROP TABLE CASCADE) and only THEN get 403.
+  // The fix: the hook authorizes the caller (admins only) AND runs the DROP inside the delete
+  // transaction, so a rejected delete leaves the tenant's partitions — and data — intact.
+  let nonAdminToken;
+
+  beforeAll(async () => {
+    // A non-tenant-specific role with NO permissions → its user authenticates but is
+    // rejected (403) on DELETE /items/baasix_Tenant.
+    const roleRes = await authed(request(app).post("/items/baasix_Role")).send({
+      name: "part_no_delete_role",
+      description: "Non-admin role without tenant-delete permission",
+      isTenantSpecific: false,
+    });
+    expect(roleRes.status).toBeLessThan(300);
+    const roleId = roleRes.body.data?.id ?? roleRes.body.id;
+
+    const userRes = await authed(request(app).post("/items/baasix_User")).send({
+      firstName: "NonAdmin",
+      lastName: "Deleter",
+      email: "nonadmin.deleter@example.com",
+      password: "password123",
+    });
+    expect(userRes.status).toBeLessThan(300);
+    const userId = userRes.body.data?.id ?? userRes.body.id;
+
+    const urRes = await authed(request(app).post("/items/baasix_UserRole")).send({
+      user_Id: userId,
+      role_Id: roleId,
+      tenant_Id: null,
+    });
+    expect(urRes.status).toBeLessThan(300);
+
+    const login = await request(app).post("/auth/login")
+      .send({ email: "nonadmin.deleter@example.com", password: "password123" });
+    nonAdminToken = login.body.token ?? login.body.data?.token;
+    expect(nonAdminToken).toBeTruthy();
+  });
+
+  test("non-admin DELETE of a tenant is rejected AND its partitions + data survive", async () => {
+    const sql = getSqlClient();
+
+    // A fresh tenant with a partition and a row of its own in part_orders.
+    const created = await authed(request(app).post("/items/baasix_Tenant")).send({ name: "GuardTenant" });
+    const tenantG = created.body.data?.id ?? created.body.id;
+    const partName = `part_orders__t_${tenantG.replace(/-/g, "").slice(0, 8)}`;
+
+    let rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(1); // partition created on tenant create
+
+    const inserted = await authed(request(app).post("/items/part_orders"))
+      .send({ sku: "GUARD-SKU", amount: 42, tenant_Id: tenantG });
+    expect(inserted.status).toBeLessThan(300);
+
+    // Non-admin attempts to delete the tenant → 403/401 (never 2xx).
+    const del = await request(app).delete(`/items/baasix_Tenant/${tenantG}`)
+      .set("Authorization", `Bearer ${nonAdminToken}`);
+    expect([401, 403]).toContain(del.status);
+
+    // The partition STILL EXISTS (the DROP was skipped / rolled back).
+    rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(1);
+
+    // The tenant row and its data are intact.
+    const tenantRow = await sql`SELECT 1 FROM "baasix_Tenant" WHERE id = ${tenantG}`;
+    expect(tenantRow.length).toBe(1);
+    const dataRow = await sql.unsafe(
+      `SELECT amount FROM "${partName}" WHERE sku = 'GUARD-SKU'`);
+    expect(dataRow.length).toBe(1);
+    expect(dataRow[0].amount).toBe(42);
+
+    // Sanity: an ADMIN can still delete it, and now the partition IS dropped
+    // (proves the guard only blocks unauthorized callers, not the feature itself).
+    const adminDel = await authed(request(app).delete(`/items/baasix_Tenant/${tenantG}`));
+    expect(adminDel.status).toBeLessThan(300);
+    rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(0);
+  });
+});
+
 describe("partition reconciliation", () => {
   test("recreates a missing tenant partition", async () => {
     const sql = getSqlClient();
@@ -642,5 +724,161 @@ describe("conversion to time strategy under a UTC session timezone", () => {
     });
     expect(badForThis).toEqual([]);
     warnSpy.mockRestore();
+  });
+});
+
+describe("startup sync hardening (B3: config/physical drift is non-fatal)", () => {
+  // B3 MEDIUM: a stored schema claiming partitioning over a physically PLAIN table (mid-conversion
+  // crash, hand-edit) used to make createTableFromSchema's exists-branch call ensurePartitions
+  // unguarded → "X is not partitioned" → loadAllSchemas has no per-schema catch → initialize()
+  // rethrows → server UNBOOTABLE. The fix guards on isTablePartitioned and warns-and-continues.
+  const collection = "drift_plain_orders";
+
+  beforeAll(async () => {
+    // Create a plain (non-partitioned) collection with real data.
+    await authed(request(app).post("/schemas")).send({
+      collectionName: collection,
+      schema: {
+        name: "DriftPlainOrder",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+      },
+    });
+    await authed(request(app).post(`/items/${collection}`)).send({ ref: "drift-1", tenant_Id: tenantA });
+  });
+
+  test("createTableFromSchema over a plain table with a partitioning config does not throw; warns", async () => {
+    const sql = getSqlClient();
+    // Sanity: the physical table is a plain relation.
+    const [pre] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+    expect(pre.relkind).toBe("r");
+
+    // Simulate DRIFT: inject a partitioning config into the in-memory schema definition for
+    // this plain table (as a corrupted/mid-conversion baasix_SchemaDefinition row would).
+    const original = schemaManager.schemaDefinitions.get(collection);
+    const originalSchema = original?.schema ?? original;
+    const driftedSchema = { ...originalSchema, partitioning: { strategy: "tenant" } };
+    schemaManager.schemaDefinitions.set(collection, { collectionName: collection, schema: driftedSchema });
+
+    const warnSpy = jest.spyOn(console, "warn");
+    try {
+      // Must NOT throw (this is exactly the call that runs on the startup path).
+      await expect(
+        schemaManager.createTableFromSchema(collection, driftedSchema, true)
+      ).resolves.not.toThrow();
+
+      // A drift warning was logged for this collection.
+      const warned = warnSpy.mock.calls.some((args) => {
+        const s = args.join(" ");
+        return s.includes(collection) && /not partitioned/i.test(s);
+      });
+      expect(warned).toBe(true);
+
+      // The table is untouched — still a plain relation, data intact.
+      const [post] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+      expect(post.relkind).toBe("r");
+      const [{ c }] = await sql.unsafe(`SELECT COUNT(*)::int AS c FROM "${collection}"`);
+      expect(c).toBe(1);
+    } finally {
+      warnSpy.mockRestore();
+      // Restore the real (non-drifted) schema definition.
+      if (original !== undefined) schemaManager.schemaDefinitions.set(collection, original);
+      else schemaManager.schemaDefinitions.delete(collection);
+    }
+  });
+
+  test("corrupted stored partitioning config on the create path degrades to a plain table (no throw)", async () => {
+    const sql = getSqlClient();
+    const create = "drift_corrupt_create";
+    // A schema whose partitioning is structurally invalid — buildCreateTableSQL → normalizePartitioning
+    // would throw. On the startup CREATE path this must NOT propagate; it degrades to a plain table.
+    const corruptSchema = {
+      name: "DriftCorruptCreate",
+      fields: { id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } } },
+      partitioning: { strategy: "bogus-strategy" },
+    };
+    schemaManager.schemaDefinitions.set(create, { collectionName: create, schema: corruptSchema });
+    const errSpy = jest.spyOn(console, "error");
+    try {
+      await expect(
+        schemaManager.createTableFromSchema(create, corruptSchema, true)
+      ).resolves.not.toThrow();
+      // Table exists as a PLAIN relation (partitioning config was ignored).
+      const [rel] = await sql`SELECT relkind FROM pg_class WHERE relname = ${create}`;
+      expect(rel).toBeDefined();
+      expect(rel.relkind).toBe("r");
+    } finally {
+      errSpy.mockRestore();
+      schemaManager.schemaDefinitions.delete(create);
+      await sql.unsafe(`DROP TABLE IF EXISTS "${create}" CASCADE`);
+    }
+  });
+});
+
+describe("premake change does not convert (B4)", () => {
+  // B4 MEDIUM: updateModel's layoutChanged JSON-compared FULL configs, so a premake 1→2 bump
+  // triggered a full copy-and-swap conversion (leaving a __preparted backup). Fix: only the
+  // physical-layout keys (strategy, interval, timeField) trigger conversion; a premake change
+  // flows through the normal sync path (createTableFromSchema → ensurePartitions adds the period).
+  const collection = "premake_events";
+
+  beforeAll(async () => {
+    await authed(request(app).post("/schemas")).send({
+      collectionName: collection,
+      schema: {
+        name: "PremakeEvent",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+        partitioning: { strategy: "time", interval: "month", premake: 1 },
+      },
+    });
+  });
+
+  test("PATCH changing ONLY premake adds a period, keeps relkind 'p', creates no __preparted backup", async () => {
+    const sql = getSqlClient();
+
+    const [pre] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+    expect(pre.relkind).toBe("p");
+
+    const leaves = async () => {
+      const parts = await sql.unsafe(
+        `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${collection}"'::regclass) WHERE isleaf`);
+      return parts.map((p) => p.name.replace(/"/g, ""));
+    };
+    const before = await leaves();
+    // premake 1 (month) → current month + 1 future period (+ DEFAULT).
+    const backupName = partitionName(collection, ["preparted"]);
+    let backup = await sql`SELECT 1 FROM pg_class WHERE relname = ${backupName}`;
+    expect(backup.length).toBe(0);
+
+    // PATCH: change ONLY premake 1 → 2.
+    const res = await authed(request(app).patch(`/schemas/${collection}`)).send({
+      schema: {
+        name: "PremakeEvent",
+        fields: {
+          id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+          ref: { type: "String", allowNull: false },
+        },
+        partitioning: { strategy: "time", interval: "month", premake: 2 },
+      },
+    });
+    expect(res.status).toBeLessThan(300);
+
+    // No conversion happened: relkind still 'p', NO __preparted backup was created.
+    const [post] = await sql`SELECT relkind FROM pg_class WHERE relname = ${collection}`;
+    expect(post.relkind).toBe("p");
+    backup = await sql`SELECT 1 FROM pg_class WHERE relname = ${backupName}`;
+    expect(backup.length).toBe(0);
+
+    // The partition set gained the extra future period (premake 2 → one more month than premake 1).
+    const after = await leaves();
+    const added = after.filter((n) => !before.includes(n));
+    expect(added.length).toBeGreaterThanOrEqual(1);
+    // The whole previous set is preserved (nothing dropped/recreated by a conversion).
+    for (const n of before) expect(after).toContain(n);
   });
 });
