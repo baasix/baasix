@@ -260,6 +260,19 @@ GET /assets/file-uuid?width=200&height=200&fit=cover&quality=80
 | GET | /settings | Get app settings |
 | PATCH | /settings | Update settings |
 
+## Page Builder Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /items/baasix_Page | List pages (ordinary items API; use fields=["*","blocks.*"] to include blocks) |
+| POST | /items/baasix_Page | Create a page (name, slug, icon, isPublic, enabled, options, roles) |
+| POST | /items/baasix_Block | Add a block to a page (config validated server-side per type) |
+| PATCH | /items/baasix_Block/:id | Update a block (merged block re-validated; parentBlock_Id/slot move it into containers) |
+| POST | /pages/validate-block | Validate a block payload {type, collection?, config?, position?} without writing |
+| GET | /pages/export?pages=id,id\|all | Export pages + blocks as a JSON bundle |
+| POST | /pages/import[?dryRun=true] | Import a page bundle (dry-run gives a validation report) |
+| GET | /pages/block-config-doc | Markdown reference for every block type's config format |
+
 ---
 
 # SECTION 3: QUERY PARAMETERS (GET /items/:collection)
@@ -1943,3 +1956,28 @@ const { tasksService } = context;
 // Or import directly
 import tasksService from '../../baasix/services/TasksService';
 ```
+
+---
+
+# SECTION 15: APP BUILDER (PAGES & BLOCKS)
+
+Pages composed of data-bound blocks, rendered by the admin app at `/pages/?slug=<slug>` (public pages: `/p/?slug=`). Stored in `baasix_Page` and `baasix_Block` — plain collections, so everything works over the items API.
+
+**27 block types**
+- Data (collection REQUIRED): `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map` (provider `"leaflet"` default or `"google"` — key in settings `metadata.googleMapsApiKey`), `geochart`, `media`, `feed`, `timeline`, `progress`, `repeater`, `report`, `filter`
+- Layout (collectionless, host children): `tabs`, `container`, `modal`, `divider`
+- Content & input (collectionless): `markdown`, `buttons`, `iframe`, `upload`, `input`; `code` and `richtext` take an OPTIONAL collection (required when `recordField` is set)
+
+**Grid & nesting** — `position {row >= 0, col 0-11, span 1-12}` on a 12-column grid. Children of `tabs`/`container`/`modal` carry `parentBlock_Id` + `slot` (`"tab:<index>"` in tabs, `"body"` otherwise) and lay out on a nested grid; server enforces parent type, same page, no cycles, max depth 3.
+
+**Cross-block reactivity** — clicking a table row / card / calendar event / map marker publishes a selection. Consume it via:
+- `source: {type:"block", blockId}` on record-bound blocks (`details`, `form` mode:"edit", `code`/`richtext` record mode); default `{type:"param"}` = the `?id=` URL param
+- filter placeholders: `"$param.<name>"` (URL), `"$selection.<blockId>.<field>"` (clicked record, dotted paths ok), `"$input.<name>"` (an `input` block's value)
+
+**Forms** — flat `fields[]` or wizard `steps[{title, fields}]` (per-step required validation); per-field `visibleWhen {field, operator: eq|neq|in|notEmpty|empty, value?}` (hidden fields don't submit) and `widget: rating|slider|color|phone|currency|signature` + `widgetOptions`.
+
+**Report block** — `config.query` is an ItemsService query (`fields`, `aggregate {alias:{function,field}}`, `groupBy` incl. `"date:month:createdAt"` virtual buckets, `sort`, `limit`) passed to `POST /reports/:collection`; rendered as a read-only table with CSV export.
+
+Every block create/update is validated server-side (BlockConfigService) against the type and the bound collection's schema. Full per-type config reference: `GET /pages/block-config-doc` (also the MCP resource `baasix://docs/block-config`).
+
+

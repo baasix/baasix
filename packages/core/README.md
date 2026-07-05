@@ -35,7 +35,7 @@
 - **🔐 Authentication & Authorization** — JWT, cookie-based auth, 35+ social OAuth providers, passkeys (WebAuthn), 2FA (TOTP + backup codes), magic link, and role-based permissions
 - **✅ Schema Validations** — Built-in field validation with min/max, patterns, required, unique, and custom rules
 - **⚡ Workflow Automation** — Visual workflow builder with 17 node types and real-time monitoring
-- **🧩 App Builder** — Compose internal tools and admin pages from 17 data-bound block types (table, form, kanban, calendar, chart, map, and more) on a 12-column grid, governed by your existing permissions
+- **🧩 App Builder** — Compose internal tools and admin pages from 27 data-bound block types (table, form, kanban, chart, tabs, modals, wizard forms, reports, and more) with cross-block reactivity on a 12-column grid, governed by your existing permissions
 - **🔔 Notification System** — Built-in user notifications with real-time delivery via Socket.IO
 - **📁 File Storage & Processing** — Upload, manage, and transform files with image optimization
 - **📝 Pino Logger** — High-performance structured logging with configurable transports (Datadog, Loki, etc.)
@@ -559,7 +559,11 @@ Turn your backend into a usable app without a second codebase. Administrators co
 from configurable **blocks**, and every role uses those pages as their workspace — all governed
 by your existing permissions.
 
-- **17 block types** — `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`, `geochart`, `markdown`, `filter`, `buttons`, `media`, `feed`, `iframe`, `upload`, `code`
+- **27 block types** — data: `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map` (Leaflet or Google Maps), `geochart`, `media`, `feed`, `timeline`, `progress`, `repeater`, `report`, `filter`; layout: `tabs`, `container`, `modal`, `divider`; content & input: `markdown`, `richtext`, `buttons`, `input`, `iframe`, `upload`, `code`
+- **Cross-block reactivity** — clicking a row/card/event/marker publishes a selection that sibling blocks consume via a record `source` or `$selection.<blockId>.<field>` filter placeholders; `input` blocks drive filters via `$input.<name>`
+- **Nested layout** — tabs, collapsible containers, and action-opened modals host child blocks on nested grids (validated parent/slot/depth rules, lazy mounting)
+- **Wizard forms** — multi-step forms with per-step validation, conditional fields (`visibleWhen`), and field widgets (rating, slider, color, phone, currency, signature)
+- **Report block** — renders `/reports/:collection` aggregate/groupBy result sets (incl. `date:` buckets and relational merges) as a table with CSV export
 - **In-place WYSIWYG editing** — the builder and the rendered app are the same components (admin-only "Editing" toggle)
 - **12-column grid** that collapses to a stacked layout on mobile
 - **Permission-governed** — every data block rides `baasix_Permission` and row-level conditions; nothing bypasses access control

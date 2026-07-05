@@ -328,9 +328,13 @@ Use `tenantScoped: false` for global/shared collections in multi-tenant setups.
 | `baasix_delete_block` | Delete a single block from a page |
 | `baasix_validate_block_config` | Validate a block payload (type + collection + config + position) without creating — returns {valid, errors} |
 
-Block types requiring a bound collection: `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`, `geochart`, `media`, `feed`, `filter`.
-Collectionless types: `markdown`, `buttons`, `iframe`, `upload` (and `code` when no `recordField`).
-Position uses a 12-column grid: `{row >= 0, col 0–11, span 1–12}`.
+Block types requiring a bound collection: `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`, `geochart`, `media`, `feed`, `filter`, `timeline`, `progress`, `repeater`, `report`.
+Collectionless types: `markdown`, `buttons`, `iframe`, `upload`, `tabs`, `container`, `modal`, `divider`, `input` (and `code`/`richtext` when no `recordField`).
+Position uses a 12-column grid: `{row >= 0, col 0–11, span 1–12}`. Children of `tabs`/`container`/`modal` blocks
+additionally carry `parentBlock_Id` + `slot` (`tab:<index>` inside tabs, `body` otherwise; max depth 3) and lay
+out on a nested grid inside the parent.
+Filters support the runtime placeholders `"$param.<name>"` (URL query param), `"$selection.<blockId>.<field>"`
+(record clicked in a sibling data block) and `"$input.<name>"` (an input block's value) for master-detail wiring.
 Full block-config reference: see [Resources](#resources) — `baasix://docs/block-config`.
 
 ## Resources

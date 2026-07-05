@@ -554,7 +554,7 @@ const TOOL_ACTION_MAP: Record<string, string> = {
 
 // Allowlisted keys for page/block update payloads (guards against tenant_Id/page_Id injection)
 const PAGE_UPDATE_KEYS = ["name", "slug", "icon", "description", "isPublic", "enabled", "sort", "parent_Id", "options", "roles"];
-const BLOCK_UPDATE_KEYS = ["type", "collection", "position", "config", "configVersion"];
+const BLOCK_UPDATE_KEYS = ["type", "collection", "position", "config", "configVersion", "parentBlock_Id", "slot"];
 
 /**
  * Parse MCP_ENABLED_ACTIONS env var.
@@ -2863,16 +2863,20 @@ Use baasix_get_schema first to see the current relationship configuration.`,
   registerTool(
     "baasix_create_block",
     `Add a block to a page. The server validates config against the block type and the bound collection's schema (field existence) — call baasix_get_schema first and baasix_validate_block_config to pre-check.
-Types REQUIRING collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter. Collectionless: markdown, buttons, iframe, upload (code: collection only when recordField set).
+Types REQUIRING collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter, timeline, progress, repeater, report. Collectionless: markdown, buttons, iframe, upload, tabs, container, modal, divider, input (code/richtext: collection only when recordField set).
 position = {row >= 0, col 0-11, span 1-12} on a 12-column grid.
+Nesting: children of tabs/container/modal blocks set parentBlock_Id (+ slot: "tab:<index>" inside tabs, "body" otherwise; max depth 3) and lay out on a nested grid inside the parent.
+Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>" (record clicked in a sibling data block) and "$input.<name>" (input block value); record-bound blocks accept source {type:"block", blockId}.
 Full config reference: resource baasix://docs/block-config.`,
     {
       page_Id: z.string().describe("Owning page id (from baasix_create_page / baasix_get_page)"),
-      type: z.enum(["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart"]),
+      type: z.enum(["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart", "tabs", "container", "modal", "divider", "timeline", "progress", "repeater", "richtext", "report", "input"]),
       collection: z.string().optional().describe("Bound collection (see type rules)"),
-      position: z.object({ row: z.number(), col: z.number(), span: z.number() }).describe("12-col grid placement"),
+      position: z.object({ row: z.number(), col: z.number(), span: z.number() }).describe("12-col grid placement (within the parent slot when nested)"),
       config: z.record(z.any()).optional().describe("Per-type config (see baasix://docs/block-config)"),
       configVersion: z.number().optional(),
+      parentBlock_Id: z.string().optional().describe("Parent container block id (tabs/container/modal on the same page) — omit for top level"),
+      slot: z.string().optional().describe('Slot within the parent: "tab:<index>" for tabs, "body" otherwise'),
     },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {
       const res = await callRoute("POST", "/items/baasix_Block", extra, {
@@ -2882,6 +2886,8 @@ Full config reference: resource baasix://docs/block-config.`,
         position: args.position,
         config: args.config ?? null,
         ...(args.configVersion != null ? { configVersion: args.configVersion } : {}),
+        ...(args.parentBlock_Id != null ? { parentBlock_Id: args.parentBlock_Id } : {}),
+        ...(args.slot != null ? { slot: args.slot } : {}),
       });
       if (!res.ok) return errorResult(res.error || "Failed to create block (config validation error?)");
       return successResult(res.data);
@@ -2890,7 +2896,7 @@ Full config reference: resource baasix://docs/block-config.`,
 
   registerTool(
     "baasix_update_block",
-    "Update a block (type/collection/position/config). The server re-validates the MERGED block, so a partial config patch replaces the whole config key — send the full new config object.",
+    "Update a block (type/collection/position/config/parentBlock_Id/slot). The server re-validates the MERGED block, so a partial config patch replaces the whole config key — send the full new config object. Set parentBlock_Id (+ slot) to move a block into a tabs/container/modal block, or null to move it to the top level.",
     {
       id: z.string().describe("Block id (from baasix_get_page)"),
       data: z.record(z.any()).describe("Partial block fields. Allowed keys: type, collection, position, config, configVersion."),

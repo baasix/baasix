@@ -420,10 +420,10 @@ const results = await baasix.items('orders').aggregate({
 ## App Builder (Pages & Blocks)
 
 The Baasix [App Builder](https://baasix.dev/docs/guides/app-builder) lets admins compose internal
-tools from data-bound blocks (table, form, kanban, calendar, chart, map, and more) on a 12-column
-grid. Pages and blocks are stored in the `baasix_Page` and `baasix_Block` system collections, so
-you manage them with the **same `items()` API** — no special client. Block `config` is validated
-server-side on every create and update.
+tools from 27 data-bound block types (tables, wizard forms, kanban, charts, tabs, modals, reports,
+and more) with cross-block reactivity on a 12-column grid. Pages and blocks are stored in the
+`baasix_Page` and `baasix_Block` system collections, so you manage them with the **same `items()`
+API** — no special client. Block `config` is validated server-side on every create and update.
 
 ```typescript
 // Create a page
@@ -466,9 +466,14 @@ const blocks = await baasix.items('baasix_Block')
   .get();
 ```
 
-> **Block types:** `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`, `map`,
-> `geochart`, `markdown`, `filter`, `buttons`, `media`, `feed`, `iframe`, `upload`, `code`.
-> Filters in any block config use the same filter DSL as the items API. See the
+> **Block types (27):** data — `table`, `form`, `details`, `kanban`, `calendar`, `chart`, `cardlist`,
+> `map` (Leaflet or Google Maps), `geochart`, `media`, `feed`, `timeline`, `progress`, `repeater`,
+> `report`, `filter`; layout — `tabs`, `container`, `modal`, `divider` (children carry
+> `parentBlock_Id` + `slot`); content & input — `markdown`, `richtext`, `buttons`, `input`,
+> `iframe`, `upload`, `code`.
+> Filters in any block config use the same filter DSL as the items API, plus the runtime
+> placeholders `"$param.<name>"`, `"$selection.<blockId>.<field>"` and `"$input.<name>"` for
+> master-detail wiring. See the
 > [App Builder guide](https://baasix.dev/docs/guides/app-builder) for the full config reference.
 
 ## Filter Operators
