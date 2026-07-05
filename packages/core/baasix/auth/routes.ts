@@ -151,20 +151,40 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     }
   }
   
-  // Helper to validate URL
+  // Helper to validate URL. Matches by origin (scheme + host + port) rather than
+  // exact string, so an allow-listed "http://localhost:3000" also permits
+  // "http://localhost:3000/auth/callback" — needed for the OAuth browser redirect
+  // flow, whose redirect_url includes an app-specific path. Falls back to exact
+  // string matching for allow-list entries that aren't parseable as origins (e.g.
+  // legacy non-URL values), preserving prior behavior for existing callers.
   async function isValidAppUrl(url: string | undefined): Promise<boolean> {
     if (!url) return false;
     const allowedUrls = await getAllowedAppUrls();
-    return allowedUrls.includes(url);
+    if (allowedUrls.includes(url)) return true;
+
+    let targetOrigin: string;
+    try {
+      targetOrigin = new URL(url).origin;
+    } catch {
+      return false;
+    }
+
+    return allowedUrls.some((allowed) => {
+      try {
+        return new URL(allowed).origin === targetOrigin;
+      } catch {
+        return false;
+      }
+    });
   }
   
   // Helper to store OAuth state
-  async function storeOAuthState(state: string, data: { codeVerifier: string; redirectURI: string; authMode?: string }) {
+  async function storeOAuthState(state: string, data: { codeVerifier: string; redirectURI: string; authMode?: string; appRedirectUrl?: string }) {
     await cache.set(`${OAUTH_STATE_PREFIX}${state}`, data, OAUTH_STATE_TTL);
   }
-  
+
   // Helper to get and delete OAuth state
-  async function getOAuthState(state: string): Promise<{ codeVerifier: string; redirectURI: string; authMode?: string } | null> {
+  async function getOAuthState(state: string): Promise<{ codeVerifier: string; redirectURI: string; authMode?: string; appRedirectUrl?: string } | null> {
     const data = await cache.get(`${OAUTH_STATE_PREFIX}${state}`);
     if (data) {
       await cache.delete(`${OAUTH_STATE_PREFIX}${state}`);
@@ -534,48 +554,108 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     }
   });
   
+  // ==================== Browser OAuth Signin (GET redirect flow) ====================
+  app.get(`${basePath}/signin/:provider`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { provider } = req.params;
+      const { redirect_url, scopes, authMode = "jwt" } = req.query as Record<string, string>;
+
+      if (!redirect_url || !(await isValidAppUrl(redirect_url))) {
+        return res.status(400).json({ message: "Invalid or missing redirect_url" });
+      }
+      if (!auth.providers.get(provider)) {
+        return res.status(400).json({ message: `Provider '${provider}' not found` });
+      }
+
+      const redirectURI = `${options.baseURL || ""}${basePath}/callback/${provider}`;
+      const parsedScopes = scopes ? scopes.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+      const { url, state, codeVerifier } = await auth.getOAuthUrl(provider, redirectURI, parsedScopes);
+
+      await storeOAuthState(state, { codeVerifier, redirectURI, authMode, appRedirectUrl: redirect_url });
+      setStateCookie(res, state);
+
+      res.redirect(url.toString());
+    } catch (error: any) {
+      if (error.message.includes("not found")) {
+        return res.status(400).json({ message: error.message });
+      }
+      next(error);
+    }
+  });
+
   // ==================== OAuth Callback ====================
-  
+
   app.get(`${basePath}/callback/:provider`, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { provider } = req.params;
       const { code, state, error, error_description } = req.query;
-      
+
       // Handle OAuth error
       if (error) {
-        return res.status(400).json({ 
-          message: error_description || error || "OAuth authentication failed" 
-        });
+        const stateData = typeof state === "string" ? await getOAuthState(state) : null;
+        const appRedirectUrl = (stateData as any)?.appRedirectUrl;
+        const message = (error_description as string) || (error as string) || "OAuth authentication failed";
+        if (appRedirectUrl) {
+          const target = new URL(appRedirectUrl);
+          target.searchParams.set("error", message);
+          return res.redirect(target.toString());
+        }
+        return res.status(400).json({ message });
       }
-      
+
       if (!code || !state) {
         return res.status(400).json({ message: "Missing code or state parameter" });
       }
-      
+
       // Get stored state data
       const stateData = await getOAuthState(state as string);
       if (!stateData) {
         return res.status(400).json({ message: "Invalid or expired state" });
       }
 
+      const appRedirectUrl = (stateData as any).appRedirectUrl;
+
       // CSRF: the returned state must match the browser-bound cookie (when enabled).
       if (!verifyStateCookie(req, res, state as string)) {
-        return res.status(400).json({ message: "State does not match the initiating session" });
+        const message = "State does not match the initiating session";
+        if (appRedirectUrl) {
+          const target = new URL(appRedirectUrl);
+          target.searchParams.set("error", message);
+          return res.redirect(target.toString());
+        }
+        return res.status(400).json({ message });
       }
 
       const { codeVerifier, redirectURI, authMode = "jwt" } = stateData;
 
-      const result = await auth.handleOAuthCallback(
-        provider,
-        code as string,
-        state as string,
-        codeVerifier,
-        redirectURI
-      );
-      
+      let result;
+      try {
+        result = await auth.handleOAuthCallback(
+          provider,
+          code as string,
+          state as string,
+          codeVerifier,
+          redirectURI
+        );
+      } catch (error: any) {
+        if (appRedirectUrl) {
+          const target = new URL(appRedirectUrl);
+          target.searchParams.set("error", error.message || "OAuth authentication failed");
+          return res.redirect(target.toString());
+        }
+        return next(error);
+      }
+
       // Set token in response based on authMode
       const tokenResponse = setTokenInResponse(res, result.token, authMode, options.env);
-      
+
+      // Browser redirect flow: send the app back to its own redirect URL with the token.
+      if (appRedirectUrl) {
+        const target = new URL(appRedirectUrl);
+        target.searchParams.set("token", result.token);
+        return res.redirect(target.toString());
+      }
+
       // Return JSON response with token
       res.json({
         ...tokenResponse,
