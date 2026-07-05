@@ -1,7 +1,7 @@
 process.env.AUTH_SERVICES_ENABLED = (process.env.AUTH_SERVICES_ENABLED || "LOCAL") + ",TWOFACTOR";
 
 import request from "supertest";
-import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
+import { destroyAllTablesInDB, startServerForTesting, getAuthInstance } from "../baasix";
 import { beforeAll, afterAll, test, expect, describe } from "@jest/globals";
 import * as OTPAuth from "otpauth";
 
@@ -79,5 +79,25 @@ describe("2FA end-to-end", () => {
         expect(ok.status).toBe(200);
         const login3 = await request(app).post("/auth/login").send({ email, password });
         expect(login3.body.token).toBeTruthy();
+    });
+
+    test("enable is rejected for a user with no password credential account", async () => {
+        const auth = getAuthInstance();
+        const passwordlessUser = await auth.adapter.createUser({
+            email: "oauthonly2fa@example.com",
+            emailVerified: true,
+            firstName: "OAuthOnly",
+            status: "active",
+        });
+        // generateTokenForUser needs a role assigned (mirrors what /auth/register
+        // does for password users) so createAuthResponse can resolve permissions.
+        const defaultRole = await auth.adapter.findRoleByName(process.env.DEFAULT_ROLE_REGISTERED || "user");
+        await auth.adapter.createUserRole({ user_Id: passwordlessUser.id, role_Id: defaultRole.id, tenant_Id: null });
+        const { token: passwordlessToken } = await auth.generateTokenForUser(passwordlessUser);
+
+        const res = await request(app).post("/auth/2fa/enable")
+            .set("Authorization", `Bearer ${passwordlessToken}`).send({});
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("TWO_FACTOR_REQUIRES_PASSWORD");
     });
 });

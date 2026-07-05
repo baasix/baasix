@@ -403,6 +403,14 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (!options.twoFactor?.enabled) return res.status(400).json({ message: "Two-factor authentication is not enabled on this server" });
       const user = await auth.adapter.findUserById(req.accountability.user.id);
       if (!user) return res.status(404).json({ message: "User not found" });
+      const accounts = await auth.adapter.findAccountsByUserId(user.id);
+      const hasCredentialAccount = accounts.some((a) => a.providerId === "credential");
+      if (!hasCredentialAccount) {
+        return res.status(400).json({
+          message: "Two-factor authentication requires a password on this account. Set a password first.",
+          code: "TWO_FACTOR_REQUIRES_PASSWORD",
+        });
+      }
       const already = await auth.twoFactorService.isEnabled(user.id);
       if (already) return res.status(400).json({ message: "Two-factor is already enabled. Disable it first." });
       res.json(await auth.twoFactorService.generateSetup(user));
