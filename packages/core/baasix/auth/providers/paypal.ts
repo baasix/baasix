@@ -87,8 +87,8 @@ export function paypal(options: PayPalOptions): OAuthProvider<PayPalProfile, Pay
     ? "https://api-m.sandbox.paypal.com/v1/oauth2/token"
     : "https://api-m.paypal.com/v1/oauth2/token";
   const userInfoEndpoint = isSandbox
-    ? "https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo"
-    : "https://api-m.paypal.com/v1/identity/openidconnect/userinfo";
+    ? "https://api-m.sandbox.paypal.com/v1/identity/oauth2/userinfo"
+    : "https://api-m.paypal.com/v1/identity/oauth2/userinfo";
   // Issuer and JWKS endpoints used to cryptographically verify ID tokens.
   // @see https://www.paypal.com/.well-known/openid-configuration
   const issuer = isSandbox ? "https://www.sandbox.paypal.com" : "https://www.paypal.com";
@@ -221,7 +221,7 @@ export function paypal(options: PayPalOptions): OAuthProvider<PayPalProfile, Pay
 
     async getUserInfo(tokens) {
       if (!tokens.accessToken) return null;
-      const response = await fetch(`${userInfoEndpoint}?schema=openid`, {
+      const response = await fetch(`${userInfoEndpoint}?schema=paypalv1.1`, {
         headers: {
           Authorization: `Bearer ${tokens.accessToken}`,
           Accept: "application/json",
