@@ -255,6 +255,24 @@ if (!globalThis.__baasix_hooksManagerInitialized) {
     }
     return context;
   });
+
+  // Partition lifecycle: create partitions when a tenant is created,
+  // drop them (bulk data erase) right before the tenant row is deleted.
+  hooksManager.registerHook('baasix_Tenant', 'items.create.after', async (context: HookContext) => {
+    const tenantId = context.document?.id ?? context.id;
+    if (!tenantId) return context;
+    const { schemaManager } = await import('../utils/schemaManager.js');
+    await schemaManager.createPartitionsForTenant(String(tenantId));
+    return context;
+  });
+
+  hooksManager.registerHook('baasix_Tenant', 'items.delete', async (context: HookContext) => {
+    const tenantId = context.id;
+    if (!tenantId) return context;
+    const { schemaManager } = await import('../utils/schemaManager.js');
+    await schemaManager.dropPartitionsForTenant(String(tenantId));
+    return context;
+  });
 }
 
 export default hooksManager;

@@ -1046,6 +1046,36 @@ export class SchemaManager {
     }
   }
 
+  /** Create partitions for a new tenant across all tenant-partitioned collections. */
+  async createPartitionsForTenant(tenantId: string): Promise<void> {
+    for (const [name, defEntry] of this.schemaDefinitions) {
+      const schema = (defEntry as any)?.schema ?? defEntry;
+      let config: PartitioningConfig | null = null;
+      try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
+      if (!config || config.strategy === 'time') continue;
+      try {
+        await this.ensureTenantPartition(name, config, tenantId);
+      } catch (error) {
+        console.error(`[partitioning] Failed to create partition of "${name}" for tenant ${tenantId}:`, error);
+        throw error; // fail the tenant creation — partitions must exist
+      }
+    }
+  }
+
+  /** Drop a deleted tenant's partitions (irreversible bulk erase, per design). */
+  async dropPartitionsForTenant(tenantId: string): Promise<void> {
+    const sql = getSqlClient();
+    for (const [name, defEntry] of this.schemaDefinitions) {
+      const schema = (defEntry as any)?.schema ?? defEntry;
+      let config: PartitioningConfig | null = null;
+      try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
+      if (!config || config.strategy === 'time') continue;
+      const tName = tenantPartitionName(name, tenantId); // validates UUID
+      await sql.unsafe(`DROP TABLE IF EXISTS "${tName}" CASCADE`);
+      console.log(`[partitioning] Dropped partition "${tName}" for deleted tenant ${tenantId}`);
+    }
+  }
+
   /** relkind check: null = table missing, true = partitioned parent, false = plain table. */
   async isTablePartitioned(tableName: string): Promise<boolean | null> {
     const sql = getSqlClient();

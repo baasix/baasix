@@ -241,3 +241,25 @@ describe("FKs to partitioned collections", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe("tenant lifecycle partitions", () => {
+  test("creating a tenant creates its partitions; deleting drops them", async () => {
+    const sql = getSqlClient();
+    const created = await authed(request(app).post("/items/baasix_Tenant")).send({ name: "PartTenant C" });
+    const tenantC = created.body.data?.id ?? created.body.id;
+    const partName = `part_orders__t_${tenantC.replace(/-/g, "").slice(0, 8)}`;
+
+    let rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(1);
+
+    // rows for other tenants survive tenant C's deletion
+    const before = await sql`SELECT COUNT(*)::int AS c FROM "part_orders"`;
+    const del = await authed(request(app).delete(`/items/baasix_Tenant/${tenantC}`));
+    expect(del.status).toBeLessThan(300);
+
+    rows = await sql`SELECT 1 FROM pg_class WHERE relname = ${partName}`;
+    expect(rows.length).toBe(0);
+    const after = await sql`SELECT COUNT(*)::int AS c FROM "part_orders"`;
+    expect(after[0].c).toBe(before[0].c);
+  });
+});
