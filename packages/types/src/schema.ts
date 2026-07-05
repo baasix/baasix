@@ -200,6 +200,20 @@ export interface IndexDefinition {
 }
 
 /**
+ * Partitioning options
+ */
+export interface PartitioningOptions {
+  /** Partitioning strategy: LIST by tenant, RANGE by time, or composite */
+  strategy: "tenant" | "time" | "tenant+time";
+  /** DateTime field used for RANGE partitioning (default "createdAt") */
+  timeField?: string;
+  /** Time partition width (default "year") */
+  interval?: "month" | "quarter" | "year";
+  /** Future periods to pre-create (default 1) */
+  premake?: number;
+}
+
+/**
  * Schema definition
  */
 export interface SchemaDefinition {
@@ -214,6 +228,8 @@ export interface SchemaDefinition {
    * - undefined: use default runtime behavior
    */
   tenantScoped?: boolean;
+  /** Partitioning configuration for this collection */
+  partitioning?: PartitioningOptions;
   /**
    * Track user who created/updated records (adds createdBy_Id, updatedBy_Id)
    */
