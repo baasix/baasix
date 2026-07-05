@@ -506,25 +506,48 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   app.post(`${basePath}/passkey/authenticate/verify`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!requirePasskey(res)) return;
-      const { challengeId, response, authMode = "jwt", tenant_Id } = req.body;
+      const { challengeId, response, authMode = "jwt", tenant_Id, authType } = req.body;
       if (!challengeId || !response) {
         return res.status(400).json({ message: "challengeId and response are required" });
       }
+
+      // Generic, constant response for anything that indicates a failed
+      // verification attempt (unknown credential, bad signature, missing/
+      // expired challenge, missing user). Distinguishable error messages here
+      // would let an attacker probe for valid credential/challenge IDs, so we
+      // collapse them all to one message and log the real reason server-side.
+      const genericAuthFailure = () =>
+        res.status(401).json({ message: "Passkey authentication failed", code: "INVALID_PASSKEY_RESPONSE" });
 
       let passkey;
       try {
         passkey = await passkeyService!.verifyAuthentication(challengeId, response);
       } catch (error: any) {
-        return res.status(401).json({ message: error.message, code: "INVALID_PASSKEY_RESPONSE" });
+        console.warn("[auth] Passkey authentication verification failed:", error?.message || error);
+        return genericAuthFailure();
       }
 
       const user = await auth.adapter.findUserById(passkey.user_Id);
-      if (!user) return res.status(401).json({ message: "User not found", code: "INVALID_PASSKEY_RESPONSE" });
+      if (!user) {
+        console.warn("[auth] Passkey authentication verified but user not found:", passkey.user_Id);
+        return genericAuthFailure();
+      }
 
       const ipAddress = req.ip || (req.connection as any)?.remoteAddress || null;
       const userAgent = req.headers["user-agent"] || null;
 
-      const result = await auth.createAuthResponseForUser(user, tenant_Id, ipAddress, userAgent);
+      let result;
+      try {
+        result = await auth.createAuthResponseForUser(user, tenant_Id, ipAddress, userAgent, authType);
+      } catch (error: any) {
+        if (error.message.includes("session limit") || error.message.includes("sessions are not allowed")) {
+          return res.status(403).json({ message: error.message });
+        }
+        if (error.message.includes("Invalid session type")) {
+          return res.status(403).json({ message: error.message });
+        }
+        throw error;
+      }
 
       const tokenResponse = setTokenInResponse(res, result.token, authMode, options.env);
 

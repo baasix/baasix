@@ -40,12 +40,28 @@ describe("passkey endpoints", () => {
         expect(res.body.challengeId).toBeTruthy();
     });
 
-    test("authenticate verify with a bogus response fails cleanly", async () => {
+    test("authenticate verify with a bogus response fails cleanly with a generic message", async () => {
         const opts = await request(app).post("/auth/passkey/authenticate/options").send({});
         const res = await request(app).post("/auth/passkey/authenticate/verify")
             .send({ challengeId: opts.body.challengeId, response: { id: "bogus", rawId: "bogus", type: "public-key", response: {} } });
         expect(res.status).toBe(401);
         expect(res.body.code).toBe("INVALID_PASSKEY_RESPONSE");
+        expect(res.body.message).toBe("Passkey authentication failed");
+    });
+
+    test("authenticate verify with an unknown/expired challengeId yields the same generic 401 body (no credential-existence oracle)", async () => {
+        const res = await request(app).post("/auth/passkey/authenticate/verify")
+            .send({ challengeId: "does-not-exist", response: { id: "bogus", rawId: "bogus", type: "public-key", response: {} } });
+        expect(res.status).toBe(401);
+        expect(res.body).toEqual({ message: "Passkey authentication failed", code: "INVALID_PASSKEY_RESPONSE" });
+
+        // Same body shape as the bogus-response-with-valid-challenge case above —
+        // proves an attacker can't distinguish "bad challenge" from "unknown
+        // credential" from the response alone.
+        const opts = await request(app).post("/auth/passkey/authenticate/options").send({});
+        const res2 = await request(app).post("/auth/passkey/authenticate/verify")
+            .send({ challengeId: opts.body.challengeId, response: { id: "bogus", rawId: "bogus", type: "public-key", response: {} } });
+        expect(res2.body).toEqual(res.body);
     });
 
     test("list is empty and delete of unknown id 404s", async () => {

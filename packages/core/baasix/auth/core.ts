@@ -114,8 +114,9 @@ export interface BaasixAuth {
   }): Promise<AuthResponse>;
 
   // Create a login-shaped AuthResponse for an already-authenticated user (e.g.
-  // after a successful passkey ceremony). Thin public wrapper around the
-  // internal createAuthResponse used by signIn/signUp/etc.
+  // after a successful passkey ceremony). Enforces session-type limits the
+  // same way signIn does, then delegates to the internal createAuthResponse
+  // used by signIn/signUp/etc.
   createAuthResponseForUser(
     user: User,
     tenantId?: string | null,
@@ -900,6 +901,21 @@ export function createAuth(options: AuthOptions): BaasixAuth {
 
     // Create Auth Response for an already-authenticated user (e.g. passkey)
     async createAuthResponseForUser(user, tenantId, ipAddress, userAgent, sessionType = "default") {
+      // Mirror signIn's session-limit enforcement so alternate login paths
+      // (e.g. passkey) can't bypass per-session-type limits.
+      const { role, tenant } = await getUserRoleAndPermissions(user.id, tenantId);
+
+      const validation = await validateSessionLimits(
+        user,
+        sessionType || "default",
+        tenant?.id || null,
+        role
+      );
+
+      if (!validation.isValid) {
+        throw new Error(validation.error);
+      }
+
       return createAuthResponse(user, tenantId, ipAddress, userAgent, sessionType);
     },
   };
