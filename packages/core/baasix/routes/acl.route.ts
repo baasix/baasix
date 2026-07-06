@@ -3,7 +3,7 @@ import permissionService from "../services/PermissionService.js";
 import ItemsService from "../services/ItemsService.js";
 import { adminOnly } from "../utils/auth.js";
 import { APIError } from "../utils/errorHandler.js";
-import { invalidateAuthCache } from "../utils/common.js";
+import { invalidateAuthCache, invalidateCollectionCache } from "../utils/common.js";
 import { parseQueryParams } from "../utils/router.js";
 
 /**
@@ -30,6 +30,23 @@ const validateACLPayload = (data: Record<string, any>, isCreate: boolean): void 
 const reloadAndInvalidate = async (): Promise<void> => {
     await permissionService.loadPermissions();
     await invalidateAuthCache();
+};
+
+/**
+ * An ACL entry's conditions/fields can change the effective permission of every
+ * collection it is attached to. Look up which permissions reference this ACL
+ * id and invalidate the item-query cache for each affected collection so
+ * reads reflect the change immediately (mirrors permission.route.ts).
+ */
+const invalidateCollectionsUsingACL = async (aclId: string, accountability: any): Promise<void> => {
+    const permissionsService = new ItemsService("baasix_Permission", { accountability });
+    const usage = await permissionsService.readByQuery({
+        filter: { acl_Ids: { jsonbContains: [aclId] } },
+        fields: ["collection"],
+        limit: -1,
+    });
+    const collections = new Set<string>(usage.data.map((p: any) => p.collection));
+    await Promise.all(Array.from(collections).map((collection) => invalidateCollectionCache(collection)));
 };
 
 const registerEndpoint = (app: Express) => {
@@ -103,6 +120,7 @@ const registerEndpoint = (app: Express) => {
             const updated = await itemsService.readOne(id);
 
             await reloadAndInvalidate();
+            await invalidateCollectionsUsingACL(id, req.accountability as any);
             res.json(updated);
         } catch (error) {
             next(error);

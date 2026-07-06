@@ -4,6 +4,7 @@ import { FieldExpansionUtil } from '../utils/fieldExpansion.js';
 import { resolveDynamicVariables } from '../utils/dynamicVariableResolver.js';
 import { getCache } from '../utils/cache.js';
 import { eq } from 'drizzle-orm';
+import { mergeACLEntries } from '../utils/aclMerge.js';
 import type { PermissionFilter, PermissionData } from '../types/index.js';
 
 // Re-export types for backward compatibility
@@ -224,6 +225,17 @@ export class PermissionService {
         await cache.invalidateModel("permissions");
       }
 
+      // Load all ACL entries once per reload; permissions referencing them are
+      // expanded here so the cached shape stays identical for all consumers.
+      let aclById = new Map<string, any>();
+      try {
+        const ACLTable = schemaManager.getTable('baasix_ACL');
+        const aclRows = await db.select().from(ACLTable);
+        aclById = new Map(aclRows.map((row: any) => [String(row.id), row]));
+      } catch (aclError) {
+        console.warn('[PermissionService] baasix_ACL table not available yet, skipping ACL expansion');
+      }
+
       // Group permissions by role in memory first
       // This avoids N sequential Redis round-trips (one per permission record)
       const rolePermissionsMap = new Map<string | number, Record<string, any>>();
@@ -237,12 +249,46 @@ export class PermissionService {
         const collectionName = permission.collection;
 
         rolePermissions[collectionName] = rolePermissions[collectionName] || {};
-        rolePermissions[collectionName][permission.action] = {
-          fields: this.parseFields(permission.fields),
-          conditions: permission.conditions || {},
-          relConditions: permission.relConditions || {},
-          defaultValues: permission.defaultValues || {},
-        };
+
+        const aclIds: string[] | null = Array.isArray(permission.acl_Ids) ? permission.acl_Ids : null;
+
+        if (aclIds && aclIds.length > 0) {
+          // Named ACL entries replace this row's inline values (additive OR merge)
+          const entries = [];
+          for (const aclId of aclIds) {
+            const entry = aclById.get(String(aclId));
+            if (entry) {
+              entries.push(entry);
+            } else {
+              console.warn(
+                `[PermissionService] Permission ${permission.id} (${permission.collection}/${permission.action}) references missing ACL ${aclId} — skipping that entry`
+              );
+            }
+          }
+
+          if (entries.length === 0) {
+            // Fail closed: no resolvable ACL entries means no access for this action
+            console.warn(
+              `[PermissionService] Permission ${permission.id} (${permission.collection}/${permission.action}) has no resolvable ACL entries — denying access`
+            );
+            continue;
+          }
+
+          const merged = mergeACLEntries(entries);
+          rolePermissions[collectionName][permission.action] = {
+            fields: this.parseFields(merged.fields),
+            conditions: merged.conditions,
+            relConditions: merged.relConditions,
+            defaultValues: merged.defaultValues,
+          };
+        } else {
+          rolePermissions[collectionName][permission.action] = {
+            fields: this.parseFields(permission.fields),
+            conditions: permission.conditions || {},
+            relConditions: permission.relConditions || {},
+            defaultValues: permission.defaultValues || {},
+          };
+        }
       }
 
       // Batch write all role permissions in a single Redis pipeline round-trip
