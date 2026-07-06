@@ -393,6 +393,61 @@ describe("ACL-based enforcement (end to end)", () => {
     });
 });
 
+describe("Permission acl_Ids validation", () => {
+    test("Rejects unknown acl_Ids with 400 listing them", async () => {
+        const bogus = "11111111-1111-4111-8111-111111111111";
+        const response = await request(app).post("/permissions").set("Authorization", `Bearer ${adminToken}`).send({
+            role_Id: userRoleId,
+            collection: "acl_validation_collection",
+            action: "read",
+            acl_Ids: [bogus],
+        });
+        expect(response.status).toBe(400);
+        expect(JSON.stringify(response.body)).toContain(bogus);
+    });
+
+    test("Rejects payloads mixing acl_Ids with inline conditions", async () => {
+        const acls = await request(app).get("/acls").set("Authorization", `Bearer ${adminToken}`);
+        const readAllId = acls.body.data.find((e) => e.name === "Read_All").id;
+
+        const response = await request(app).post("/permissions").set("Authorization", `Bearer ${adminToken}`).send({
+            role_Id: userRoleId,
+            collection: "acl_validation_collection",
+            action: "read",
+            acl_Ids: [readAllId],
+            conditions: { status: { eq: "published" } },
+        });
+        expect(response.status).toBe(400);
+    });
+
+    test("Rejects non-array acl_Ids", async () => {
+        const response = await request(app).post("/permissions").set("Authorization", `Bearer ${adminToken}`).send({
+            role_Id: userRoleId,
+            collection: "acl_validation_collection",
+            action: "read",
+            acl_Ids: "not-an-array",
+        });
+        expect(response.status).toBe(400);
+    });
+
+    test("PATCH validates acl_Ids the same way", async () => {
+        const created = await request(app).post("/permissions").set("Authorization", `Bearer ${adminToken}`).send({
+            role_Id: userRoleId,
+            collection: "acl_validation_collection",
+            action: "update",
+        });
+        expect(created.status).toBe(201);
+
+        const response = await request(app)
+            .patch(`/permissions/${created.body.id}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ acl_Ids: ["22222222-2222-4222-8222-222222222222"] });
+        expect(response.status).toBe(400);
+
+        await request(app).delete(`/permissions/${created.body.id}`).set("Authorization", `Bearer ${adminToken}`);
+    });
+});
+
 afterAll(async () => {
     if (app.server) {
         await new Promise((resolve) => app.server.close(resolve));

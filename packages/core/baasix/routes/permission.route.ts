@@ -6,6 +6,44 @@ import { APIError } from "../utils/errorHandler.js";
 import { invalidateAuthCache, invalidateCollectionCache } from "../utils/common.js";
 import { parseQueryParams } from "../utils/router.js";
 
+/**
+ * Validate acl_Ids on permission writes:
+ * - must be an array of existing baasix_ACL UUIDs
+ * - cannot be combined with inline conditions/relConditions/fields/defaultValues
+ *   (assigned ACL entries fully replace inline values — one source of truth)
+ */
+const validateAclIds = async (data: Record<string, any>, accountability: any): Promise<void> => {
+    if (data.acl_Ids == null) return;
+
+    if (!Array.isArray(data.acl_Ids) || !data.acl_Ids.every((id: any) => typeof id === "string")) {
+        throw new APIError("acl_Ids must be an array of ACL entry UUIDs", 400);
+    }
+
+    if (data.acl_Ids.length > 0) {
+        const inlineKeys = ["conditions", "relConditions", "fields", "defaultValues"].filter(
+            (key) => data[key] != null
+        );
+        if (inlineKeys.length > 0) {
+            throw new APIError(
+                `A permission cannot set both acl_Ids and inline ${inlineKeys.join("/")}. Assigned ACL entries replace inline values.`,
+                400
+            );
+        }
+
+        const aclService = new ItemsService("baasix_ACL", { accountability });
+        const found = await aclService.readByQuery({
+            filter: { id: { in: data.acl_Ids } },
+            fields: ["id"],
+            limit: -1,
+        });
+        const foundIds = new Set(found.data.map((e: any) => String(e.id)));
+        const unknown = data.acl_Ids.filter((id: string) => !foundIds.has(String(id)));
+        if (unknown.length > 0) {
+            throw new APIError(`Unknown ACL entry id(s): ${unknown.join(", ")}`, 400);
+        }
+    }
+};
+
 const registerEndpoint = (app: Express) => {
   // Get all permissions
   app.get("/permissions", async (req, res, next) => {
@@ -49,6 +87,8 @@ const registerEndpoint = (app: Express) => {
     try {
       const data = req.body;
 
+      await validateAclIds(data, req.accountability);
+
       const itemsService = new ItemsService("baasix_Permission", {
         accountability: req.accountability as any,
       });
@@ -78,6 +118,8 @@ const registerEndpoint = (app: Express) => {
     try {
       const { id } = req.params;
       const data = req.body;
+
+      await validateAclIds(data, req.accountability);
 
       const itemsService = new ItemsService("baasix_Permission", {
         accountability: req.accountability as any,
