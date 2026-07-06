@@ -91,6 +91,12 @@ export const systemSchemas = {
                     defaultValues: { type: "JSON", SystemGenerated: "true" },
                     conditions: { type: "JSON", SystemGenerated: "true" },
                     relConditions: { type: "JSON", SystemGenerated: "true" },
+                    acl_Ids: {
+                        type: "JSON",
+                        SystemGenerated: "true",
+                        description:
+                            "Ordered array of baasix_ACL UUIDs. When non-empty, assigned ACL entries replace this row's inline conditions/relConditions/fields/defaultValues (OR/additive merge).",
+                    },
                     role: {
                         relType: "BelongsTo",
                         target: "baasix_Role",
@@ -106,6 +112,42 @@ export const systemSchemas = {
                         fields: ["role_Id", "collection", "action"],
                         unique: true,
                         name: "baasix_Permission_action_unique",
+                        SystemGenerated: "true",
+                    },
+                ],
+            },
+        },
+        {
+            collectionName: "baasix_ACL",
+            schema: {
+                name: "ACL",
+                timestamps: true,
+                fields: {
+                    id: {
+                        type: "UUID",
+                        primaryKey: true,
+                        defaultValue: { type: "UUIDV4" },
+                        SystemGenerated: "true",
+                    },
+                    name: { type: "String", allowNull: false, SystemGenerated: "true" },
+                    description: { type: "String", SystemGenerated: "true" },
+                    conditions: { type: "JSON", SystemGenerated: "true" },
+                    relConditions: { type: "JSON", SystemGenerated: "true" },
+                    fields: { type: "JSON", SystemGenerated: "true" },
+                    defaultValues: { type: "JSON", SystemGenerated: "true" },
+                    system: {
+                        type: "Boolean",
+                        allowNull: false,
+                        defaultValue: false,
+                        SystemGenerated: "true",
+                        description: "Built-in entry seeded by Baasix; immutable via API",
+                    },
+                },
+                indexes: [
+                    {
+                        fields: ["name"],
+                        unique: true,
+                        name: "baasix_ACL_name_unique",
                         SystemGenerated: "true",
                     },
                 ],

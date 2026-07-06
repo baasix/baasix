@@ -1843,6 +1843,9 @@ export class SchemaManager {
       console.log('Database is empty, seeding...');
       await this.seedDatabase();
     }
+
+    // Seed built-in ACL entries on every startup (idempotent)
+    await this.seedSystemACLs();
   }
 
   /**
@@ -1904,6 +1907,51 @@ export class SchemaManager {
     } catch (error) {
       console.error('Error seeding database:', error);
     }
+  }
+
+  /**
+   * Seed built-in system ACL entries (idempotent — ON CONFLICT DO NOTHING).
+   * Runs on every startup so existing installs get them without migrations.
+   */
+  private async seedSystemACLs(): Promise<void> {
+    const sql = getSqlClient();
+
+    const tableExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_name = 'baasix_ACL'
+      )
+    `;
+    if (!tableExists[0].exists) {
+      console.log('baasix_ACL table does not exist yet, skipping ACL seeding');
+      return;
+    }
+
+    const ownerCondition = { userCreated_Id: { eq: '$CURRENT_USER' } };
+    const systemACLs = [
+      { name: 'Read_All', description: 'Read all rows, all fields', conditions: {}, fields: ['*'] },
+      { name: 'Read_Own', description: 'Read rows created by the current user (requires usertrack)', conditions: ownerCondition, fields: ['*'] },
+      { name: 'Update_Own', description: 'Update rows created by the current user (requires usertrack)', conditions: ownerCondition, fields: ['*'] },
+      { name: 'Delete_Own', description: 'Delete rows created by the current user (requires usertrack)', conditions: ownerCondition, fields: null },
+      { name: 'Own_Tenant', description: "Rows belonging to the current user's tenant", conditions: { tenant_Id: { eq: '$CURRENT_TENANT' } }, fields: ['*'] },
+    ];
+
+    for (const acl of systemACLs) {
+      await sql`
+        INSERT INTO "baasix_ACL" (id, name, description, conditions, fields, system)
+        VALUES (
+          gen_random_uuid(),
+          ${acl.name},
+          ${acl.description},
+          ${JSON.stringify(acl.conditions)}::jsonb,
+          ${acl.fields ? JSON.stringify(acl.fields) : null}::jsonb,
+          true
+        )
+        ON CONFLICT (name) DO NOTHING
+      `;
+    }
+
+    console.log('System ACL entries verified/seeded');
   }
 
   /**
