@@ -6,7 +6,7 @@
 
 **Architecture:** All DDL stays inside `SchemaManager` (raw SQL via `sql.unsafe`, matching existing style). A new pure-function module `partitionUtils.ts` owns config normalization/validation, partition naming, and period math. Tenant lifecycle is intercepted with `HooksManager` hooks on `baasix_Tenant`. The query layer (`ItemsService`, Drizzle objects, caches) is untouched.
 
-**Tech Stack:** TypeScript (strict: false), postgres (porsager) client, Drizzle (models only), Jest + ts-jest ESM + supertest, PostgreSQL ≥ 13.
+**Tech Stack:** TypeScript (strict: false), postgres (porsager) client, Drizzle (models only), Jest + ts-jest ESM + supertest, PostgreSQL ≥ 12.
 
 **Spec:** `docs/superpowers/specs/2026-07-05-collection-partitioning-design.md`
 
@@ -16,7 +16,7 @@
 - The collection setting is **top-level** `schema.partitioning` (same level as `tenantScoped`), NOT `options.partitioning`: `{ "strategy": "tenant"|"time"|"tenant+time", "timeField"?: string (default "createdAt"), "interval"?: "month"|"quarter"|"year" (default "year"), "premake"?: number (default 1) }`.
 - Partition naming: default partition `<table>__default`; tenant partition `<table>__t_<first 8 hex of tenant uuid>`; time partition `<table>__y2026` / `<table>__2026q3` / `<table>__202607`; composite `<table>__t_<hex8>__y2026`. All identifiers go through a 63-char truncate-with-hash guard.
 - Composite PK per strategy: `(id, tenant_Id)` / `(id, <timeField>)` / `(id, tenant_Id, <timeField>)`. Partition-key columns are forced NOT NULL. Unique indexes get missing partition-key columns appended.
-- `tenant`/`tenant+time` require `MULTI_TENANT=true` and are forbidden on `baasix_` collections and `tenantScoped: false` collections. PG floor: 13 (via existing `isPgVersionAtLeast`).
+- `tenant`/`tenant+time` require `MULTI_TENANT=true` and are forbidden on `baasix_` collections and `tenantScoped: false` collections. PG floor: 12 (via existing `isPgVersionAtLeast`; every partitioning feature used is PG12+).
 - Tenant delete drops that tenant's partitions (before the row delete). No automated time-partition retention — old partitions are kept until manually dropped.
 - DDL identifier interpolation uses `sql.unsafe` with double-quoted identifiers (existing convention). Tenant UUIDs MUST be regex-validated before interpolation into DDL.
 - Errors: validation throws `APIError` (from `baasix/utils/errorHandler.ts`); background/DDL-sync failures are logged with `console.warn/error` and do not crash startup (existing convention).
@@ -119,7 +119,7 @@ describe("partitionUtils", () => {
     expect(() => validatePartitioning("orders",
       { ...base, timestamps: false, partitioning: { strategy: "time" } }, ctx)).toThrow(/timeField/i);
     expect(() => validatePartitioning("orders", { ...base, partitioning: { strategy: "time" } },
-      { isMultiTenant: false, pgOk: false })).toThrow(/PostgreSQL 13/);
+      { isMultiTenant: false, pgOk: false })).toThrow(/PostgreSQL 12/);
     expect(validatePartitioning("orders", base, ctx)).toBeNull();
   });
 });
@@ -200,7 +200,7 @@ export function validatePartitioning(
   const config = normalizePartitioning(schema?.partitioning);
   if (!config) return null;
   if (!ctx.pgOk) {
-    throw new APIError("Partitioning unavailable", 400, "Partitioning requires PostgreSQL 13 or newer");
+    throw new APIError("Partitioning unavailable", 400, "Partitioning requires PostgreSQL 12 or newer");
   }
   if (collectionName.startsWith("baasix_")) {
     throw new APIError("Partitioning not supported", 400, "Partitioning is not supported on system collections");
@@ -391,7 +391,7 @@ In `updateModel` (line ~2113), right after `const isMultiTenant = envValue === '
     // Validate partitioning config before persisting anything (throws APIError on bad config)
     const partitionConfig = validatePartitioning(collectionName, schema, {
       isMultiTenant,
-      pgOk: await isPgVersionAtLeast(13),
+      pgOk: await isPgVersionAtLeast(12),
     });
     if (partitionConfig) {
       appendPartitionKeysToUniqueIndexes(schema, getPartitionKeyColumns(partitionConfig));

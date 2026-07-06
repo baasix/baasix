@@ -10,6 +10,46 @@ import { getProjectPath, toFileURL } from '../utils/dirname.js';
 export type { HookContext, HookFunction };
 
 /**
+ * Is the caller an administrator (allowed to erase tenant data)?
+ *
+ * Mirrors ItemsService.isAdministrator() so the tenant-delete hook's authorization
+ * decision matches the permission check that follows it in deleteOneCore:
+ *   - no accountability (or empty object) → trusted SYSTEM context (internal callers) → true
+ *   - accountability with no role → false
+ *   - user.isAdmin === true → true
+ *   - role is the string 'administrator', or an object named 'administrator' → true
+ *   - otherwise resolve the role id via PermissionService (hybrid cache)
+ * Any failure resolving the role is treated as NOT an admin (fail closed).
+ */
+async function callerIsTenantAdmin(accountability: any): Promise<boolean> {
+  try {
+    if (!accountability) return true;
+    if (Object.keys(accountability).length === 0) return true;
+    if (!accountability.role) return false;
+
+    if (accountability.user && accountability.user.isAdmin === true) return true;
+
+    if (typeof accountability.role === 'string') {
+      return accountability.role === 'administrator';
+    }
+    if (typeof accountability.role === 'object' && accountability.role.name) {
+      return accountability.role.name === 'administrator';
+    }
+    const roleId = typeof accountability.role === 'object'
+      ? accountability.role.id
+      : accountability.role;
+    if (roleId) {
+      const { permissionService } = await import('./PermissionService.js');
+      return await permissionService.isAdministratorRoleAsync(roleId);
+    }
+    return false;
+  } catch (error: any) {
+    console.error('[partitioning] Failed to resolve caller admin status; refusing partition drop:', error?.message);
+    return false;
+  }
+}
+
+/**
  * Hooks Manager - Executes lifecycle hooks for collections
  *
  * Matches Sequelize implementation 1:1
@@ -253,6 +293,44 @@ if (!globalThis.__baasix_hooksManagerInitialized) {
     } catch (error: any) {
       console.error('[HooksManager] Failed to invalidate session cache:', error.message);
     }
+    return context;
+  });
+
+  // Partition lifecycle: create partitions when a tenant is created,
+  // drop them (bulk data erase) right before the tenant row is deleted.
+  hooksManager.registerHook('baasix_Tenant', 'items.create.after', async (context: HookContext) => {
+    const tenantId = context.document?.id ?? context.id;
+    if (!tenantId) return context;
+    const { schemaManager } = await import('../utils/schemaManager.js');
+    await schemaManager.createPartitionsForTenant(String(tenantId));
+    return context;
+  });
+
+  hooksManager.registerHook('baasix_Tenant', 'items.delete', async (context: HookContext) => {
+    const tenantId = context.id;
+    if (!tenantId) return context;
+
+    // ── AUTHORIZATION GUARD (defence in depth) ──────────────────────────────
+    // 'items.delete' before-hooks fire in deleteOneCore BEFORE the caller's delete
+    // permission is checked. Dropping a tenant's partitions is an irreversible
+    // DROP TABLE … CASCADE, so it MUST NOT run for a caller who will be rejected
+    // by the subsequent permission check. Only administrators may erase a tenant's
+    // data. A legitimately-authorized non-admin (custom role with delete permission)
+    // still deletes the tenant ROW; its partitions remain (empty after the ON DELETE
+    // CASCADE clears the rows) and are healed/ignored by reconciliation.
+    if (!(await callerIsTenantAdmin(context.accountability))) {
+      console.warn(
+        `[partitioning] Skipping partition drop for tenant ${String(tenantId)}: ` +
+        `caller is not an administrator. The tenant row (if the delete is authorized) ` +
+        `is removed via ON DELETE CASCADE; partitions are left in place (empty).`
+      );
+      return context;
+    }
+
+    const { schemaManager } = await import('../utils/schemaManager.js');
+    // Thread the delete transaction so the DROPs are transactional WITH the delete:
+    // if the delete later fails (permission/404/FK RESTRICT), PG rolls the DROPs back.
+    await schemaManager.dropPartitionsForTenant(String(tenantId), context.transaction);
     return context;
   });
 }

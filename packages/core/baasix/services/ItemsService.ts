@@ -3058,12 +3058,16 @@ export class ItemsService {
   }> {
     const parsedId = this.parseId(id);
 
-    // Execute before-delete hooks with transaction
+    // Execute before-delete hooks with the WORKING transaction (not options.transaction,
+    // which is undefined when deleteOne/deleteMany created the transaction themselves).
+    // Threading the working tx lets transactional before-hooks (e.g. the tenant partition
+    // drop) run their DDL inside the same transaction, so a delete that later fails —
+    // permission 403, 404, or an ON DELETE RESTRICT FK below — rolls those DDLs back too.
     await hooksManager.executeHooks(
       this.collection,
       'items.delete',
       this.accountability,
-      { id: parsedId, transaction: options.transaction }
+      { id: parsedId, transaction }
     );
 
     const isAdmin = await this.isAdministrator();

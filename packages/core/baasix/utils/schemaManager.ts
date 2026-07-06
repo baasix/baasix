@@ -1,11 +1,13 @@
 import { pgTable, text, jsonb, timestamp } from 'drizzle-orm/pg-core';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql as drizzleSql } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { getDatabase, getSqlClient, isPgVersionAtLeast } from './db.js';
 import { mapJsonTypeToDrizzle, isRelationField } from './typeMapper.js';
 import { relationBuilder, createForeignKeySQL } from './relationUtils.js';
 import systemSchemaModule from './systemschema.js';
 import env from './env.js';
+import { validatePartitioning, normalizePartitioning, getPartitionKeyColumns, partitionName, tenantPartitionName, timeSuffixForStart, periodsToEnsure, parsePgTimestamp, PartitioningConfig } from './partitionUtils.js';
+import { APIError } from './errorHandler.js';
 import type { SchemaDefinition, IndexDefinition, AssociationDefinition } from '@baasix/types';
 import type { PluginSchemaDefinition } from '../types/plugin.js';
 
@@ -132,6 +134,9 @@ export class SchemaManager {
       
       // Step 4: Load all schemas into memory (pass needSyncing to skip unnecessary sync for unchanged schemas)
       await this.loadAllSchemas(needSyncing);
+
+      // Step 5: Reconcile partitions (heal drift, pre-create time periods)
+      await this.reconcilePartitions();
 
       this.initialized = true;
       console.log('Schema Manager initialized successfully');
@@ -832,6 +837,92 @@ export class SchemaManager {
   }
 
   /**
+   * Build the full CREATE TABLE statement for a schema, partition-aware via `schema.partitioning`.
+   * Behavior-preserving for non-partitioned schemas: emits byte-identical SQL to the pre-partitioning
+   * inline column-building loop.
+   */
+  private buildCreateTableSQL(tableName: string, schema: any): string | null {
+    const partitionConfig = normalizePartitioning(schema.partitioning);
+    const partitionKeys = partitionConfig ? getPartitionKeyColumns(partitionConfig) : [];
+    const columns: string[] = [];
+    let pkField: string | null = null;
+    const inlineUniqueFields: string[] = [];
+
+    for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
+      let fs = fieldSchema as any;
+
+      if (fs.relType === 'BelongsTo') {
+        const foreignKey = fs.foreignKey || `${fieldName}_Id`;
+        const foreignKeyExists = foreignKey !== fieldName && Object.keys(schema.fields).includes(foreignKey);
+        if (!foreignKeyExists && foreignKey !== fieldName) {
+          const RELATION_TYPES_CT = ["M2O", "O2O", "O2M", "M2M"];
+          const fkType = (fs.type && !RELATION_TYPES_CT.includes(fs.type)) ? fs.type : 'UUID';
+          // PARTITION-AWARE: partition key columns must be NOT NULL; inline UNIQUE moves to composite
+          const fkAllowNull = partitionKeys.includes(foreignKey) ? false : fs.allowNull;
+          const fkUnique = partitionConfig ? false : fs.unique;
+          if (partitionConfig && fs.unique) inlineUniqueFields.push(foreignKey);
+          const columnDef = this.buildColumnDefinition(foreignKey, {
+            type: fkType, allowNull: fkAllowNull, unique: fkUnique
+          });
+          if (columnDef) columns.push(columnDef);
+        }
+        const RELATION_INDICATORS_CT = ["M2O", "O2O", "O2M", "M2M"];
+        if (!(foreignKey === fieldName && fs.type && !RELATION_INDICATORS_CT.includes(fs.type))) {
+          continue;
+        }
+      }
+
+      const RELATION_TYPE_IND = ["M2O", "O2O", "O2M", "M2M"];
+      if (fs.relType && (!fs.type || RELATION_TYPE_IND.includes(fs.type))) continue;
+
+      // PARTITION-AWARE: strip inline PRIMARY KEY / UNIQUE, force NOT NULL on partition keys
+      if (partitionConfig) {
+        if (fs.primaryKey) { pkField = fieldName; fs = { ...fs, primaryKey: false }; }
+        if (fs.unique) { inlineUniqueFields.push(fieldName); fs = { ...fs, unique: false }; }
+        if (partitionKeys.includes(fieldName) && fs.allowNull !== false) {
+          fs = { ...fs, allowNull: false };
+        }
+      }
+
+      const columnDef = this.buildColumnDefinition(fieldName, fs);
+      if (columnDef) columns.push(columnDef);
+    }
+
+    if (schema.timestamps !== false) {
+      if (!schema.fields.createdAt) {
+        // PARTITION-AWARE: createdAt must be NOT NULL when it is the partition key
+        columns.push(partitionKeys.includes('createdAt')
+          ? '"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()'
+          : '"createdAt" TIMESTAMPTZ DEFAULT NOW()');
+      }
+      if (!schema.fields.updatedAt) {
+        columns.push('"updatedAt" TIMESTAMPTZ DEFAULT NOW()');
+      }
+    }
+    if (schema.paranoid && !schema.fields.deletedAt) {
+      columns.push('"deletedAt" TIMESTAMPTZ');
+    }
+    if (columns.length === 0) return null;
+
+    // PARTITION-AWARE: composite PK / UNIQUE constraints and PARTITION BY clause
+    let partitionByClause = '';
+    if (partitionConfig) {
+      const quotedKeys = partitionKeys.map((k) => `"${k}"`).join(', ');
+      if (pkField) {
+        const pkCols = [pkField, ...partitionKeys.filter((k) => k !== pkField)].map((k) => `"${k}"`);
+        columns.push(`PRIMARY KEY (${pkCols.join(', ')})`);
+      }
+      for (const uf of inlineUniqueFields) {
+        columns.push(`UNIQUE ("${uf}", ${quotedKeys})`);
+      }
+      partitionByClause = partitionConfig.strategy === 'time'
+        ? ` PARTITION BY RANGE ("${partitionConfig.timeField}")`
+        : ` PARTITION BY LIST ("tenant_Id")`;
+    }
+    return `CREATE TABLE "${tableName}" (${columns.join(', ')})${partitionByClause}`;
+  }
+
+  /**
    * Create table from schema definition using raw SQL
    */
   private async createTableFromSchema(collectionName: string, schema: any, skipFKConstraints: boolean = false): Promise<void> {
@@ -861,87 +952,58 @@ export class SchemaManager {
           await this.createIndex(collectionName, index);
         }
       }
+      // Only ensure partitions when the table is PHYSICALLY partitioned. A stored schema
+      // can claim partitioning over a plain table (mid-conversion crash, hand-edit) — calling
+      // ensurePartitions there throws "X is not partitioned" and, on the startup path
+      // (loadAllSchemas has no per-schema catch), would take initialize() down in a crash
+      // loop and make the server unbootable. Guard + try/catch: warn and continue instead.
+      try {
+        // wantsPartitioning may itself throw on a corrupted stored config — treat as non-partitioned.
+        let wantsPartitioning = false;
+        try { wantsPartitioning = !!normalizePartitioning(schema?.partitioning); } catch { wantsPartitioning = false; }
+        const physicallyPartitioned = await this.isTablePartitioned(collectionName);
+        if (physicallyPartitioned === true) {
+          await this.ensurePartitions(collectionName, schema);
+        } else if (wantsPartitioning && physicallyPartitioned === false) {
+          console.warn(`[partitioning] "${collectionName}" has a partitioning config but its table is ` +
+            `not partitioned — skipping partition sync. PATCH /schemas/${collectionName} to convert it.`);
+        }
+      } catch (error) {
+        console.warn(`[partitioning] ensurePartitions failed for existing table "${collectionName}" ` +
+          `(config/physical drift?) — continuing:`, error);
+      }
       return;
     }
 
-    // Build CREATE TABLE statement
-    const columns: string[] = [];
-    const foreignKeyAssociations: Array<{fieldName: string, assoc: any}> = [];
-
-    for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
-      const fs = fieldSchema as any;
-
-      // Handle BelongsTo relations - they need a foreign key column
-      if (fs.relType === 'BelongsTo') {
-        const foreignKey = fs.foreignKey || `${fieldName}_Id`;
-
-        // Check if foreign key column already exists as a separate field
-        // If foreignKey === fieldName AND field has explicit type, we'll create it below
-        const foreignKeyExists = foreignKey !== fieldName && Object.keys(schema.fields).includes(foreignKey);
-
-        if (!foreignKeyExists && foreignKey !== fieldName) {
-          // Only create foreign key column if it doesn't already exist as a separate field
-          const RELATION_TYPES_CT = ["M2O", "O2O", "O2M", "M2M"];
-          const fkType = (fs.type && !RELATION_TYPES_CT.includes(fs.type)) ? fs.type : 'UUID';
-          const columnDef = this.buildColumnDefinition(foreignKey, {
-            type: fkType,
-            allowNull: fs.allowNull,
-            unique: fs.unique
-          });
-          if (columnDef) {
-            columns.push(columnDef);
-          }
-        }
-
-        // Store association for later foreign key constraint creation
-        foreignKeyAssociations.push({fieldName, assoc: fs});
-
-        // If foreignKey === fieldName AND field has a real column type (not a relation indicator), create column below
-        const RELATION_INDICATORS_CT = ["M2O", "O2O", "O2M", "M2M"];
-        if (foreignKey === fieldName && fs.type && !RELATION_INDICATORS_CT.includes(fs.type)) {
-          // Fall through to create the column
-        } else {
-          continue;
-        }
-      }
-
-      // Skip other relation types that don't have explicit type (or have relation type indicators)
-      const RELATION_TYPE_IND = ["M2O", "O2O", "O2M", "M2M"];
-      if (fs.relType && (!fs.type || RELATION_TYPE_IND.includes(fs.type))) continue;
-
-      const columnDef = this.buildColumnDefinition(fieldName, fs);
-      if (columnDef) {
-        columns.push(columnDef);
-      }
+    // Build the CREATE TABLE SQL. buildCreateTableSQL → normalizePartitioning THROWS on a
+    // corrupted stored partitioning config; on the STARTUP path (loadAllSchemas has no
+    // per-schema catch) that would propagate to initialize() and make the server unbootable.
+    // Guard it so a bad config degrades to a non-partitioned create (logged) instead of a crash.
+    // The API path is unaffected: updateModel runs validatePartitioning (which throws the
+    // APIError to the caller) BEFORE reaching here, so any config that gets this far is valid.
+    let createTableSQL: string | null;
+    try {
+      createTableSQL = this.buildCreateTableSQL(collectionName, schema);
+    } catch (error) {
+      console.error(`[partitioning] Invalid stored partitioning config for "${collectionName}"; ` +
+        `creating it as a non-partitioned table:`, error);
+      createTableSQL = this.buildCreateTableSQL(collectionName, { ...schema, partitioning: undefined });
     }
-
-    // Add timestamps if enabled (default: true unless explicitly set to false)
-    if (schema.timestamps !== false) {
-      if (!schema.fields.createdAt) {
-        columns.push('"createdAt" TIMESTAMPTZ DEFAULT NOW()');
-      }
-      if (!schema.fields.updatedAt) {
-        columns.push('"updatedAt" TIMESTAMPTZ DEFAULT NOW()');
-      }
-    }
-
-    // Add deletedAt for paranoid mode
-    if (schema.paranoid) {
-      if (!schema.fields.deletedAt) {
-        columns.push('"deletedAt" TIMESTAMPTZ');
-      }
-    }
-
-    if (columns.length === 0) {
+    if (!createTableSQL) {
       console.warn(`No columns to create for table ${collectionName}`);
       return;
     }
-
-    const createTableSQL = `CREATE TABLE "${collectionName}" (${columns.join(', ')})`;
+    const foreignKeyAssociations: Array<{fieldName: string, assoc: any}> = [];
+    for (const [fieldName, fieldSchema] of Object.entries(schema.fields)) {
+      const fs = fieldSchema as any;
+      if (fs.relType === 'BelongsTo') foreignKeyAssociations.push({fieldName, assoc: fs});
+    }
 
     try {
       await sql.unsafe(createTableSQL);
       console.log(`Created table: ${collectionName}`);
+
+      await this.ensurePartitions(collectionName, schema);
 
       // Create foreign key constraints for BelongsTo relations (unless skipped)
       if (!skipFKConstraints && foreignKeyAssociations.length > 0) {
@@ -964,6 +1026,161 @@ export class SchemaManager {
       }
     } catch (error) {
       console.error(`Failed to create table ${collectionName}:`, error);
+    }
+  }
+
+  /** Idempotently create default/tenant/time partitions for a partitioned collection. */
+  async ensurePartitions(
+    collectionName: string,
+    schema: any,
+    opts: { tableName?: string; sqlClient?: any } = {}
+  ): Promise<void> {
+    const config = normalizePartitioning(schema.partitioning);
+    if (!config) return;
+    const sql = opts.sqlClient || getSqlClient();
+    const table = opts.tableName || collectionName;
+
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${partitionName(table, ['default'])}" PARTITION OF "${table}" DEFAULT`);
+
+    if (config.strategy === 'time') {
+      for (const p of periodsToEnsure(new Date(), config.interval, config.premake)) {
+        await sql.unsafe(
+          `CREATE TABLE IF NOT EXISTS "${partitionName(table, [p.suffix])}" PARTITION OF "${table}" ` +
+          `FOR VALUES FROM ('${p.start}') TO ('${p.end}')`);
+      }
+      return;
+    }
+
+    const tenants = await sql`SELECT id FROM "baasix_Tenant"`;
+    for (const t of tenants) {
+      await this.ensureTenantPartition(table, config, String(t.id), sql);
+    }
+  }
+
+  private async ensureTenantPartition(
+    parentTable: string, config: PartitioningConfig, tenantId: string, sqlClient?: any
+  ): Promise<void> {
+    const sql = sqlClient || getSqlClient();
+    const tName = tenantPartitionName(parentTable, tenantId); // validates UUID (DDL injection guard)
+    if (config.strategy === 'tenant') {
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "${tName}" PARTITION OF "${parentTable}" FOR VALUES IN ('${tenantId}')`);
+      return;
+    }
+    // tenant+time: the tenant partition is itself RANGE-partitioned by the time field
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${tName}" PARTITION OF "${parentTable}" FOR VALUES IN ('${tenantId}') ` +
+      `PARTITION BY RANGE ("${config.timeField}")`);
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${partitionName(tName, ['default'])}" PARTITION OF "${tName}" DEFAULT`);
+    for (const p of periodsToEnsure(new Date(), config.interval, config.premake)) {
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "${partitionName(tName, [p.suffix])}" PARTITION OF "${tName}" ` +
+        `FOR VALUES FROM ('${p.start}') TO ('${p.end}')`);
+    }
+  }
+
+  /** Create partitions for a new tenant across all tenant-partitioned collections. */
+  async createPartitionsForTenant(tenantId: string): Promise<void> {
+    for (const [name, defEntry] of this.schemaDefinitions) {
+      const schema = (defEntry as any)?.schema ?? defEntry;
+      let config: PartitioningConfig | null = null;
+      try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
+      if (!config || config.strategy === 'time') continue;
+      // Config-vs-physical drift guard: a collection can have a partitioning config while its
+      // table is still a plain (unpartitioned) relation — e.g. the DDL conversion hasn't run yet,
+      // or the table was altered out-of-band. Partitions can't be created on a plain table; warn
+      // and skip rather than throwing, so this drift doesn't fail unrelated tenant creation.
+      // reconcilePartitions already warns about the same drift at startup.
+      const partitioned = await this.isTablePartitioned(name);
+      if (partitioned !== true) {
+        console.warn(`[partitioning] "${name}" has a partitioning config but its table is ` +
+          `${partitioned === null ? 'missing' : 'not partitioned'} — skipping partition creation ` +
+          `for tenant ${tenantId}.`);
+        continue;
+      }
+      try {
+        await this.ensureTenantPartition(name, config, tenantId);
+      } catch (error) {
+        console.error(`[partitioning] Failed to create partition of "${name}" for tenant ${tenantId}:`, error);
+        throw error; // fail the tenant creation — partitions must exist
+      }
+    }
+  }
+
+  /**
+   * Drop a deleted tenant's partitions (irreversible bulk erase, per design).
+   *
+   * When a Drizzle delete `transaction` is provided, the DROP DDL runs THROUGH that
+   * transaction (PG DDL is transactional), so a delete that later fails — 403/404, an
+   * ON DELETE RESTRICT FK, etc. — rolls the drops back and the partitions survive.
+   * Without a transaction it falls back to the pooled porsager client (auto-commit),
+   * which is only used by non-transactional callers.
+   */
+  async dropPartitionsForTenant(tenantId: string, transaction?: any): Promise<void> {
+    const sql = getSqlClient();
+    // Drizzle tx exposes .execute(sql`…`); porsager pool exposes .unsafe(`…`).
+    const runDDL = transaction
+      ? (ddl: string) => transaction.execute(drizzleSql.raw(ddl))
+      : (ddl: string) => sql.unsafe(ddl);
+    for (const [name, defEntry] of this.schemaDefinitions) {
+      const schema = (defEntry as any)?.schema ?? defEntry;
+      let config: PartitioningConfig | null = null;
+      try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
+      if (!config || config.strategy === 'time') continue;
+      const tName = tenantPartitionName(name, tenantId); // validates UUID
+      await runDDL(`DROP TABLE IF EXISTS "${tName}" CASCADE`);
+      console.log(`[partitioning] Dropped partition "${tName}" for deleted tenant ${tenantId}`);
+    }
+  }
+
+  /** relkind check: null = table missing, true = partitioned parent, false = plain table. */
+  async isTablePartitioned(tableName: string): Promise<boolean | null> {
+    const sql = getSqlClient();
+    const rows = await sql`
+      SELECT relkind FROM pg_class
+      WHERE relname = ${tableName} AND relnamespace = 'public'::regnamespace`;
+    if (rows.length === 0) return null;
+    return rows[0].relkind === 'p';
+  }
+
+  /** Ensure the full expected partition set exists for every partitioned collection. */
+  async reconcilePartitions(): Promise<void> {
+    for (const [name, defEntry] of this.schemaDefinitions) {
+      const schema = (defEntry as any)?.schema ?? defEntry;
+      let config: PartitioningConfig | null = null;
+      try { config = normalizePartitioning(schema?.partitioning); } catch { continue; }
+      if (!config) continue;
+      try {
+        const partitioned = await this.isTablePartitioned(name);
+        if (partitioned === null) continue;
+        if (partitioned === false) {
+          console.warn(`[partitioning] "${name}" has a partitioning config but the table is not partitioned. ` +
+            `Update the collection via PATCH /schemas/${name} to convert it.`);
+          continue;
+        }
+        await this.ensurePartitions(name, schema);
+        // Non-empty DEFAULT partitions signal rows that missed their partition.
+        // Identify them by partition bound (not by name substring) — a collection
+        // legitimately named e.g. "orders__default" would otherwise LIKE-match a
+        // real tenant partition and trigger a false warning.
+        const sql = getSqlClient();
+        const defaults = await sql`
+          SELECT relid::regclass::text AS part
+          FROM pg_partition_tree(${'"' + name + '"'}::regclass) t
+          JOIN pg_class c ON c.oid = t.relid
+          WHERE t.isleaf AND pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT'`;
+        for (const d of defaults) {
+          const [{ count }] = await sql.unsafe(`SELECT COUNT(*)::int AS count FROM ${d.part}`);
+          if (count > 0) {
+            console.warn(`[partitioning] Default partition ${d.part} holds ${count} rows — ` +
+              `these rows missed their tenant/time partition.`);
+          }
+        }
+      } catch (error) {
+        console.error(`[partitioning] Reconciliation failed for "${name}":`, error);
+      }
     }
   }
 
@@ -1067,15 +1284,35 @@ export class SchemaManager {
           await sql.unsafe(`ALTER TABLE "${collectionName}" DROP CONSTRAINT "${constraintName}"`);
         }
 
-        // Create the foreign key constraint
-        const fkSQL = createForeignKeySQL(
-          collectionName,
-          foreignKey,
-          targetTable,
-          targetKey,
-          onDelete,
-          onUpdate
-        );
+        // Partitioned targets need the partition key in the FK (or no FK at all)
+        const targetDefEntry: any = this.schemaDefinitions.get(assoc.target);
+        const targetSchema = targetDefEntry?.schema ?? targetDefEntry;
+        let targetPartitioning: PartitioningConfig | null = null;
+        try { targetPartitioning = normalizePartitioning(targetSchema?.partitioning); } catch { targetPartitioning = null; }
+
+        let fkSQL: string;
+        if (targetPartitioning) {
+          if (targetPartitioning.strategy !== 'tenant') {
+            console.warn(`[partitioning] Skipping FK ${constraintName}: target "${assoc.target}" is time-partitioned (children cannot reference (id, ${targetPartitioning.timeField}))`);
+            continue;
+          }
+          if (!schema.fields?.tenant_Id) {
+            console.warn(`[partitioning] Skipping FK ${constraintName}: "${collectionName}" has no tenant_Id column to reference partitioned "${assoc.target}"`);
+            continue;
+          }
+          fkSQL = `ALTER TABLE "${collectionName}" ADD CONSTRAINT "${constraintName}" ` +
+            `FOREIGN KEY ("${foreignKey}", "tenant_Id") REFERENCES "${assoc.target}"("id", "tenant_Id") ` +
+            `ON DELETE ${onDelete} ON UPDATE ${onUpdate}`;
+        } else {
+          fkSQL = createForeignKeySQL(
+            collectionName,
+            foreignKey,
+            targetTable,
+            targetKey,
+            onDelete,
+            onUpdate
+          );
+        }
 
         await sql.unsafe(fkSQL);
         console.log(`Created foreign key constraint: ${constraintName}`);
@@ -1111,6 +1348,203 @@ export class SchemaManager {
       console.log(`After regeneration, ${collectionName} table has columns:`, Object.keys(updatedSchema || {}).filter(k => !k.startsWith('_')));
       console.log(`Drizzle schema for ${collectionName} regenerated successfully`);
     }
+  }
+
+  /**
+   * Copy-and-swap a table between plain and partitioned layouts.
+   * Runs in one transaction; the pre-conversion table is kept as a backup.
+   */
+  private async convertTableLayout(
+    collectionName: string, schema: any, config: PartitioningConfig | null
+  ): Promise<void> {
+    const sql = getSqlClient();
+    const keys = config ? getPartitionKeyColumns(config) : [];
+    const tempName = partitionName(collectionName, ['part_new']);
+    const backupName = config
+      ? partitionName(collectionName, ['preparted'])
+      : partitionName(collectionName, ['prepart_rollback']);
+
+    // Backup-name collision check is DDL-free and safe outside the txn.
+    const backupExists = await sql`SELECT 1 FROM pg_class WHERE relname = ${backupName}`;
+    if (backupExists.length > 0) {
+      throw new APIError(`Backup table "${backupName}" already exists`, 400,
+        `A previous conversion left "${backupName}" behind. Drop or rename it, then retry.`);
+    }
+
+    await sql.begin(async (tx: any) => {
+      await tx.unsafe(`LOCK TABLE "${collectionName}" IN ACCESS EXCLUSIVE MODE`);
+
+      // NULL partition-key pre-check runs INSIDE the txn, after the LOCK, so the friendly
+      // APIError(400) is race-free (no row can gain/lose a NULL key between check and copy).
+      // An APIError thrown here rolls back the txn and propagates (porsager rethrows).
+      for (const key of keys) {
+        const nullRows = await tx.unsafe(
+          `SELECT COUNT(*)::int AS count FROM "${collectionName}" WHERE "${key}" IS NULL`);
+        if (nullRows[0].count > 0) {
+          throw new APIError(`Cannot partition "${collectionName}"`, 400,
+            `${nullRows[0].count} rows have NULL "${key}". Assign values to these rows before enabling partitioning.`);
+        }
+      }
+
+      // 1. Drop inbound FKs; they are recreated against the new table afterwards
+      const inbound = await tx.unsafe(
+        `SELECT conname, conrelid::regclass::text AS child_table
+         FROM pg_constraint WHERE contype = 'f' AND confrelid = '"${collectionName}"'::regclass`);
+      for (const fk of inbound) {
+        await tx.unsafe(`ALTER TABLE ${fk.child_table} DROP CONSTRAINT "${fk.conname}"`);
+      }
+
+      // 2. New layout under a temp name (schema object carries the DESIRED partitioning already)
+      const createSQL = this.buildCreateTableSQL(tempName, schema);
+      if (!createSQL) throw new Error(`No columns for "${collectionName}" conversion`);
+      await tx.unsafe(createSQL);
+      if (config) {
+        await this.ensurePartitions(collectionName, schema, { tableName: tempName, sqlClient: tx });
+      }
+
+      // 2b. Copy list = INTERSECTION of the OLD and NEW (temp) tables' real columns.
+      // The txn sees its own DDL, so both live in information_schema now. Using the
+      // intersection means a field dropped from the schema in the SAME patch (still
+      // physically present on the old table) is skipped instead of exploding the INSERT;
+      // its data survives in the __preparted backup. Order follows the old table.
+      const oldCols = await tx.unsafe(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name = '${collectionName}' AND table_schema = 'public' AND is_generated = 'NEVER'
+         ORDER BY ordinal_position`);
+      const newColSet = new Set(
+        (await tx.unsafe(
+          `SELECT column_name FROM information_schema.columns
+           WHERE table_name = '${tempName}' AND table_schema = 'public' AND is_generated = 'NEVER'`))
+          .map((c: any) => c.column_name));
+      const colList = oldCols
+        .filter((c: any) => newColSet.has(c.column_name))
+        .map((c: any) => `"${c.column_name}"`).join(', ');
+      if (!colList) throw new Error(`No shared columns for "${collectionName}" conversion`);
+
+      // 3. Copy all rows (table is exclusively locked, so this is a consistent snapshot)
+      await tx.unsafe(`INSERT INTO "${tempName}" (${colList}) SELECT ${colList} FROM "${collectionName}"`);
+
+      // 4. Move the old table aside and free up its index names
+      await tx.unsafe(`ALTER TABLE "${collectionName}" RENAME TO "${backupName}"`);
+      const oldIndexes = await tx.unsafe(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = '${backupName}'`);
+      for (const idx of oldIndexes) {
+        await tx.unsafe(
+          `ALTER INDEX "${idx.indexname}" RENAME TO "${partitionName(idx.indexname, ['bak'])}"`);
+      }
+      // 4b. If the old table was partitioned (reverse conversion), rename ITS partitions
+      // out of the way too — their canonical names must be free for any future conversion.
+      const oldParts = await tx.unsafe(
+        `SELECT relid::regclass::text AS name FROM pg_partition_tree('"${backupName}"'::regclass)
+         WHERE relid <> '"${backupName}"'::regclass`);
+      for (const p of oldParts) {
+        const raw = p.name.replace(/^"|"$/g, '');
+        await tx.unsafe(`ALTER TABLE ${p.name} RENAME TO "${partitionName(raw, ['bak'])}"`);
+      }
+
+      // 5. Promote the new table
+      await tx.unsafe(`ALTER TABLE "${tempName}" RENAME TO "${collectionName}"`);
+
+      // 5b. Rename promoted partitions to their CANONICAL names, derived from each
+      // partition's stored BOUND (not from the temp-name prefix). Prefix-stripping breaks
+      // when partitionName() hash-truncates a long identifier: the temp partition's name no
+      // longer starts with tempName, so a bound-based rename is the only correct approach.
+      if (config) {
+        await this.renamePartitionsToCanonical(collectionName, config, tx);
+      }
+    });
+
+    // 6. Rebuild indexes and FKs with their canonical names (outside the txn, same helpers as create path)
+    if (schema.indexes && Array.isArray(schema.indexes)) {
+      for (const index of schema.indexes) await this.createIndex(collectionName, index);
+    }
+    for (const [fieldName, fieldDef] of Object.entries(schema.fields || {})) {
+      const fd = fieldDef as any;
+      if (fd.type === 'Vector' || fd.type === 'HalfVec' || fd.type === 'SparseVec') {
+        await this.createVectorIndex(collectionName, fieldName, fd.type);
+      }
+    }
+    await this.ensureForeignKeyConstraints(collectionName, schema);
+
+    // 7. Recreate inbound FKs from children (composite or skipped per partition rules)
+    for (const [childName, childEntry] of this.schemaDefinitions) {
+      if (childName === collectionName) continue;
+      const childSchema = (childEntry as any)?.schema ?? childEntry;
+      const references = Object.values(childSchema?.fields || {}).some(
+        (f: any) => f?.relType === 'BelongsTo' && f?.target === collectionName);
+      if (references) await this.ensureForeignKeyConstraints(childName, childSchema);
+    }
+
+    console.log(`[partitioning] Converted "${collectionName}" ` +
+      `(${config ? 'partitioned' : 'plain'} layout). Backup kept as "${backupName}".`);
+  }
+
+  /**
+   * After promoting a copy-and-swap table, rename its partitions to the names the
+   * create/reconcile paths expect. The temp-name-prefix approach is unreliable because
+   * partitionName() hash-truncates long identifiers, so we derive each canonical name from
+   * the partition's stored bound instead.
+   *
+   * Levels are processed top-down: a tenant partition is renamed before its time
+   * sub-partitions, and each child's canonical name is derived from the ALREADY-canonical
+   * parent name. Anything whose bound we can't parse is skipped-with-warn (never aborts the txn).
+   */
+  private async renamePartitionsToCanonical(
+    parentTable: string, config: PartitioningConfig, tx: any
+  ): Promise<void> {
+    // Direct children of `parentTable`, with their stored bound expression.
+    const children = await tx.unsafe(
+      `SELECT c.oid::regclass::text AS name, pg_get_expr(c.relpartbound, c.oid) AS bound
+       FROM pg_inherits i
+       JOIN pg_class c ON c.oid = i.inhrelid
+       WHERE i.inhparent = '"${parentTable}"'::regclass`);
+
+    for (const child of children) {
+      const currentRaw = child.name.replace(/^"|"$/g, '');
+      const bound: string = child.bound;
+      let canonical: string | null = null;
+      let recurse = false;
+
+      // Canonical name is derived from the bound SHAPE, not the strategy, so this works
+      // identically at the first level (tenant list / time range) and, on recursion, at the
+      // tenant+time second level (time range under a tenant partition).
+      const listMatch = bound.match(/FOR VALUES IN \('([0-9a-fA-F-]{36})'\)/);
+      const rangeStart = this.parseRangeStart(bound);
+      if (bound === 'DEFAULT') {
+        canonical = partitionName(parentTable, ['default']);
+      } else if (listMatch) {
+        canonical = tenantPartitionName(parentTable, listMatch[1]);
+        recurse = config.strategy === 'tenant+time'; // its time sub-partitions need renaming too
+      } else if (rangeStart) {
+        canonical = partitionName(parentTable, [timeSuffixForStart(config.interval, rangeStart)]);
+      }
+
+      if (canonical === null) {
+        console.warn(`[partitioning] Could not derive canonical name for partition ${child.name} ` +
+          `(bound: ${bound}) — leaving as-is.`);
+        continue;
+      }
+
+      if (currentRaw !== canonical) {
+        await tx.unsafe(`ALTER TABLE ${child.name} RENAME TO "${canonical}"`);
+      }
+      // Recurse into a tenant partition's time sub-partitions, deriving their names from the
+      // now-canonical tenant partition name.
+      if (recurse) {
+        await this.renamePartitionsToCanonical(canonical, config, tx);
+      }
+    }
+  }
+
+  /**
+   * Extract the FROM ('<start>') timestamp of a RANGE partition bound, or null if unparseable.
+   * Delegates offset-shape normalization to parsePgTimestamp — Postgres renders the bound text
+   * per SESSION timezone (bare ±HH, ±HH:MM, or no offset at all for DateTime_NO_TZ columns).
+   */
+  private parseRangeStart(bound: string): Date | null {
+    const m = bound.match(/FOR VALUES FROM \('([^']+)'\) TO \(/);
+    if (!m) return null;
+    return parsePgTimestamp(m[1]);
   }
 
   /**
@@ -2119,6 +2553,15 @@ export class SchemaManager {
     const envValue = env.get('MULTI_TENANT');
     const isMultiTenant = envValue === 'true';
 
+    // Validate partitioning config before persisting anything (throws APIError on bad config)
+    const partitionConfig = validatePartitioning(collectionName, schema, {
+      isMultiTenant,
+      pgOk: await isPgVersionAtLeast(12),
+    });
+    if (partitionConfig) {
+      appendPartitionKeysToUniqueIndexes(schema, getPartitionKeyColumns(partitionConfig));
+    }
+
     if (isMultiTenant && !isSystemSchema && !schema.fields?.tenant_Id) {
       console.log(`[updateModel] Adding tenant fields to schema for ${collectionName}`);
       schema.fields = {
@@ -2153,6 +2596,13 @@ export class SchemaManager {
       }
     }
 
+    // Capture the previous in-memory definition BEFORE overwriting it, so we can detect
+    // whether the physical table layout needs to change (conversion) below.
+    const previousEntry: any = this.schemaDefinitions.get(collectionName);
+    const previousSchema = previousEntry?.schema ?? previousEntry;
+    let previousConfig: PartitioningConfig | null = null;
+    try { previousConfig = normalizePartitioning(previousSchema?.partitioning); } catch { previousConfig = null; }
+
     // Store JSON schema definition in memory
     this.schemaDefinitions.set(collectionName, { collectionName, schema });
 
@@ -2183,8 +2633,56 @@ export class SchemaManager {
     // Create/update the Drizzle schema in memory
     await this.createOrUpdateModel(collectionName, schema);
 
-    // Create the actual PostgreSQL table
-    await this.createTableFromSchema(collectionName, schema);
+    // Create the actual PostgreSQL table (or convert its layout if partitioning changed).
+    // convertTableLayout runs its DDL in a transaction that rolls back on failure (e.g. the
+    // in-txn NULL partition-key pre-check throws APIError(400)). The schema definition, however,
+    // was already written to memory + DB above (outside that txn), so on a rolled-back conversion
+    // we must restore the PREVIOUS definition — otherwise the persisted config would claim the
+    // table is partitioned while it physically isn't, and later createPartitionsForTenant would 500.
+    const physicallyPartitioned = await this.isTablePartitioned(collectionName);
+    const wantsPartitioned = !!partitionConfig;
+    // Only the PHYSICAL layout keys — strategy, interval, timeField — trigger a copy-and-swap
+    // conversion. `premake` (how many future periods to pre-create) does NOT change the table's
+    // partition scheme: a premake 1→2 bump just needs one extra period table, which the normal
+    // sync path (createTableFromSchema → ensurePartitions) creates idempotently. Comparing full
+    // configs here would needlessly convert (and leave a __preparted backup) on a premake change.
+    const layoutSig = (c: PartitioningConfig | null) =>
+      c ? JSON.stringify({ strategy: c.strategy, interval: c.interval, timeField: c.timeField }) : null;
+    const layoutChanged = physicallyPartitioned !== null && (
+      physicallyPartitioned !== wantsPartitioned ||
+      (wantsPartitioned && layoutSig(partitionConfig) !== layoutSig(previousConfig))
+    );
+    if (layoutChanged) {
+      try {
+        await this.convertTableLayout(collectionName, schema, partitionConfig);
+        // Re-ensure partitions once, post-conversion: a tenant created DURING the conversion
+        // (its partition provisioned on the OLD/backup table, which was renamed aside) would
+        // otherwise be missing on the freshly-promoted table until reconciliation. Idempotent
+        // and cheap — closes most of that race window. Only meaningful for a partitioned target.
+        if (partitionConfig) {
+          try {
+            await this.ensurePartitions(collectionName, schema);
+          } catch (ensureErr) {
+            console.warn(`[partitioning] post-conversion ensurePartitions for "${collectionName}" ` +
+              `failed (reconciliation will heal) — continuing:`, ensureErr);
+          }
+        }
+      } catch (err) {
+        // Restore the pre-PATCH schema definition (memory + DB) so config and physical layout stay consistent.
+        if (previousEntry !== undefined) {
+          this.schemaDefinitions.set(collectionName, previousEntry);
+          if (existingSchema.length > 0) {
+            await db.update(baasixSchemaDefinition)
+              .set({ schema: previousSchema as any, updatedAt: new Date() } as any)
+              .where(eq(baasixSchemaDefinition.collectionName, collectionName));
+          }
+          await this.createOrUpdateModel(collectionName, previousSchema);
+        }
+        throw err;
+      }
+    } else {
+      await this.createTableFromSchema(collectionName, schema);
+    }
 
     console.log(`Model ${collectionName} created/updated successfully`);
   }
@@ -2723,6 +3221,18 @@ export class SchemaManager {
 
     console.log(`Index migration complete: ${result.created.length} created, ${result.skipped.length} skipped, ${result.errors.length} errors`);
     return result;
+  }
+}
+
+/** Unique constraints on a partitioned table must contain all partition key columns. */
+function appendPartitionKeysToUniqueIndexes(schema: any, keys: string[]): void {
+  for (const holder of [schema, schema.options]) {
+    if (!holder?.indexes || !Array.isArray(holder.indexes)) continue;
+    holder.indexes = holder.indexes.map((index: any) => {
+      if (!index.unique) return index;
+      const missing = keys.filter((k) => !index.fields.includes(k));
+      return missing.length ? { ...index, fields: [...index.fields, ...missing] } : index;
+    });
   }
 }
 

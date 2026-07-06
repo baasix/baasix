@@ -1,6 +1,6 @@
 /* eslint-disable no-case-declarations */
 import { APIError } from "../utils/errorHandler.js";
-import { db } from "../utils/db.js";
+import { db, isPgVersionAtLeast } from "../utils/db.js";
 import { schemaManager } from "../utils/schemaManager.js";
 import fileUpload from "express-fileupload";
 import permissionService from "../services/PermissionService.js";
@@ -9,6 +9,8 @@ import { adminOnly } from "../utils/auth.js";
 import { like, ilike, or, and, eq, sql, SQL } from "drizzle-orm";
 import type { Express } from "../types/index.js";
 import { ItemsService } from "../services/ItemsService.js";
+import env from "../utils/env.js";
+import { validatePartitioning } from "../utils/partitionUtils.js";
 
 const registerEndpoint = (app: Express, context?: any) => {
     async function validateRelationshipName(name, sourceCollection) {
@@ -71,6 +73,14 @@ const registerEndpoint = (app: Express, context?: any) => {
     }
 
     async function persistSchema(collectionName: string, schema: any, accountability?: any, existingSchema?: any): Promise<void> {
+        // Validate partitioning config BEFORE any DB write, so an invalid config is never persisted
+        // (schemaManager.updateModel validates too, but only after this function has already
+        // written the schema row to baasix_SchemaDefinition)
+        validatePartitioning(collectionName, schema, {
+            isMultiTenant: env.get('MULTI_TENANT') === 'true',
+            pgOk: await isPgVersionAtLeast(12),
+        });
+
         const schemaDefTable = schemaManager.getTable("baasix_SchemaDefinition");
 
         // Use provided existingSchema or read from DB to detect realtime config changes
@@ -401,6 +411,7 @@ const registerEndpoint = (app: Express, context?: any) => {
             res.status(201).json({ message: "Schema created successfully" });
         } catch (error) {
             console.error("Error creating schema:", error);
+            if (error instanceof APIError) return next(error);
             next(new APIError("Error creating schema", 500, error.message));
         }
     });
@@ -447,6 +458,7 @@ const registerEndpoint = (app: Express, context?: any) => {
             res.status(200).json({ message: "Schema updated successfully" });
         } catch (error) {
             console.error("Error updating schema:", error);
+            if (error instanceof APIError) return next(error);
             next(new APIError("Error updating schema", 500, error.message));
         }
     });

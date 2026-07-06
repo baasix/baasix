@@ -1,7 +1,7 @@
 # Collection Partitioning (Tenant / Time) — Design
 
 **Date:** 2026-07-05
-**Status:** Approved pending spec review
+**Status:** Implemented (see docs/superpowers/plans/2026-07-05-collection-partitioning.md)
 **Scope:** `packages/core` (SchemaManager, tenant lifecycle, schema API validation)
 
 ## Motivation
@@ -60,7 +60,7 @@ user-facing `options` wrapper):
   (for tenant strategies — no `tenant_Id` to partition by).
 - `timeField` must resolve to a `DateTime`/`DateTime_NO_TZ` column that is `NOT NULL`
   or has a non-null default (`NOW`); `createdAt` (timestamps) qualifies.
-- Postgres `server_version` must be ≥ 13; otherwise reject with a clear error.
+- Postgres `server_version` must be ≥ 12 (every feature used — LIST/RANGE sub-partitioning, DEFAULT partitions, inbound composite FKs, pg_partition_tree — is PG12+); otherwise reject with a clear error.
 - Changing `strategy`/`interval`/`timeField` on an existing partitioned collection is
   a conversion (see below) — done via the same copy-and-swap.
 
@@ -122,14 +122,28 @@ global-admin reads) scan every partition's id index — negligible at tens of pa
 
 ## Partition lifecycle
 
-- **Tenant created** → inside the same transaction/flow, create that tenant's
-  partition (and, for `tenant+time`, its current + `premake` time sub-partitions +
-  per-tenant default) in every tenant-partitioned collection. Failure fails tenant
-  creation.
+- **Tenant created** → create that tenant's partition (and, for `tenant+time`, its
+  current + `premake` time sub-partitions + per-tenant default) in every
+  tenant-partitioned collection. This runs in a **POST-COMMIT** `items.create.after`
+  hook (partition DDL is a side effect that must not be rolled back with the row, and
+  must not hold DDL locks inside the create transaction). Consequently it is **not**
+  transactional with the tenant insert: if provisioning fails, the tenant row already
+  exists and the client receives an error, but the collection's `DEFAULT` partition
+  keeps absorbing that tenant's writes and startup/daily reconciliation self-heals the
+  missing per-tenant partitions on the next pass.
 - **Tenant deleted** → for every tenant-partitioned collection, `DROP TABLE` the
   tenant's partition (subtree for `tenant+time`) **before** deleting the
   `baasix_Tenant` row (satisfies FK ordering). Immediate, irreversible bulk erase —
-  chosen deliberately; it turns tenant offboarding into a metadata operation.
+  chosen deliberately; it turns tenant offboarding into a metadata operation. Two
+  safeguards apply. **(1) Authorization:** the drop runs in an `items.delete`
+  before-hook that fires ahead of the delete permission check, so the hook itself
+  verifies the caller is an administrator before dropping — an authenticated
+  non-admin who would be rejected with 403 never triggers the `DROP TABLE … CASCADE`.
+  A legitimately-authorized non-admin still deletes the tenant row (partitions remain,
+  empty, and are ignored/healed by reconciliation). **(2) Transactional:** the DROP
+  DDL runs through the SAME transaction as the row delete (PG DDL is transactional), so
+  if the delete subsequently fails (permission, 404, or an `ON DELETE RESTRICT` FK) the
+  drops roll back and the partitions — and their data — survive intact.
 - **Time maintenance** — partitions for the current period + `premake` future periods
   are ensured (a) during startup reconciliation and (b) by a lightweight daily
   interval timer inside `SchemaManager`. The `DEFAULT` partition catches anything that
@@ -139,6 +153,18 @@ global-admin reads) scan every partition's id index — negligible at tens of pa
   missing ones. Log a warning with row count if a `DEFAULT` partition is non-empty.
 - **No retention automation.** Old time partitions accumulate (e.g. one per year)
   until an operator manually drops or detaches them. Documented, not automated.
+- **Stranded-DEFAULT limitation.** Postgres will not `CREATE PARTITION ... FOR VALUES`
+  for a key that already has matching rows sitting in the `DEFAULT` partition — the new
+  partition's bound would conflict with existing default rows, so the CREATE errors.
+  Reconciliation therefore logs an error for that collection on **every** pass until the
+  stranded rows are moved out of the default by hand. Runbook (one transaction, in a
+  maintenance window — order matters, since the partition cannot be created while
+  matching rows sit in the default):
+  1. `CREATE TEMP TABLE stranded AS SELECT * FROM "parent__default" WHERE "tenant_Id" = '<id>';`
+  2. `DELETE FROM "parent__default" WHERE "tenant_Id" = '<id>';`
+  3. Create the partition (`CREATE TABLE "<canonical name>" PARTITION OF "parent" FOR VALUES IN ('<id>')`,
+     or commit and let reconciliation create it);
+  4. `INSERT INTO "parent" SELECT * FROM stranded;` — rows now route into the new partition.
 
 ## Converting an existing populated table (flag added/changed/removed)
 
@@ -149,24 +175,40 @@ Inline copy-and-swap, one transaction, in `syncSchema`:
 2. `LOCK TABLE "col" IN ACCESS EXCLUSIVE MODE` — writes block for the duration
    (maintenance-window operation; roughly minutes per few million rows).
 3. Create `"col__part_new"` with the new layout + full partition set; `INSERT INTO ...
-   SELECT * FROM "col"`; build indexes.
-4. Re-point inbound FKs (drop from children, recreate in composite/skipped form
-   against the new table); recreate outbound FKs.
-5. Rename `"col"` → `"col__preparted"`, `"col__part_new"` → `"col"`. Commit.
+   SELECT * FROM "col"`.
+4. Rename `"col"` → `"col__preparted"`, `"col__part_new"` → `"col"`. Commit.
+5. **After the swap transaction commits**, rebuild secondary indexes, vector (HNSW)
+   indexes, and inbound/outbound FKs against the promoted table (same helpers as the
+   create path). This is deliberately OUTSIDE the swap txn: there is a brief window
+   right after promotion where the new table has no secondary indexes / FKs; any failure
+   here is logged per-object and healed by the next schema sync — it does not roll back
+   (or endanger) the already-committed data swap.
 
 - The pre-conversion table survives as `"col__preparted"` until manually dropped.
-- Any failure rolls back atomically; the original table is never at risk.
+- The data swap (steps 2–4) rolls back atomically on failure; the original table is
+  never at risk. Index/FK rebuild (step 5) is post-commit and self-healing, not atomic
+  with the swap.
+- **Converting a populated table to a `time` strategy** routes existing rows whose
+  `timeField` predates the current period into the `DEFAULT` partition. v1 does **not**
+  backfill historical period partitions; create/detach older periods manually if needed.
 - Removing `partitioning` runs the same machinery toward a plain table (simple PK and
   FKs restored). Backup table name: `"col__prepart_rollback"`.
 
 ## Error handling summary
 
 - Validation errors reject the schema update with actionable messages.
-- Conversion: atomic rollback; NULL-key rows reported with counts.
-- Tenant-create partition DDL failure fails tenant creation (transactional).
+- Conversion: the data swap rolls back atomically; NULL-key rows reported with counts.
+  Post-commit index/FK rebuild failures are logged and healed by the next sync.
+- Tenant-create partition provisioning runs in a **post-commit** hook — on failure the
+  tenant row already exists, the client receives an error, and the `DEFAULT` partition +
+  reconciliation self-heal the missing partitions (NOT transactional with the insert).
+- Tenant-delete partition drop is guarded: it runs only for administrator callers
+  (skips ahead of the 403 for non-admins) and executes inside the delete transaction, so
+  a failed delete rolls the drops back.
 - Reconciliation/maintenance failures log per-collection and continue (startup never
   hard-fails because one partition could not be created; DEFAULT partition absorbs
-  writes meanwhile).
+  writes meanwhile). A stored partitioning config over a physically plain table (drift)
+  is warned-and-skipped, never fatal to startup.
 
 ## Testing (`test/partitioning.test.js`)
 
