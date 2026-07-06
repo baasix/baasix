@@ -221,6 +221,7 @@ interface CreatePermissionInput {
   conditions?: Record<string, unknown>;
   defaultValues?: Record<string, unknown>;
   relConditions?: Record<string, unknown>;
+  acl_Ids?: string[];
 }
 
 interface UpdatePermissionInput {
@@ -232,9 +233,34 @@ interface UpdatePermissionInput {
   conditions?: Record<string, unknown>;
   defaultValues?: Record<string, unknown>;
   relConditions?: Record<string, unknown>;
+  acl_Ids?: string[];
 }
 
 interface PermissionIdInput {
+  id: string;
+}
+
+interface ListACLsInput {
+  filter?: Record<string, any>;
+  sort?: string;
+  page?: number;
+  limit?: number;
+}
+
+interface ACLIdInput {
+  id: string;
+}
+
+interface CreateACLInput {
+  name: string;
+  description?: string;
+  conditions?: Record<string, any>;
+  relConditions?: Record<string, any>;
+  fields?: string[];
+  defaultValues?: Record<string, any>;
+}
+
+interface UpdateACLInput extends Partial<CreateACLInput> {
   id: string;
 }
 
@@ -535,6 +561,11 @@ const TOOL_ACTION_MAP: Record<string, string> = {
   baasix_delete_permission: "delete",
   baasix_reload_permissions: "read",
   baasix_update_permissions: "update",
+  baasix_list_acls: "read",
+  baasix_get_acl: "read",
+  baasix_create_acl: "create",
+  baasix_update_acl: "update",
+  baasix_delete_acl: "delete",
 
   // Utilities
   baasix_server_info: "read",
@@ -607,7 +638,7 @@ COMMON TASK MAPPING:
 - "Stats across multiple tables" → use baasix_collection_stats
 - "Link two tables" or "add a foreign key" → use baasix_create_relationship
 - "Add an index" → use baasix_add_index
-- "Set permissions" → use baasix_create_permission or baasix_update_permissions
+- "Set permissions" → PREFER named ACLs: baasix_list_acls to find/reuse an entry, baasix_create_acl if none fits, then baasix_create_permission with acl_Ids. Use inline conditions only for one-off rules.
 - "Check what tables exist" → use baasix_list_schemas
 
 ⚠️ CRITICAL — baasix_update_schema performs a FULL REPLACEMENT of the schema definition.
@@ -1604,6 +1635,8 @@ Single targeted permission (role + collection + optional action): {"AND": [{"rol
     "baasix_create_permission",
     `Grant a role permission to perform an action on a table. Use this to set up access control (RBAC + row-level security).
 
+PREFERRED: assign named ACL entries via acl_Ids instead of writing inline conditions. Workflow: baasix_list_acls → reuse a matching entry → if none fits, baasix_create_acl → assign here. Multiple acl_Ids merge additively (OR). When acl_Ids is set, do NOT pass conditions/relConditions/fields/defaultValues (400 — ACLs replace inline values). Inline conditions remain fine for one-off rules.
+
 First use baasix_list_roles to get the role UUID, then create permissions for that role.
 
 --- ACTIONS ---
@@ -1664,15 +1697,17 @@ role_Id: "<uuid>", collection: "posts", action: "update", fields: ["title", "con
       conditions: z.record(z.any()).optional().describe("Row-level security filter (same operators as filter in baasix_list_items). Always enforced."),
       defaultValues: z.record(z.any()).optional().describe("Auto-injected values on create/update: {\"author_Id\": \"$CURRENT_USER\", \"status\": \"draft\"}"),
       relConditions: z.record(z.any()).optional().describe("Row-level security on related tables: {\"category\": {\"isPublic\": {\"eq\": true}}}"),
+      acl_Ids: z.array(z.string()).optional().describe("Ordered ACL entry UUIDs (from baasix_list_acls). Replaces inline conditions/fields/etc.; multiple entries OR together (additive)."),
     },
     async (args: CreatePermissionInput, extra: ToolExtra): Promise<ToolResult> => {
-      const { role_Id, collection, action, fields, conditions, defaultValues, relConditions } = args;
+      const { role_Id, collection, action, fields, conditions, defaultValues, relConditions, acl_Ids } = args;
       try {
         const data: Record<string, unknown> = { role_Id, collection, action };
         if (fields) data.fields = fields;
         if (conditions) data.conditions = conditions;
         if (defaultValues) data.defaultValues = defaultValues;
         if (relConditions) data.relConditions = relConditions;
+        if (acl_Ids) data.acl_Ids = acl_Ids;
 
         const res = await callRoute('POST', '/permissions', extra, data);
         if (!res.ok) return errorResult(res.error || 'Failed to create permission');
@@ -1688,7 +1723,8 @@ role_Id: "<uuid>", collection: "posts", action: "update", fields: ["title", "con
     `Update an existing permission rule. Only pass the fields you want to change — unspecified fields remain unchanged.
 
 See baasix_create_permission for full documentation of conditions, relConditions, defaultValues, and fields options.
-Use baasix_list_permissions or baasix_get_permissions to find the permission ID to update.`,
+Use baasix_list_permissions or baasix_get_permissions to find the permission ID to update.
+To switch a permission to named ACLs, pass acl_Ids (and null out inline fields if previously set). Pass acl_Ids: [] to detach all ACL entries and return to inline conditions.`,
     {
       id: z.string().describe("Permission UUID — get from baasix_list_permissions or baasix_get_permissions"),
       role_Id: z.string().optional().describe("Change which role this permission applies to"),
@@ -1698,6 +1734,7 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
       conditions: z.record(z.any()).optional().describe("Change row-level security conditions (same operators as filter)"),
       defaultValues: z.record(z.any()).optional().describe("Change auto-injected values on create/update"),
       relConditions: z.record(z.any()).optional().describe("Change row-level security on related tables"),
+      acl_Ids: z.array(z.string()).optional().describe("Ordered ACL entry UUIDs. [] detaches all. Replaces inline values when non-empty."),
     },
     async (args: UpdatePermissionInput, extra: ToolExtra): Promise<ToolResult> => {
       const { id, ...updateData } = args;
@@ -1738,6 +1775,167 @@ Use baasix_list_permissions or baasix_get_permissions to find the permission ID 
         const res = await callRoute('POST', '/permissions/reload', extra);
         if (!res.ok) return errorResult(res.error || 'Failed to reload permissions');
         return successResult({ success: true, message: "Permissions reloaded" });
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
+  // ==================== ACL (named permission templates) Tools ====================
+
+  registerTool(
+    "baasix_list_acls",
+    `List named ACL entries — reusable access-control templates (e.g. Update_Own, Read_All) that can be assigned to permissions via acl_Ids.
+
+ALWAYS check this list before writing inline permission conditions. Reusing a named ACL is preferred because entries are:
+- reusable across roles and collections
+- self-documenting ("Update_Own" reads better than raw condition JSON)
+- centrally editable (fix the rule once — every permission using it updates on reload)
+
+Built-in system entries (system: true, immutable): Read_All, Read_Own, Update_Own, Delete_Own, Own_Tenant. The *_Own entries match rows where userCreated_Id = $CURRENT_USER (collections created with usertrack: true).`,
+    {
+      filter: z.record(z.any()).optional().describe("Filter, e.g. {\"name\": {\"like\": \"Own\"}} or {\"system\": {\"eq\": true}}"),
+      sort: z.string().optional().describe("Sort as 'field:asc' or 'field:desc'"),
+      page: z.number().optional().default(1).describe("Page number"),
+      limit: z.number().optional().default(-1).describe("Entries per page. Default -1 (all)."),
+    },
+    async (args: ListACLsInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { filter, sort, page, limit } = args;
+      try {
+        const params = new URLSearchParams();
+        if (page) params.set('page', String(page));
+        if (limit) params.set('limit', String(limit));
+        if (filter) params.set('filter', JSON.stringify(filter));
+        if (sort) {
+          const [field, direction] = sort.split(":");
+          params.set('sort', JSON.stringify([direction?.toLowerCase() === "desc" ? `-${field}` : field]));
+        }
+        const qs = params.toString();
+        const res = await callRoute('GET', `/acls${qs ? '?' + qs : ''}`, extra);
+        if (!res.ok) return errorResult(res.error || 'Failed to list ACL entries');
+        return successResult(res.data);
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
+  registerTool(
+    "baasix_get_acl",
+    "Get a single named ACL entry by UUID, including its conditions, relConditions, fields, and defaultValues.",
+    {
+      id: z.string().describe("ACL entry UUID — get from baasix_list_acls"),
+    },
+    async (args: ACLIdInput, extra: ToolExtra): Promise<ToolResult> => {
+      try {
+        const res = await callRoute('GET', `/acls/${encodeURIComponent(args.id)}`, extra);
+        if (!res.ok) return errorResult(res.error || 'Failed to get ACL entry');
+        return successResult(res.data);
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
+  registerTool(
+    "baasix_create_acl",
+    `Create a named, reusable ACL entry (access-control template) that can be assigned to any permission via acl_Ids.
+
+THIS IS THE PREFERRED WAY to define access rules. Workflow:
+1. baasix_list_acls — check whether a matching entry already exists
+2. Reuse it via acl_Ids on baasix_create_permission / baasix_update_permission
+3. Only if none fits, create a new named entry here — then assign it
+Reserve inline permission conditions for genuinely one-off, permission-specific rules.
+
+An ACL entry is a full permission template: conditions, relConditions, fields, defaultValues. When MULTIPLE entries are assigned to one permission they merge ADDITIVELY (OR semantics — more entries can only grant more access):
+- conditions: OR'd — {"OR": [entryA, entryB]}. An entry with empty conditions = unrestricted.
+- fields: union of all lists; an entry without fields contributes "*"
+- defaultValues: shallow-merged in acl_Ids order, later entries win
+- relConditions: a relation stays restricted only if EVERY entry restricts it; shared relations OR their conditions
+
+--- CONDITIONS (row-level security / RLS) ---
+Same filter operators as baasix_list_items. Enforced as security constraints — ANDed with any user query, cannot be bypassed.
+Only published: {"published": {"eq": true}}
+Only own records: {"userCreated_Id": {"eq": "$CURRENT_USER"}}
+Multiple: {"AND": [{"status": {"in": ["active", "draft"]}}, {"userCreated_Id": {"eq": "$CURRENT_USER"}}]}
+
+DYNAMIC VARIABLES in conditions and defaultValues:
+$CURRENT_USER → current user's ID
+$CURRENT_USER.fieldName → any field on the user (e.g. $CURRENT_USER.department_Id)
+$CURRENT_ROLE → current role ID
+$CURRENT_TENANT → current tenant ID
+$NOW, $NOW+DAYS_7, $NOW-MONTHS_1 → timestamp math
+
+--- FIELDS (column-level access) ---
+["*"] → all columns; ["name", "price"] → only these columns.
+
+--- RELCONDITIONS (RLS on related tables) ---
+Keys are relation names: {"category": {"isPublic": {"eq": true}}}
+
+--- DEFAULTVALUES (auto-injected on create/update) ---
+{"author_Id": "$CURRENT_USER", "status": "draft"}
+
+--- EXAMPLE: reusable team access ---
+baasix_create_acl {"name": "Update_Teams", "conditions": {"team.members.user_Id": {"eq": "$CURRENT_USER"}}, "fields": ["title", "status"]}
+then:
+baasix_create_permission {"role_Id": "<uuid>", "collection": "tasks", "action": "update", "acl_Ids": ["<Update_Own id>", "<Update_Teams id>"]}
+→ the role may update rows it owns OR rows of teams it belongs to (fields union to ["*", "title", "status"]).`,
+    {
+      name: z.string().describe("Unique name, e.g. Update_Teams. Convention: Action_Scope."),
+      description: z.string().optional().describe("What this entry grants — shown in the admin UI"),
+      conditions: z.record(z.any()).optional().describe("Row-level security filter. Empty/omitted = unrestricted."),
+      relConditions: z.record(z.any()).optional().describe("Row-level security on related tables, keyed by relation name"),
+      fields: z.array(z.string()).optional().describe("Allowed columns: [\"*\"] or specific names. Omit for all."),
+      defaultValues: z.record(z.any()).optional().describe("Auto-injected values on create/update"),
+    },
+    async (args: CreateACLInput, extra: ToolExtra): Promise<ToolResult> => {
+      try {
+        const res = await callRoute('POST', '/acls', extra, args as Record<string, unknown>);
+        if (!res.ok) return errorResult(res.error || 'Failed to create ACL entry');
+        return successResult(res.data);
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
+  registerTool(
+    "baasix_update_acl",
+    `Update a named ACL entry. Only pass fields to change. System entries (system: true) cannot be modified (403).
+CAUTION: the change applies to EVERY permission that has this entry assigned, across all roles, on the next cache reload (automatic).
+See baasix_create_acl for the full conditions/relConditions/fields/defaultValues reference.`,
+    {
+      id: z.string().describe("ACL entry UUID — get from baasix_list_acls"),
+      name: z.string().optional().describe("Rename the entry (must stay unique)"),
+      description: z.string().optional().describe("Change the description"),
+      conditions: z.record(z.any()).optional().describe("Change row-level security conditions"),
+      relConditions: z.record(z.any()).optional().describe("Change related-table conditions"),
+      fields: z.array(z.string()).optional().describe("Change allowed columns"),
+      defaultValues: z.record(z.any()).optional().describe("Change auto-injected values"),
+    },
+    async (args: UpdateACLInput, extra: ToolExtra): Promise<ToolResult> => {
+      const { id, ...updateData } = args;
+      try {
+        const res = await callRoute('PATCH', `/acls/${encodeURIComponent(id)}`, extra, updateData);
+        if (!res.ok) return errorResult(res.error || 'Failed to update ACL entry');
+        return successResult(res.data);
+      } catch (error) {
+        return errorResult(error as Error);
+      }
+    }
+  );
+
+  registerTool(
+    "baasix_delete_acl",
+    "Delete a named ACL entry. Fails with 403 for system entries and 409 if any permission still references it (the error lists the referencing permissions — detach acl_Ids there first).",
+    {
+      id: z.string().describe("ACL entry UUID — get from baasix_list_acls"),
+    },
+    async (args: ACLIdInput, extra: ToolExtra): Promise<ToolResult> => {
+      try {
+        const res = await callRoute('DELETE', `/acls/${encodeURIComponent(args.id)}`, extra);
+        if (!res.ok) return errorResult(res.error || 'Failed to delete ACL entry');
+        return successResult({ success: true, message: `ACL entry '${args.id}' deleted` });
       } catch (error) {
         return errorResult(error as Error);
       }
