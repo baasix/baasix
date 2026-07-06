@@ -99,6 +99,31 @@ On `POST /permissions` and `PATCH /permissions/:id`:
 - New: `baasix_list_acls`, `baasix_get_acl`, `baasix_create_acl`, `baasix_update_acl`, `baasix_delete_acl` — thin wrappers over the routes above, like existing permission tools.
 - Updated: `baasix_create_permission` / `baasix_update_permission` input schemas and inline docs gain `acl_Ids` (with the replace-inline and OR-merge semantics documented).
 
+**ACL-first guidance in tool docs.** The inline documentation for `baasix_create_permission`, `baasix_update_permission`, and `baasix_update_permissions` (bulk) explicitly instructs the caller (human or agent) to **prefer assigning named ACLs over writing inline conditions**:
+
+- Recommended workflow, stated in the tool docs: (1) `baasix_list_acls` to see what already exists; (2) reuse a matching entry via `acl_Ids`; (3) if none fits, create a **named ACL** with `baasix_create_acl` and assign it — reserve inline `conditions` for genuinely one-off, permission-specific rules.
+- Rationale stated in the docs: named ACLs are reusable across roles/collections, self-documenting (`Update_Own` reads better than raw JSON), centrally editable (fix the rule once, every assignment updates on reload), and auditable.
+- `baasix_create_acl`'s inline docs carry the full condition/relConditions/defaultValues reference (dynamic variables, filter DSL, examples) — moved/shared from the current `baasix_create_permission` docs (`MCPService.ts:1605-1658`) so the authoritative filter documentation lives with the ACL tool, and the permission tools reference it.
+- The permission tool docs document the semantics inline: multiple `acl_Ids` = OR (additive), `acl_Ids` replaces inline fields, order matters for `defaultValues`, and setting both is a 400.
+
+Worked example embedded in the tool docs:
+
+```jsonc
+// 1. Create (or find) named ACLs
+baasix_create_acl { "name": "Update_Own",
+                    "conditions": {"userCreated_Id": {"eq": "$CURRENT_USER"}},
+                    "fields": ["*"] }
+baasix_create_acl { "name": "Update_Teams",
+                    "conditions": {"team.members.user_Id": {"eq": "$CURRENT_USER"}},
+                    "fields": ["title", "status"] }
+
+// 2. Assign to a permission — user may update rows they own OR rows of teams
+//    they belong to (OR-combined; fields union to ["*"])
+baasix_create_permission { "role_Id": "<uuid>", "collection": "tasks",
+                           "action": "update",
+                           "acl_Ids": ["<Update_Own id>", "<Update_Teams id>"] }
+```
+
 ## Admin UI (Next.js app)
 
 1. **ACL management screen** — new "Access Control Lists" page in the admin area (near Permissions/Roles):
@@ -109,6 +134,17 @@ On `POST /permissions` and `PATCH /permissions/:id`:
    - Ordered multi-select of ACL entries (order shown, reorderable — `defaultValues` merge respects it).
    - When ≥1 ACL selected: inline condition/fields/defaults editors are hidden/disabled with a note — "Defined by assigned ACLs (OR-combined)" — and a read-only preview of the effective merged conditions is shown.
    - Clearing the picker re-enables inline editing.
+
+## Usage Documentation (deliverable)
+
+A user-facing "Access Control Lists" guide ships with the feature (alongside existing docs, e.g. `docs/`), covering:
+
+1. **Concept:** what a named ACL is; why ACL-first beats inline conditions (reuse, central edits, readability); when inline is still appropriate (one-off rules).
+2. **Quick start:** create `Update_Own`-style entries, assign one or more to a permission via `acl_Ids`, verify with a request as the target role.
+3. **Semantics reference:** multiple ACLs = OR/additive; replace-inline rule; merge rules for `fields` / `defaultValues` (order) / `relConditions`; dynamic variables available in conditions.
+4. **Built-in entries:** the seeded `system` ACLs, what each grants, and the `userCreated_Id` assumption.
+5. **Admin UI walkthrough:** managing entries and using the picker on the permission editor.
+6. **API reference:** the `/acls` routes and MCP tools, including the 400/403/409 error cases.
 
 ## Testing
 
