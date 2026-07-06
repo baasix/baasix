@@ -1,5 +1,11 @@
 # @baasix/types
 
+## 1.0.10
+
+### Patch Changes
+
+- New session limit structure. 35+ auth providers added along with 2FA. Added option partition table based on tenant and time to improve performance for large systems.
+
 ## 1.0.9
 
 ### Patch Changes
