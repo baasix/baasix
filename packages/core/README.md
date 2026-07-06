@@ -463,7 +463,7 @@ Baasix includes Model Context Protocol (MCP) support for AI assistants like Clau
 - **Schema Management** — Create, update, delete collections and relationships
 - **CRUD Operations** — Full item management with powerful query capabilities
 - **50+ Filter Operators** — From basic comparison to geospatial, vector similarity, and JSONB queries
-- **Permissions** — Role-based access control management
+- **Permissions** — Role-based access control management with named, reusable ACL entries ([guide](docs/access-control-lists.md))
 - **Authentication** — Login, register, magic links, invitations
 - **App Builder** — Create and validate App Builder pages and blocks from natural language (9 page-builder tools + a block-config reference resource)
 
