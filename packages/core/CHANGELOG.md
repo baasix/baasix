@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.84
+
+### Patch Changes
+
+- Named ACL permissions added for easy permission reuse.
+
 ## 0.1.83
 
 ### Patch Changes
