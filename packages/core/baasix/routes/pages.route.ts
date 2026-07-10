@@ -15,6 +15,7 @@ import { getBlockConfigDoc } from "../utils/blockConfigDoc.js";
 import { listManifests } from "../blocks/registry.js";
 import { APPEARANCE_GROUP } from "../blocks/appearance-fragment.js";
 import env from "../utils/env.js";
+import settingsService from "../services/SettingsService.js";
 import type { Express } from "../types/index.js";
 
 const PAGE_FIELDS = ["id", "name", "slug", "icon", "description", "parent_Id", "sort", "isPublic", "enabled", "options", "roles"];
@@ -338,6 +339,63 @@ const registerEndpoint = (app: Express) => {
             res.status(200).json({ themes: result?.data ?? [] });
         } catch (error: any) {
             next(error instanceof APIError ? error : new APIError("Error listing themes", 500, error.message));
+        }
+    });
+
+    /**
+     * GET /pages/public/:slug[?tenant_id=<uuid>]: Unauthenticated page fetch for
+     * public sites. Security boundary: the explicit isPublic+enabled filter below
+     * IS what makes this endpoint safe to leave unauthenticated — any change to
+     * that filter is a critical regression. Returns a uniform 404 for all three
+     * miss reasons (no such slug / !isPublic / !enabled) so the response never
+     * leaks whether a private/disabled page exists at a given slug.
+     *
+     * MUST stay registered after every static /pages/* route above (see the
+     * NOTE on /pages/themes) so this param route can't shadow them.
+     */
+    app.get("/pages/public/:slug", async (req: any, res: any, next: any) => {
+        try {
+            const slug = String(req.params.slug || "");
+            const tenantParam = typeof req.query.tenant_id === "string" ? req.query.tenant_id : null;
+            const service = new ItemsService("baasix_Page", { accountability: undefined }); // system read; filter below is the security boundary
+            const filter: Record<string, unknown> = { slug: { eq: slug }, isPublic: { eq: true }, enabled: { eq: true } };
+            if (tenantParam) filter.tenant_Id = { eq: tenantParam };
+            const result = await service.readByQuery({ filter, fields: ["*", "blocks.*"], limit: 10 }, true);
+            const rows = result?.data ?? [];
+            if (!rows.length) throw new APIError("Page not found", 404);
+            const page = rows.find((p: any) => p.tenant_Id == null) ?? rows[0];
+
+            const settings = await settingsService.getTenantSettings(page.tenant_Id ?? undefined);
+            const themeService = new ItemsService("baasix_Theme", { accountability: undefined });
+            const themeId = page?.options?.theme?.themeId ?? null;
+            let theme: any = null;
+            if (themeId) {
+                theme = await themeService.readOne(themeId, {}, true).catch(() => null);
+            }
+            if (!theme) {
+                const defaultFilter: Record<string, unknown> = {
+                    isDefault: { eq: true },
+                    tenant_Id: page.tenant_Id ? { eq: page.tenant_Id } : { isNull: true },
+                };
+                const defaults = await themeService.readByQuery({ filter: defaultFilter, limit: 1 }, true);
+                theme = defaults?.data?.[0] ?? null;
+            }
+
+            res.status(200).json({
+                page,
+                branding: {
+                    projectName: settings?.project_name ?? null,
+                    logoLightId: settings?.project_logo_light_Id ?? null,
+                    logoDarkId: settings?.project_logo_dark_Id ?? null,
+                    iconId: settings?.project_icon_Id ?? null,
+                    color: settings?.project_color ?? null,
+                    secondaryColor: settings?.secondary_color ?? null,
+                    theme: theme ? { id: theme.id, name: theme.name, tokens: theme.tokens } : null,
+                },
+            });
+        } catch (error: any) {
+            if (error instanceof APIError && error.statusCode === 404) return next(error);
+            next(error instanceof APIError ? error : new APIError("Error serving public page", 500, error.message));
         }
     });
 };
