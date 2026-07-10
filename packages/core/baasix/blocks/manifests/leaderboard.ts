@@ -15,7 +15,7 @@ const manifest: BlockManifest = {
       { key: "filter", label: "Filter", kind: "filter-dsl" },
       { key: "limit", label: "Limit", kind: "number", min: 3, max: 25, integer: true, default: 10 },
       { key: "labelPrefix", label: "Label prefix", kind: "text" },
-      { key: "formatting", label: "Format rules", kind: "format-rules" },
+      { key: "formatting", label: "Format rules", kind: "custom", slot: "format-rules-value" },
     ] },
   ],
   defaults: { limit: 10 },

@@ -260,10 +260,16 @@ describe("wave-2 block validation", () => {
     { name: "subpage valid", data: { type: "subpage", config: { slug: "dash" } }, ok: true },
     { name: "subpage missing slug", data: { type: "subpage", config: {} }, ok: false, err: /slug/ },
     { name: "comparison valid", data: { type: "comparison", collection: "orders", config: { leftLabel: "This", rightLabel: "Last" } }, ok: true },
+    // Formatting is `kind: "custom"` (slot "format-rules-value"), evaluated
+    // against `{ value }` at render — custom kinds skip generic validation.
+    { name: "comparison with formatting accepted", data: { type: "comparison", collection: "orders", config: { leftLabel: "This", rightLabel: "Last", formatting: [{ field: "value", operator: "gt", value: 100, style: { textColor: "destructive" } }] } }, ok: true },
     { name: "keyvalue valid with formatting", data: { type: "keyvalue", collection: "orders", config: { fields: [{ field: "status" }], formatting: [{ field: "status", operator: "eq", value: "open", style: { bold: true } }] } }, ok: true },
     { name: "keyvalue bad formatting", data: { type: "keyvalue", collection: "orders", config: { fields: [{ field: "status" }], formatting: [{ field: "status", operator: "wat", value: 1, style: { bold: true } }] } }, ok: false, err: /operator/ },
     { name: "leaderboard valid", data: { type: "leaderboard", collection: "orders", config: { groupField: "status", limit: 10 } }, ok: true },
     { name: "leaderboard limit bounds", data: { type: "leaderboard", collection: "orders", config: { groupField: "status", limit: 100 } }, ok: false, err: /limit/ },
+    // Formatting is `kind: "custom"` (slot "format-rules-value"), evaluated
+    // against `{ value }` at render — custom kinds skip generic validation.
+    { name: "leaderboard with formatting accepted", data: { type: "leaderboard", collection: "orders", config: { groupField: "status", limit: 10, formatting: [{ field: "value", operator: "gt", value: 100, style: { textColor: "destructive" } }] } }, ok: true },
     { name: "badge distinct mode valid", data: { type: "badge", collection: "orders", config: { mode: "distinct", field: "status" } }, ok: true },
     { name: "badge bad mode", data: { type: "badge", collection: "orders", config: { mode: "grouped", field: "status" } }, ok: false, err: /mode/ },
   ];

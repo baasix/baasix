@@ -25,7 +25,7 @@ const manifest: BlockManifest = {
       ] },
       { key: "prefix", label: "Prefix", kind: "text" },
       { key: "suffix", label: "Suffix", kind: "text" },
-      { key: "formatting", label: "Format rules", kind: "format-rules" },
+      { key: "formatting", label: "Format rules", kind: "custom", slot: "format-rules-value" },
     ] },
   ],
   defaults: {},
