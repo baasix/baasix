@@ -12,6 +12,7 @@ import {
     suggestSlug,
 } from "../services/PageBundleService.js";
 import { BLOCK_CONFIG_DOC } from "../utils/blockConfigDoc.js";
+import { listManifests } from "../blocks/registry.js";
 import env from "../utils/env.js";
 import type { Express } from "../types/index.js";
 
@@ -303,6 +304,15 @@ const registerEndpoint = (app: Express) => {
             res.status(200).send(BLOCK_CONFIG_DOC);
         } catch (error: any) {
             next(error instanceof APIError ? error : new APIError("Error serving block config doc", 500, error.message));
+        }
+    });
+
+    /** GET /pages/block-manifests: Returns all block manifests. Admin only. */
+    app.get("/pages/block-manifests", adminOnly, async (_req: any, res: any, next: any) => {
+        try {
+            res.status(200).json({ manifests: listManifests() });
+        } catch (error: any) {
+            next(error instanceof APIError ? error : new APIError("Error serving block manifests", 500, error.message));
         }
     });
 };
