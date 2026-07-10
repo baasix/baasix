@@ -242,3 +242,31 @@ describe("appearance validation (common envelope)", () => {
     )).toThrow(/shadow/);
   });
 });
+
+describe("wave-2 block validation", () => {
+  const f = stubFields({ name: {}, status: {}, avatarFile: {}, total: {} });
+  const cases = [
+    { name: "image url valid", data: { type: "image", config: { source: "url", url: "https://x.dev/a.png" } }, ok: true },
+    { name: "image bad url", data: { type: "image", config: { source: "url", url: "javascript:x" } }, ok: false, err: /url/ },
+    { name: "spacer valid", data: { type: "spacer", config: { height: 24 } }, ok: true },
+    { name: "spacer out of range", data: { type: "spacer", config: { height: 1000 } }, ok: false, err: /height/ },
+    { name: "countdown valid", data: { type: "countdown", config: { mode: "countdown", target: "2026-12-31T00:00:00Z" } }, ok: true },
+    { name: "avatar valid", data: { type: "avatar", collection: "users", config: { nameField: "name", max: 5 } }, ok: true },
+    { name: "avatar missing nameField", data: { type: "avatar", collection: "users", config: {} }, ok: false, err: /nameField/ },
+    { name: "subpage valid", data: { type: "subpage", config: { slug: "dash" } }, ok: true },
+    { name: "subpage missing slug", data: { type: "subpage", config: {} }, ok: false, err: /slug/ },
+    { name: "comparison valid", data: { type: "comparison", collection: "orders", config: { leftLabel: "This", rightLabel: "Last" } }, ok: true },
+    { name: "keyvalue valid with formatting", data: { type: "keyvalue", collection: "orders", config: { fields: [{ field: "status" }], formatting: [{ field: "status", operator: "eq", value: "open", style: { bold: true } }] } }, ok: true },
+    { name: "keyvalue bad formatting", data: { type: "keyvalue", collection: "orders", config: { fields: [{ field: "status" }], formatting: [{ field: "status", operator: "wat", value: 1, style: { bold: true } }] } }, ok: false, err: /operator/ },
+    { name: "leaderboard valid", data: { type: "leaderboard", collection: "orders", config: { groupField: "status", limit: 10 } }, ok: true },
+    { name: "leaderboard limit bounds", data: { type: "leaderboard", collection: "orders", config: { groupField: "status", limit: 100 } }, ok: false, err: /limit/ },
+    { name: "badge distinct mode valid", data: { type: "badge", collection: "orders", config: { mode: "distinct", field: "status" } }, ok: true },
+    { name: "badge bad mode", data: { type: "badge", collection: "orders", config: { mode: "grouped", field: "status" } }, ok: false, err: /mode/ },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, f);
+      if (c.ok) expect(fn).not.toThrow(); else expect(fn).toThrow(c.err);
+    });
+  }
+});
