@@ -8,6 +8,7 @@ import {
     validateBundleShape,
     analyzeImport,
     resolveRoleIds,
+    resolveThemeId,
     remapTargets,
     suggestSlug,
 } from "../services/PageBundleService.js";
@@ -40,6 +41,7 @@ const registerEndpoint = (app: Express) => {
             const pageService = new ItemsService("baasix_Page", { accountability: req.accountability as any });
             const blockService = new ItemsService("baasix_Block", { accountability: req.accountability as any });
             const roleService = new ItemsService("baasix_Role", { accountability: req.accountability as any });
+            const themeService = new ItemsService("baasix_Theme", { accountability: req.accountability as any });
 
             const pageQuery: any = { fields: PAGE_FIELDS, sort: ["sort"], limit: -1 };
             if (pagesParam !== "all") {
@@ -60,10 +62,20 @@ const registerEndpoint = (app: Express) => {
             const roleNames: Record<string, string> = {};
             for (const role of roles) roleNames[String(role.id)] = role.name;
 
+            // Only themes referenced by an exported page's options.theme.themeId matter to
+            // buildPageBundle (it dedupes/filters), so it's safe to read every theme visible
+            // to this accountability (tenant-scoped by ItemsService like /pages/themes).
+            const themes = (await themeService.readByQuery({ fields: ["id", "name", "tokens", "isDefault"], limit: -1 }, true)).data;
+            const themesById: Record<string, { name: string; tokens: any; isDefault: boolean }> = {};
+            for (const theme of themes) {
+                themesById[String(theme.id)] = { name: theme.name, tokens: theme.tokens, isDefault: !!theme.isDefault };
+            }
+
             const bundle = buildPageBundle(pages, blocks, {
                 baasixVersion: env.get("npm_package_version") || "unknown",
                 exportedAt: new Date().toISOString(),
                 roleNames,
+                themesById,
             });
 
             res.setHeader("Content-Type", "application/json");
@@ -94,6 +106,7 @@ const registerEndpoint = (app: Express) => {
             const pageService = new ItemsService("baasix_Page", { accountability: req.accountability as any });
             const blockService = new ItemsService("baasix_Block", { accountability: req.accountability as any });
             const roleService = new ItemsService("baasix_Role", { accountability: req.accountability as any });
+            const themeService = new ItemsService("baasix_Theme", { accountability: req.accountability as any });
 
             const existing = (await pageService.readByQuery({ fields: ["id", "name", "slug"], limit: -1 }, true)).data;
             const existingPagesBySlug = new Map<string, { id: string; name: string }>(
@@ -103,12 +116,32 @@ const registerEndpoint = (app: Express) => {
             const roleIds = new Set(roles.map((r: any) => String(r.id)));
             const roleIdByNameMap = new Map<string, string>(roles.map((r: any) => [r.name, String(r.id)]));
 
+            // Existing themes scoped to the importing tenant (ItemsService applies tenant
+            // scoping from req.accountability the same way it does for pages/roles above).
+            // NOTE (PG12): baasix_Theme's unique (tenant_Id, name) index is NOT enforced by
+            // the DB for null-tenant rows on PG12, so more than one row can share a name.
+            // Sort by createdAt then id so "the first match" is deterministic and stable
+            // across repeated imports, and note it here rather than silently picking a
+            // random duplicate each run.
+            const existingThemes = (await themeService.readByQuery(
+                { fields: ["id", "name", "tokens", "isDefault"], sort: ["createdAt", "id"], limit: -1 },
+                true
+            )).data;
+            const themeIds = new Set(existingThemes.map((t: any) => String(t.id)));
+            const themeIdByNameMap = new Map<string, string>();
+            for (const t of existingThemes) {
+                // First (earliest-created) row wins when duplicate names exist — see NOTE above.
+                if (!themeIdByNameMap.has(t.name)) themeIdByNameMap.set(t.name, String(t.id));
+            }
+
             const getFields = makeGetFields(schemaManager);
             const ctx = {
                 existingPagesBySlug,
                 getFields,
                 roleIdExists: (id: string) => roleIds.has(id),
                 roleIdByName: (name: string) => roleIdByNameMap.get(name),
+                themeIdExists: (id: string) => themeIds.has(id),
+                themeIdByName: (name: string) => themeIdByNameMap.get(name),
                 validateBlock: (data: Record<string, any>) => validateBlockData(data, getFields),
             };
             const report = analyzeImport(bundle, ctx);
@@ -118,10 +151,42 @@ const registerEndpoint = (app: Express) => {
             }
 
             const roleNames: Record<string, string> = bundle.roleNames || {};
+            const bundleThemeNames: Record<string, string> = bundle.themeNames || {};
+            const bundleThemesByName = new Map<string, { name: string; tokens: any; isDefault: boolean }>(
+                (bundle.themes || []).map((t: any) => [t.name, t])
+            );
             const invalidBlockIds = new Set(report.blockIssues.map((issue: any) => issue.blockId));
             const pageIdMap = new Map<string, string>();   // bundle page id → target page id
             const blockIdMap = new Map<string, string>();  // bundle block id → target block id
+            const themeIdMap = new Map<string, string>();  // bundle theme id → target theme id
             const results: any[] = [];
+
+            // Pass 0: themes — find-or-create every theme referenced by the bundle, scoped
+            // to the importing tenant, then remap bundle theme id → target theme id (mirrors
+            // the role id-remap pattern above, except unresolved themes are CREATED rather
+            // than dropped since a page's theme is not optional the way a role grant is).
+            for (const [bundleThemeId, name] of Object.entries(bundleThemeNames)) {
+                const { resolved } = resolveThemeId(bundleThemeId, bundleThemeNames, ctx);
+                if (resolved) {
+                    themeIdMap.set(bundleThemeId, resolved);
+                    continue;
+                }
+                const themeDef = bundleThemesByName.get(name);
+                if (!themeDef) continue; // shouldn't happen: themeNames and themes are built together on export
+                try {
+                    const newThemeId = await themeService.createOne({
+                        name: themeDef.name,
+                        tokens: themeDef.tokens ?? {},
+                        isDefault: false, // never let an import silently flip the tenant's default theme
+                    });
+                    themeIdMap.set(bundleThemeId, String(newThemeId));
+                    // Keep the by-name map current in case multiple bundle ids somehow share a name.
+                    themeIdByNameMap.set(name, String(newThemeId));
+                } catch {
+                    // Non-fatal: pages referencing this theme keep their (unresolvable) bundle
+                    // themeId, which is handled like any other bad value by the page-render path.
+                }
+            }
 
             // Pass 1: pages
             for (const page of bundle.pages) {
@@ -139,6 +204,15 @@ const registerEndpoint = (app: Express) => {
                     const mappedHomeFor = mapRoles(options.homeFor);
                     if (mappedHomeFor.length) options.homeFor = mappedHomeFor;
                     else delete options.homeFor;
+
+                    // Remap every imported page's options.theme.themeId to the target-instance
+                    // theme resolved/created in pass 0. An unresolvable bundle themeId (create
+                    // failed) is left as-is rather than silently dropped.
+                    const bundleThemeId = options.theme?.themeId;
+                    if (bundleThemeId != null) {
+                        const mappedThemeId = themeIdMap.get(String(bundleThemeId));
+                        if (mappedThemeId) options.theme = { ...options.theme, themeId: mappedThemeId };
+                    }
 
                     const payload: Record<string, any> = {
                         name: page.name,

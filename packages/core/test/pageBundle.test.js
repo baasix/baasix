@@ -1,4 +1,5 @@
-import { test, expect, describe } from "@jest/globals";
+import { test, expect, describe, beforeAll } from "@jest/globals";
+import request from "supertest";
 import {
     PAGE_BUNDLE_VERSION,
     buildPageBundle,
@@ -8,7 +9,9 @@ import {
     remapTargets,
     analyzeImport,
     resolveRoleIds,
+    resolveThemeId,
 } from "../baasix/services/PageBundleService.js";
+import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 
 const page = (over = {}) => ({
     id: "p1", name: "Tasks", slug: "tasks", icon: "list", description: null,
@@ -51,6 +54,51 @@ describe("buildPageBundle", () => {
               roleNames: { r1: "user", r2: "manager", r3: "unused" } }
         );
         expect(bundle.roleNames).toEqual({ r1: "user", r2: "manager" });
+    });
+
+    test("bundles without any options.theme.themeId round-trip byte-identically (no themes/themeNames noise)", () => {
+        const bundle = buildPageBundle([page()], [block()], {
+            baasixVersion: "1.0.0", exportedAt: "2026-06-12T00:00:00Z", roleNames: {},
+        });
+        const bundleWithMeta = buildPageBundle([page()], [block()], {
+            baasixVersion: "1.0.0", exportedAt: "2026-06-12T00:00:00Z", roleNames: {},
+            themesById: { "th-unused": { name: "Unused", tokens: {}, isDefault: false } },
+        });
+        expect(bundle).toEqual(bundleWithMeta);
+        expect(bundle.themes).toEqual([]);
+        expect(bundle.themeNames).toEqual({});
+        expect(bundle.pages[0].options).toEqual({ menuGroup: false });
+    });
+
+    test("embeds the theme referenced by options.theme.themeId, deduped by id, options left untouched", () => {
+        const themesById = {
+            "th1": { name: "Ocean", tokens: { light: { primary: "199 89% 48%" } }, isDefault: true },
+            "th2": { name: "Forest", tokens: { light: { primary: "120 40% 40%" } }, isDefault: false },
+        };
+        const p1 = page({ id: "p1", slug: "tasks", options: { theme: { themeId: "th1" } } });
+        const p2 = page({ id: "p2", slug: "tasks2", options: { theme: { themeId: "th1", overrides: { dark: { accent: "160 60% 45%" } } } } });
+        const p3 = page({ id: "p3", slug: "tasks3", options: { theme: { themeId: "th2" } } });
+        const bundle = buildPageBundle([p1, p2, p3], [], {
+            baasixVersion: "1.0.0", exportedAt: "x", roleNames: {}, themesById,
+        });
+        expect(bundle.themes).toEqual([
+            { name: "Ocean", tokens: { light: { primary: "199 89% 48%" } }, isDefault: true },
+            { name: "Forest", tokens: { light: { primary: "120 40% 40%" } }, isDefault: false },
+        ]);
+        expect(bundle.themeNames).toEqual({ th1: "Ocean", th2: "Forest" });
+        // Page options are untouched — themeId still points at the original bundle id, overrides preserved.
+        expect(bundle.pages[0].options).toEqual({ theme: { themeId: "th1" } });
+        expect(bundle.pages[1].options).toEqual({ theme: { themeId: "th1", overrides: { dark: { accent: "160 60% 45%" } } } });
+    });
+
+    test("ignores a themeId that doesn't resolve to a known theme (not embedded, not an error)", () => {
+        const p1 = page({ options: { theme: { themeId: "ghost" } } });
+        const bundle = buildPageBundle([p1], [], {
+            baasixVersion: "1.0.0", exportedAt: "x", roleNames: {}, themesById: {},
+        });
+        expect(bundle.themes).toEqual([]);
+        expect(bundle.themeNames).toEqual({});
+        expect(bundle.pages[0].options).toEqual({ theme: { themeId: "ghost" } });
     });
 });
 
@@ -183,6 +231,29 @@ describe("resolveRoleIds", () => {
     });
 });
 
+describe("resolveThemeId", () => {
+    const ctx = {
+        themeIdExists: (id) => id === "th-local",
+        themeIdByName: (name) => (name === "Ocean" ? "th-ocean-local" : undefined),
+    };
+    test("keeps an id that already exists locally", () => {
+        expect(resolveThemeId("th-local", {}, ctx)).toEqual({ resolved: "th-local", name: null });
+    });
+    test("re-resolves a foreign id by name via themeNames", () => {
+        expect(resolveThemeId("th-foreign", { "th-foreign": "Ocean" }, ctx))
+            .toEqual({ resolved: "th-ocean-local", name: "Ocean" });
+    });
+    test("reports an unresolvable id (by name when known) so the caller can create it", () => {
+        expect(resolveThemeId("th-gone", { "th-gone": "Forest" }, ctx))
+            .toEqual({ resolved: null, name: "Forest" });
+        expect(resolveThemeId("th-mystery", {}, ctx)).toEqual({ resolved: null, name: null });
+    });
+    test("null/undefined themeId resolves to null with no name", () => {
+        expect(resolveThemeId(null, {}, ctx)).toEqual({ resolved: null, name: null });
+        expect(resolveThemeId(undefined, {}, ctx)).toEqual({ resolved: null, name: null });
+    });
+});
+
 describe("analyzeImport", () => {
     const baseBundle = () => ({
         bundleVersion: 1, baasixVersion: "1", exportedAt: "x",
@@ -247,5 +318,163 @@ describe("analyzeImport", () => {
         expect(report.pages.find((p) => p.slug === "tasks").blockCount).toBe(2);
         expect(report.pages.find((p) => p.slug === "child").blockCount).toBe(1);
         expect(report.pages.find((p) => p.slug === "orphan").blockCount).toBe(0);
+    });
+
+    test("bundle without themeNames/theme ctx accessors reports themes: {} (regression: no crash on old ctx shape)", () => {
+        const report = analyzeImport(baseBundle(), ctx);
+        expect(report.themes).toEqual({});
+    });
+
+    test("themes report: existing (by id or name) vs to-be-created", () => {
+        const b = baseBundle();
+        b.themeNames = { "th-local": "Brand", "th-foreign": "Ocean", "th-gone": "Forest" };
+        const themeCtx = {
+            ...ctx,
+            themeIdExists: (id) => id === "th-local",
+            themeIdByName: (name) => (name === "Ocean" ? "th-ocean-local" : undefined),
+        };
+        const report = analyzeImport(b, themeCtx);
+        expect(report.themes).toEqual({
+            Brand: { exists: true },
+            Ocean: { exists: true },
+            Forest: { exists: false },
+        });
+    });
+});
+
+describe("page bundle theme embedding (GET /pages/export, POST /pages/import)", () => {
+    let app; let adminToken;
+    const auth = (r) => r.set("Authorization", `Bearer ${adminToken}`);
+
+    beforeAll(async () => {
+        await destroyAllTablesInDB();
+        app = await startServerForTesting();
+        const login = await request(app).post("/auth/login").send({ email: "admin@baasix.com", password: "admin@123" });
+        adminToken = login.body.token;
+    });
+
+    test("export embeds the referenced theme with options untouched", async () => {
+        const theme = await auth(request(app).post("/items/baasix_Theme"))
+            .send({ name: "Sunset", tokens: { light: { primary: "20 90% 55%" } } });
+        expect(theme.status).toBe(201);
+        const themeId = theme.body.data?.id ?? theme.body.id;
+
+        const page = await auth(request(app).post("/items/baasix_Page"))
+            .send({ name: "Themed", slug: "themed-page", options: { theme: { themeId } } });
+        expect(page.status).toBe(201);
+
+        const exportRes = await auth(request(app).get("/pages/export")).query({ pages: "all" });
+        expect(exportRes.status).toBe(200);
+        const bundle = JSON.parse(exportRes.text);
+        expect(bundle.themes).toContainEqual({ name: "Sunset", tokens: { light: { primary: "20 90% 55%" } }, isDefault: false });
+        expect(bundle.themeNames[String(themeId)]).toBe("Sunset");
+        const exportedPage = bundle.pages.find((p) => p.slug === "themed-page");
+        expect(exportedPage.options).toEqual({ theme: { themeId: String(themeId) } });
+    });
+
+    test("import creates an unresolvable bundle theme (find-or-create) and remaps the imported page's themeId", async () => {
+        // Simulates importing a bundle exported from a *different* instance: the bundle
+        // theme id doesn't exist locally and no local theme shares its name yet, so the
+        // import must create the theme and remap the page to the new local id.
+        const bundle = {
+            bundleVersion: PAGE_BUNDLE_VERSION, baasixVersion: "1", exportedAt: "x",
+            pages: [{ id: "px", name: "Foreign Themed", slug: "foreign-themed-page", icon: null, description: null,
+                      parent_Id: null, sort: 0, isPublic: false, enabled: true, roles: null,
+                      options: { theme: { themeId: "22222222-2222-2222-2222-222222222222" } } }],
+            blocks: [],
+            roleNames: {},
+            themes: [{ name: "Foreign Theme", tokens: { light: { primary: "260 60% 50%" } }, isDefault: false }],
+            themeNames: { "22222222-2222-2222-2222-222222222222": "Foreign Theme" },
+            requires: { collections: {} },
+        };
+
+        const before = await auth(request(app).get("/pages/themes"));
+        expect(before.body.themes.some((t) => t.name === "Foreign Theme")).toBe(false);
+
+        const importRes = await auth(request(app).post("/pages/import")).send({ bundle });
+        expect(importRes.status).toBe(200);
+        const created = importRes.body.results.find((r) => r.action === "created" && r.slug === "foreign-themed-page");
+        expect(created).toBeTruthy();
+
+        const after = await auth(request(app).get("/pages/themes"));
+        const foreignThemes = after.body.themes.filter((t) => t.name === "Foreign Theme");
+        expect(foreignThemes).toHaveLength(1);
+        expect(foreignThemes[0].id).not.toBe("22222222-2222-2222-2222-222222222222"); // genuinely new row
+
+        const importedPage = await auth(request(app).get(`/items/baasix_Page/${created.id}`));
+        expect(importedPage.body.data.options.theme.themeId).toBe(foreignThemes[0].id);
+    });
+
+    test("importing the same bundle again matches the theme by name instead of duplicating it", async () => {
+        const theme = await auth(request(app).post("/items/baasix_Theme"))
+            .send({ name: "Sunset2", tokens: { light: { primary: "20 90% 55%" } } });
+        const themeId = theme.body.data?.id ?? theme.body.id;
+        const bundle = {
+            bundleVersion: PAGE_BUNDLE_VERSION, baasixVersion: "1", exportedAt: "x",
+            pages: [{ id: "px", name: "Second", slug: "second-themed-page", icon: null, description: null,
+                      parent_Id: null, sort: 0, isPublic: false, enabled: true, roles: null,
+                      options: { theme: { themeId: String(themeId) } } }],
+            blocks: [],
+            roleNames: {},
+            themes: [{ name: "Sunset2", tokens: { light: { primary: "20 90% 55%" } }, isDefault: false }],
+            themeNames: { [String(themeId)]: "Sunset2" },
+            requires: { collections: {} },
+        };
+
+        const before = await auth(request(app).get("/pages/themes"));
+        const sunsetCountBefore = before.body.themes.filter((t) => t.name === "Sunset2").length;
+        expect(sunsetCountBefore).toBe(1);
+
+        const importRes = await auth(request(app).post("/pages/import")).send({ bundle });
+        expect(importRes.status).toBe(200);
+        const created = importRes.body.results.find((r) => r.action === "created" && r.slug === "second-themed-page");
+        expect(created).toBeTruthy();
+
+        const after = await auth(request(app).get("/pages/themes"));
+        const sunsetThemes = after.body.themes.filter((t) => t.name === "Sunset2");
+        expect(sunsetThemes).toHaveLength(1); // matched by name, not duplicated
+        expect(sunsetThemes[0].id).toBe(String(themeId)); // reused the existing row
+
+        const importedPage = await auth(request(app).get(`/items/baasix_Page/${created.id}`));
+        expect(importedPage.body.data.options.theme.themeId).toBe(sunsetThemes[0].id);
+    });
+
+    test("dryRun import reports the theme's create-vs-exists status without writing", async () => {
+        const bundle = {
+            bundleVersion: PAGE_BUNDLE_VERSION, baasixVersion: "1", exportedAt: "x",
+            pages: [{ id: "py", name: "DryRun", slug: "dry-run-themed-page", icon: null, description: null,
+                      parent_Id: null, sort: 0, isPublic: false, enabled: true, roles: null,
+                      options: { theme: { themeId: "11111111-1111-1111-1111-111111111111" } } }],
+            blocks: [],
+            roleNames: {},
+            themes: [{ name: "GhostTheme", tokens: {}, isDefault: false }],
+            themeNames: { "11111111-1111-1111-1111-111111111111": "GhostTheme" },
+            requires: { collections: {} },
+        };
+        const before = await auth(request(app).get("/pages/themes"));
+        const dryRunRes = await auth(request(app).post("/pages/import")).query({ dryRun: "true" }).send({ bundle });
+        expect(dryRunRes.status).toBe(200);
+        expect(dryRunRes.body.report.themes).toEqual({ GhostTheme: { exists: false } });
+
+        const after = await auth(request(app).get("/pages/themes"));
+        expect(after.body.themes.length).toBe(before.body.themes.length); // dryRun wrote nothing
+    });
+
+    test("a bundle without any themes round-trips with no theme side effects", async () => {
+        const page = await auth(request(app).post("/items/baasix_Page")).send({ name: "Plain", slug: "plain-page" });
+        expect(page.status).toBe(201);
+
+        const exportRes = await auth(request(app).get("/pages/export")).query({ pages: page.body.data.id });
+        expect(exportRes.status).toBe(200);
+        const bundle = JSON.parse(exportRes.text);
+        expect(bundle.themes).toEqual([]);
+        expect(bundle.themeNames).toEqual({});
+
+        const before = await auth(request(app).get("/pages/themes"));
+        const importRes = await auth(request(app).post("/pages/import"))
+            .send({ bundle, resolutions: { "plain-page": { rename: "plain-page-2" } } });
+        expect(importRes.status).toBe(200);
+        const after = await auth(request(app).get("/pages/themes"));
+        expect(after.body.themes.length).toBe(before.body.themes.length);
     });
 });

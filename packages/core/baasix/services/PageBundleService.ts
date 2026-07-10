@@ -139,7 +139,13 @@ export function collectRequires(blocks: Record<string, any>[]): { collections: R
 export function buildPageBundle(
     pages: Record<string, any>[],
     blocks: Record<string, any>[],
-    meta: { baasixVersion: string; exportedAt: string; roleNames: Record<string, string> }
+    meta: {
+        baasixVersion: string;
+        exportedAt: string;
+        roleNames: Record<string, string>;
+        /** All themes visible to the exporter, keyed by id (only referenced ones are embedded). */
+        themesById?: Record<string, { name: string; tokens: any; isDefault: boolean }>;
+    }
 ) {
     const exportPages = pages.map((p) => pick(p, PAGE_EXPORT_FIELDS));
     const exportBlocks = blocks.map((b) => pick(b, BLOCK_EXPORT_FIELDS));
@@ -156,6 +162,23 @@ export function buildPageBundle(
         if (meta.roleNames[id]) roleNames[id] = meta.roleNames[id];
     }
 
+    // Only ship themes actually referenced by options.theme.themeId (deduped by id).
+    // Page options are left untouched — the bundle id is remapped on import via
+    // themeNames, exactly like roleNames does for roles/homeFor.
+    const themesById = meta.themesById || {};
+    const referencedThemeIds = new Set<string>();
+    for (const p of exportPages) {
+        const themeId = p.options?.theme?.themeId;
+        if (themeId != null && themesById[String(themeId)]) referencedThemeIds.add(String(themeId));
+    }
+    const themes: { name: string; tokens: any; isDefault: boolean }[] = [];
+    const themeNames: Record<string, string> = {};
+    for (const id of referencedThemeIds) {
+        const theme = themesById[id];
+        themes.push({ name: theme.name, tokens: theme.tokens, isDefault: theme.isDefault });
+        themeNames[id] = theme.name;
+    }
+
     return {
         bundleVersion: PAGE_BUNDLE_VERSION,
         baasixVersion: meta.baasixVersion,
@@ -163,6 +186,8 @@ export function buildPageBundle(
         pages: exportPages,
         blocks: exportBlocks,
         roleNames,
+        themes,
+        themeNames,
         requires: collectRequires(exportBlocks),
     };
 }
@@ -316,6 +341,9 @@ export interface ImportContext {
     getFields: (collection: string) => Record<string, any> | null | undefined;
     roleIdExists: (id: string) => boolean;
     roleIdByName: (name: string) => string | undefined;
+    /** Scoped to the importing tenant — see resolveThemeId. */
+    themeIdExists: (id: string) => boolean;
+    themeIdByName: (name: string) => string | undefined;
     /** Inject validateBlockData bound to the target instance's getFields. */
     validateBlock: (data: Record<string, any>) => void;
 }
@@ -339,6 +367,27 @@ export function resolveRoleIds(
         else unknown.push(name || id);
     }
     return { resolved, unknown };
+}
+
+/**
+ * Resolve a bundle theme id against the target instance (id match, then name via
+ * themeNames), mirroring resolveRoleIds. Unlike roles, an unresolved theme is not
+ * dropped: the caller (route) creates it on the importing tenant and remaps to the
+ * new id, so this returns the theme's bundle name whenever `resolved` comes back
+ * null — that's the create-if-absent signal.
+ */
+export function resolveThemeId(
+    themeId: string | null | undefined,
+    themeNames: Record<string, string>,
+    ctx: { themeIdExists: (id: string) => boolean; themeIdByName: (name: string) => string | undefined }
+): { resolved: string | null; name: string | null } {
+    if (themeId == null) return { resolved: null, name: null };
+    const id = String(themeId);
+    if (ctx.themeIdExists(id)) return { resolved: id, name: null };
+    const name = themeNames[id] || null;
+    const byName = name ? ctx.themeIdByName(name) : undefined;
+    if (byName) return { resolved: byName, name };
+    return { resolved: null, name };
 }
 
 export function analyzeImport(bundle: any, ctx: ImportContext) {
@@ -385,6 +434,19 @@ export function analyzeImport(bundle: any, ctx: ImportContext) {
         collections[name] = { exists: true, missingFields: missing };
     }
 
+    // Theme report: for every bundle theme, whether it already resolves on the
+    // target (id or name match) or will be created on import. Guarded so bundles
+    // without themes, or a ctx without theme accessors, behave exactly as before
+    // (byte-identical dry-run report — see pageBundle.test.js regression tests).
+    const themes: Record<string, { exists: boolean }> = {};
+    const themeNames: Record<string, string> = bundle.themeNames || {};
+    if (typeof ctx.themeIdExists === "function" && typeof ctx.themeIdByName === "function") {
+        for (const [id, name] of Object.entries(themeNames)) {
+            const { resolved } = resolveThemeId(id, themeNames, ctx);
+            themes[name] = { exists: !!resolved };
+        }
+    }
+
     const pageSlugById = new Map<string, string>(bundle.pages.map((p: any) => [String(p.id), p.slug]));
     const blockIssues: { blockId: string; pageSlug: string; type: string; collection: string | null; error: string }[] = [];
     for (const blk of bundle.blocks) {
@@ -406,5 +468,5 @@ export function analyzeImport(bundle: any, ctx: ImportContext) {
         }
     }
 
-    return { pages, collections, blockIssues };
+    return { pages, collections, blockIssues, themes };
 }
