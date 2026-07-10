@@ -20,6 +20,12 @@ import type { Express } from "../types/index.js";
 
 const PAGE_FIELDS = ["id", "name", "slug", "icon", "description", "parent_Id", "sort", "isPublic", "enabled", "options", "roles"];
 const BLOCK_FIELDS = ["id", "page_Id", "type", "collection", "position", "config", "configVersion", "parentBlock_Id", "slot"];
+// Field allowlist for the anonymous /pages/public/:slug endpoint. Deliberately
+// excludes `roles` (internal role UUIDs) and usertrack/timestamp columns
+// (userCreated_Id, userUpdated_Id, createdAt, updatedAt). tenant_Id is fetched
+// for internal branding/theme scoping but stripped from the response.
+const PUBLIC_PAGE_FIELDS = ["id", "name", "slug", "icon", "description", "parent_Id", "sort", "isPublic", "enabled", "options", "tenant_Id"];
+const PUBLIC_BLOCK_FIELDS = BLOCK_FIELDS.map((f) => `blocks.${f}`);
 const MAX_BUNDLE_PAGES = 500;
 const MAX_BUNDLE_BLOCKS = 5000;
 
@@ -360,7 +366,10 @@ const registerEndpoint = (app: Express) => {
             const service = new ItemsService("baasix_Page", { accountability: undefined }); // system read; filter below is the security boundary
             const filter: Record<string, unknown> = { slug: { eq: slug }, isPublic: { eq: true }, enabled: { eq: true } };
             if (tenantParam) filter.tenant_Id = { eq: tenantParam };
-            const result = await service.readByQuery({ filter, fields: ["*", "blocks.*"], limit: 10 }, true);
+            const result = await service.readByQuery(
+                { filter, fields: [...PUBLIC_PAGE_FIELDS, ...PUBLIC_BLOCK_FIELDS], limit: 10 },
+                true
+            );
             const rows = result?.data ?? [];
             if (!rows.length) throw new APIError("Page not found", 404);
             const page = rows.find((p: any) => p.tenant_Id == null) ?? rows[0];
@@ -373,6 +382,8 @@ const registerEndpoint = (app: Express) => {
                 theme = await themeService.readOne(themeId, {}, true).catch(() => null);
             }
             if (!theme) {
+                // Intentionally strict tenant scoping: a tenant page falls back ONLY to
+                // that tenant's default theme (no cross-fallback to a global default).
                 const defaultFilter: Record<string, unknown> = {
                     isDefault: { eq: true },
                     tenant_Id: page.tenant_Id ? { eq: page.tenant_Id } : { isNull: true },
@@ -381,8 +392,10 @@ const registerEndpoint = (app: Express) => {
                 theme = defaults?.data?.[0] ?? null;
             }
 
+            // tenant_Id was fetched for the scoping logic above; keep it out of the payload.
+            const { tenant_Id: _tenantId, ...publicPage } = page;
             res.status(200).json({
-                page,
+                page: publicPage,
                 branding: {
                     projectName: settings?.project_name ?? null,
                     logoLightId: settings?.project_logo_light_Id ?? null,
