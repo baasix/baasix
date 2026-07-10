@@ -2,6 +2,9 @@
  * Block manifest contract — the single source of truth for a block type.
  * Serialized verbatim to the frontend via GET /pages/block-manifests, so
  * everything here must stay plain JSON (no functions, no classes).
+ *
+ * The type declarations below are hand-mirrored in the app repo at
+ * app/src/types/block-manifest.ts. If you change one side, change the other.
  */
 
 export type BlockCategory = "data" | "input" | "display" | "content" | "layout" | "navigation";
