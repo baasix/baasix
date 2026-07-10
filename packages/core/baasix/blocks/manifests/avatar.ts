@@ -15,12 +15,15 @@ const manifest: BlockManifest = {
       { key: "filter", label: "Filter", kind: "filter-dsl" },
       { key: "sort", label: "Sort", kind: "text" },
       { key: "max", label: "Maximum avatars", kind: "number", min: 1, max: 20, integer: true, default: 5 },
-      { key: "size", label: "Size", kind: "select", options: [
+      // "avatarSize", not "size": `size` is a reserved envelope key on every
+      // block config (BlockSizeConfig pixel constraints in the app) — a
+      // manifest field named `size` collides with it in the editor/renderer.
+      { key: "avatarSize", label: "Size", kind: "select", options: [
         { label: "Small", value: "sm" }, { label: "Medium", value: "md" }, { label: "Large", value: "lg" },
       ], default: "md" },
     ] },
   ],
-  defaults: { max: 5, size: "md" },
+  defaults: { max: 5, avatarSize: "md" },
   configVersion: 1,
 };
 
