@@ -1,6 +1,7 @@
 import { test, expect, describe } from "@jest/globals";
 import { validateManifest } from "../baasix/blocks/manifest-types.js";
 import { getManifest, listManifests, isKnownBlockType, collectionRequirement } from "../baasix/blocks/registry.js";
+import { getBlockConfigDoc } from "../baasix/utils/blockConfigDoc.js";
 import systemSchemaModule from "../baasix/utils/systemschema.js";
 
 const minimal = () => ({
@@ -104,6 +105,16 @@ describe("block registry", () => {
   test("unknown type is not registered", () => {
     expect(isKnownBlockType("bogus")).toBe(false);
     expect(listManifests().length).toBe(LEGACY_TYPES.length);
+  });
+});
+
+describe("getBlockConfigDoc", () => {
+  test("contains legacy doc plus generated manifest sections", () => {
+    const doc = getBlockConfigDoc();
+    expect(doc).toContain("# Baasix page-builder: block config reference");   // legacy content kept
+    expect(doc).toContain("## Manifest-defined block types");
+    expect(doc).toContain("### iframe");
+    expect(doc).toMatch(/`url`.*required/);
   });
 });
 

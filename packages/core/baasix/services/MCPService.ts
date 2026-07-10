@@ -17,7 +17,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import env from "../utils/env.js";
-import { BLOCK_CONFIG_DOC } from "../utils/blockConfigDoc.js";
+import { getBlockConfigDoc } from "../utils/blockConfigDoc.js";
 
 // ==================== Type Definitions ====================
 
@@ -3147,7 +3147,7 @@ Full config reference: resource baasix://docs/block-config.`,
     "baasix://docs/block-config",
     { description: "Baasix page-builder block config format reference (block types, config schemas, filter DSL)", mimeType: "text/markdown" },
     async (uri: any) => ({
-      contents: [{ uri: uri?.href ?? "baasix://docs/block-config", mimeType: "text/markdown", text: BLOCK_CONFIG_DOC }],
+      contents: [{ uri: uri?.href ?? "baasix://docs/block-config", mimeType: "text/markdown", text: getBlockConfigDoc() }],
     })
   );
 

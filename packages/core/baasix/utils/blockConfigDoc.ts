@@ -118,9 +118,6 @@ settings as \`metadata.googleMapsApiKey\` — without one the block falls back t
 \`aggregate?: "count"|"sum"|"avg"|"min"|"max"\` (default count), \`valueField?\` (numeric; REQUIRED when aggregate != count),
 \`region?: "world"\` (only "world" accepted), \`filter?\`. Renders a choropleth world map.
 
-### markdown
-\`content\` (markdown string). No collection.
-
 ### input
 \`inputType: "text"|"select"|"date"|"toggle"\` (required), \`name\` (required, \`^[a-zA-Z][a-zA-Z0-9_]*$\`,
 unique per page — filters reference \`"$input.<name>"\`), \`label?\`,
@@ -140,9 +137,6 @@ Children use slot \`"body"\` (or omit slot). No collection.
 \`width?: "sm"|"md"|"lg"|"xl"\` (default lg), \`title?\`. Hidden at rest; opened by a
 \`{type:"modal", blockId}\` action from a buttons block or a data block's header/row actions.
 Children use slot \`"body"\`. No collection.
-
-### divider
-\`label?\` (optional centered caption). No collection, no children.
 
 ### timeline
 \`timestampField\` (required, Date/DateTime), \`titleField\` (required), \`descriptionField?\`,
@@ -194,9 +188,6 @@ data blocks (merged AND into each target's filter).
 (default createdAt), \`order?: "asc"|"desc"\`, \`composer?\`, \`composerDefaults?\` (values support \`$param.<name>\`),
 \`fileField?\` (attachments), \`highlightOwn?/allowEditOwn?/allowDeleteOwn?\` (default true).
 
-### iframe
-\`url\` (required; http/https only), \`height?\` (px, default 480), \`allowFullscreen?: bool\`, \`sandbox?\`. No collection.
-
 ### upload
 \`accept?\` (file-input accept attr), \`maxSizeMB?\`, \`multiple?: bool\`, \`folder?\`. No collection.
 
@@ -234,3 +225,44 @@ and the single-action keys \`cardAction\`/\`itemAction\`/\`eventAction\`.
 5. Page renders at /pages/?slug=<slug> (admin app); non-admins need read permissions on baasix_Page
    (fields ["*","blocks.*"]) and on the bound collections.
 `;
+
+import { listManifests } from "../blocks/registry.js";
+import type { BlockManifest, SettingsField } from "../blocks/manifest-types.js";
+
+function fieldLine(f: SettingsField): string {
+  const bits: string[] = [`\`${f.key}\``];
+  bits.push(f.kind);
+  if (f.required) bits.push("**required**");
+  if (f.kind === "select") bits.push(`one of: ${(f as any).options.map((o: any) => o.value).join(", ")}`);
+  if (f.kind === "number") {
+    const { min, max, integer } = f as any;
+    if (integer) bits.push("integer");
+    if (min != null) bits.push(`min ${min}`);
+    if (max != null) bits.push(`max ${max}`);
+  }
+  if (f.kind === "text" && (f as any).pattern) bits.push(`pattern \`${(f as any).pattern}\``);
+  if (f.kind === "list") bits.push(`items: ${(f as any).item.map((it: SettingsField) => it.key).join(", ")}`);
+  if (f.help) bits.push(`— ${f.help}`);
+  return `- ${bits.join(" · ")}`;
+}
+
+function manifestSection(m: BlockManifest): string {
+  const collection =
+    m.needsCollection === true ? "Requires a collection."
+    : m.needsCollection === "optional" ? "Collection optional."
+    : "No collection.";
+  const fields = m.settings.flatMap((g) => g.fields).filter((f) => f.kind !== "custom");
+  return [`### ${m.type}`, "", `${m.description} ${collection}`, "", ...fields.map(fieldLine), ""].join("\n");
+}
+
+export function getBlockConfigDoc(): string {
+  const manifestTypes = listManifests().filter((m) => m.settingsMode === "manifest");
+  const generated = [
+    "## Manifest-defined block types",
+    "",
+    "These types are validated from their manifest; the common envelope (`title`, `size`, `density`, `appearance`) applies to all.",
+    "",
+    ...manifestTypes.map(manifestSection),
+  ].join("\n");
+  return `${BLOCK_CONFIG_DOC}\n\n${generated}`;
+}

@@ -11,7 +11,7 @@ import {
     remapTargets,
     suggestSlug,
 } from "../services/PageBundleService.js";
-import { BLOCK_CONFIG_DOC } from "../utils/blockConfigDoc.js";
+import { getBlockConfigDoc } from "../utils/blockConfigDoc.js";
 import { listManifests } from "../blocks/registry.js";
 import env from "../utils/env.js";
 import type { Express } from "../types/index.js";
@@ -301,7 +301,7 @@ const registerEndpoint = (app: Express) => {
     app.get("/pages/block-config-doc", adminOnly, async (_req, res, next) => {
         try {
             res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-            res.status(200).send(BLOCK_CONFIG_DOC);
+            res.status(200).send(getBlockConfigDoc());
         } catch (error: any) {
             next(error instanceof APIError ? error : new APIError("Error serving block config doc", 500, error.message));
         }
