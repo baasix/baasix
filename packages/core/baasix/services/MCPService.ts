@@ -3060,15 +3060,13 @@ Use baasix_get_schema first to see the current relationship configuration.`,
 
   registerTool(
     "baasix_create_block",
-    `Add a block to a page. The server validates config against the block type and the bound collection's schema (field existence) — call baasix_get_schema first and baasix_validate_block_config to pre-check.
-Types REQUIRING collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart, media, feed, filter, timeline, progress, repeater, report. Collectionless: markdown, buttons, iframe, upload, tabs, container, modal, divider, input (code/richtext: collection only when recordField set).
+    `Add a block to a page. The server (block registry) is the authority on valid types and per-type config/collection requirements — call baasix_get_schema first, then baasix_validate_block_config to pre-check a payload. For the current list of block types and whether each needs a collection, see resource baasix://docs/block-config (full config reference) or GET /pages/block-manifests.
 position = {row >= 0, col 0-11, span 1-12} on a 12-column grid.
 Nesting: children of tabs/container/modal blocks set parentBlock_Id (+ slot: "tab:<index>" inside tabs, "body" otherwise; max depth 3) and lay out on a nested grid inside the parent.
-Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>" (record clicked in a sibling data block) and "$input.<name>" (input block value); record-bound blocks accept source {type:"block", blockId}.
-Full config reference: resource baasix://docs/block-config.`,
+Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>" (record clicked in a sibling data block) and "$input.<name>" (input block value); record-bound blocks accept source {type:"block", blockId}.`,
     {
       page_Id: z.string().describe("Owning page id (from baasix_create_page / baasix_get_page)"),
-      type: z.enum(["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart", "tabs", "container", "modal", "divider", "timeline", "progress", "repeater", "richtext", "report", "input"]),
+      type: z.string().describe("Block type — see baasix://docs/block-config or GET /pages/block-manifests for the current registry"),
       collection: z.string().optional().describe("Bound collection (see type rules)"),
       position: z.object({ row: z.number(), col: z.number(), span: z.number() }).describe("12-col grid placement (within the parent slot when nested)"),
       config: z.record(z.any()).optional().describe("Per-type config (see baasix://docs/block-config)"),

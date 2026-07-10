@@ -28,7 +28,9 @@ Rows stack vertically; blocks within a row share the 12 columns; no overlap. Mob
 
 Every config may carry: \`title?\`, \`description?\`,
 \`size? { height?, minHeight?, maxHeight?, minWidth?, maxWidth?, innerScroll? }\` (px),
-\`density?: "compact"|"default"|"spacious"\`.
+\`density?: "compact"|"default"|"spacious"\`,
+\`appearance? { background?, borderColor?, borderWidth?, borderRadius?, shadow?, padding?, hideCard?, titleAlign?, titleSize?, titleColor?, accent? }\`
+(object; styled chrome/theming applied to every block type, per the "Appearance" settings group served in block manifests).
 Data blocks may also carry \`realtime?: true\` (socket push / 10s poll fallback) and
 \`inlineFilters?: [{ field, operator?, label? }]\` (table/cardlist).
 
