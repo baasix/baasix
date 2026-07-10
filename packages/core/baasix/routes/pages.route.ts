@@ -63,8 +63,9 @@ const registerEndpoint = (app: Express) => {
             for (const role of roles) roleNames[String(role.id)] = role.name;
 
             // Only themes referenced by an exported page's options.theme.themeId matter to
-            // buildPageBundle (it dedupes/filters), so it's safe to read every theme visible
-            // to this accountability (tenant-scoped by ItemsService like /pages/themes).
+            // buildPageBundle (it dedupes/filters), so it's safe to read every theme. This
+            // read is NOT tenant-scoped (baasix_Theme is not a tenant-specific system
+            // collection) — see the FOLLOW-UP note in /pages/import.
             const themes = (await themeService.readByQuery({ fields: ["id", "name", "tokens", "isDefault"], limit: -1 }, true)).data;
             const themesById: Record<string, { name: string; tokens: any; isDefault: boolean }> = {};
             for (const theme of themes) {
@@ -116,8 +117,12 @@ const registerEndpoint = (app: Express) => {
             const roleIds = new Set(roles.map((r: any) => String(r.id)));
             const roleIdByNameMap = new Map<string, string>(roles.map((r: any) => [r.name, String(r.id)]));
 
-            // Existing themes scoped to the importing tenant (ItemsService applies tenant
-            // scoping from req.accountability the same way it does for pages/roles above).
+            // Existing themes for find-or-create matching. NOT tenant-scoped: baasix_Theme
+            // is not in tenantSpecificSystemCollections, so this read sees all rows and
+            // themes created in pass 0 below get tenant_Id null — matching is global-by-name,
+            // the same as the pre-existing role resolution above.
+            // FOLLOW-UP: multi-tenant scoping of bundle role/theme resolution is a known
+            // pre-existing gap (a tenant admin's import matches/creates global rows).
             // NOTE (PG12): baasix_Theme's unique (tenant_Id, name) index is NOT enforced by
             // the DB for null-tenant rows on PG12, so more than one row can share a name.
             // Sort by createdAt then id so "the first match" is deterministic and stable
@@ -161,10 +166,15 @@ const registerEndpoint = (app: Express) => {
             const themeIdMap = new Map<string, string>();  // bundle theme id → target theme id
             const results: any[] = [];
 
-            // Pass 0: themes — find-or-create every theme referenced by the bundle, scoped
-            // to the importing tenant, then remap bundle theme id → target theme id (mirrors
-            // the role id-remap pattern above, except unresolved themes are CREATED rather
-            // than dropped since a page's theme is not optional the way a role grant is).
+            // Pass 0: themes — find-or-create every theme referenced by the bundle (global
+            // by-name matching, see the FOLLOW-UP note above), then remap bundle theme id →
+            // target theme id (mirrors the role id-remap pattern above, except unresolved
+            // themes are CREATED rather than dropped since a page's theme is not optional
+            // the way a role grant is).
+            // A bundle theme's isDefault survives ONLY when the target scope has no default
+            // theme yet (e.g. a clean instance, where dropping it would leave pages relying
+            // on the default-theme fallback unthemed). An existing default is never demoted.
+            let scopeHasDefault = existingThemes.some((t: any) => t.isDefault === true);
             for (const [bundleThemeId, name] of Object.entries(bundleThemeNames)) {
                 const { resolved } = resolveThemeId(bundleThemeId, bundleThemeNames, ctx);
                 if (resolved) {
@@ -174,17 +184,21 @@ const registerEndpoint = (app: Express) => {
                 const themeDef = bundleThemesByName.get(name);
                 if (!themeDef) continue; // shouldn't happen: themeNames and themes are built together on export
                 try {
+                    const asDefault = themeDef.isDefault === true && !scopeHasDefault;
                     const newThemeId = await themeService.createOne({
                         name: themeDef.name,
                         tokens: themeDef.tokens ?? {},
-                        isDefault: false, // never let an import silently flip the tenant's default theme
+                        isDefault: asDefault,
                     });
+                    if (asDefault) scopeHasDefault = true;
                     themeIdMap.set(bundleThemeId, String(newThemeId));
                     // Keep the by-name map current in case multiple bundle ids somehow share a name.
                     themeIdByNameMap.set(name, String(newThemeId));
-                } catch {
-                    // Non-fatal: pages referencing this theme keep their (unresolvable) bundle
-                    // themeId, which is handled like any other bad value by the page-render path.
+                } catch (error: any) {
+                    // Non-fatal — the import continues and pages referencing this theme keep
+                    // their (unresolvable) bundle themeId — but surface the failure in the
+                    // results so the admin doesn't see an all-green response.
+                    results.push({ type: "theme", name, status: "failed", error: error?.message || String(error) });
                 }
             }
 

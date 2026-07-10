@@ -477,4 +477,122 @@ describe("page bundle theme embedding (GET /pages/export, POST /pages/import)", 
         const after = await auth(request(app).get("/pages/themes"));
         expect(after.body.themes.length).toBe(before.body.themes.length);
     });
+
+    // Minimal single-page bundle referencing one foreign theme id.
+    const themedBundle = ({ pageSlug, themeId, theme }) => ({
+        bundleVersion: PAGE_BUNDLE_VERSION, baasixVersion: "1", exportedAt: "x",
+        pages: [{ id: `p-${pageSlug}`, name: pageSlug, slug: pageSlug, icon: null, description: null,
+                  parent_Id: null, sort: 0, isPublic: false, enabled: true, roles: null,
+                  options: { theme: { themeId } } }],
+        blocks: [],
+        roleNames: {},
+        themes: [theme],
+        themeNames: { [themeId]: theme.name },
+        requires: { collections: {} },
+    });
+
+    test("bundle default theme becomes default only when the target scope has none; existing default never demoted", async () => {
+        // Everything created so far in this suite is non-default.
+        const start = await auth(request(app).get("/pages/themes"));
+        expect(start.body.themes.some((t) => t.isDefault === true)).toBe(false);
+
+        // 1) Import into a scope with no default → the bundle default survives.
+        const res1 = await auth(request(app).post("/pages/import")).send({
+            bundle: themedBundle({
+                pageSlug: "default-themed-page",
+                themeId: "33333333-3333-3333-3333-333333333333",
+                theme: { name: "BundleDefault", tokens: { light: { primary: "10 80% 50%" } }, isDefault: true },
+            }),
+        });
+        expect(res1.status).toBe(200);
+        const afterFirst = await auth(request(app).get("/pages/themes"));
+        const bundleDefault = afterFirst.body.themes.find((t) => t.name === "BundleDefault");
+        expect(bundleDefault.isDefault).toBe(true);
+
+        // 2) Import another bundle default into a scope that now HAS a default →
+        //    created non-default, and the existing default is not demoted.
+        const res2 = await auth(request(app).post("/pages/import")).send({
+            bundle: themedBundle({
+                pageSlug: "second-default-page",
+                themeId: "44444444-4444-4444-4444-444444444444",
+                theme: { name: "SecondDefault", tokens: { light: { primary: "200 80% 50%" } }, isDefault: true },
+            }),
+        });
+        expect(res2.status).toBe(200);
+        const afterSecond = await auth(request(app).get("/pages/themes"));
+        expect(afterSecond.body.themes.find((t) => t.name === "SecondDefault").isDefault).toBe(false);
+        expect(afterSecond.body.themes.find((t) => t.name === "BundleDefault").isDefault).toBe(true);
+        expect(afterSecond.body.themes.filter((t) => t.isDefault === true)).toHaveLength(1);
+    });
+
+    test("a theme that fails creation is surfaced in results; page import stays non-fatal with the stale themeId", async () => {
+        const staleId = "55555555-5555-5555-5555-555555555555";
+        const importRes = await auth(request(app).post("/pages/import")).send({
+            bundle: themedBundle({
+                pageSlug: "bad-theme-page",
+                themeId: staleId,
+                theme: { name: "BadTokensTheme", tokens: { light: { evil: "1 1% 1%" } }, isDefault: false },
+            }),
+        });
+        expect(importRes.status).toBe(200);
+
+        const themeFailure = importRes.body.results.find((r) => r.type === "theme");
+        expect(themeFailure).toEqual({
+            type: "theme", name: "BadTokensTheme", status: "failed",
+            error: expect.stringMatching(/evil/),
+        });
+
+        const created = importRes.body.results.find((r) => r.action === "created" && r.slug === "bad-theme-page");
+        expect(created).toBeTruthy(); // page import succeeded despite the theme failure
+
+        const themes = await auth(request(app).get("/pages/themes"));
+        expect(themes.body.themes.some((t) => t.name === "BadTokensTheme")).toBe(false);
+
+        // The page keeps the unresolvable bundle themeId rather than silently dropping it.
+        const importedPage = await auth(request(app).get(`/items/baasix_Page/${created.id}`));
+        expect(importedPage.body.data.options.theme.themeId).toBe(staleId);
+    });
+
+    test("duplicate same-name themes (PG12 null-tenant rows): import matches the first by (createdAt, id)", async () => {
+        const first = await auth(request(app).post("/items/baasix_Theme"))
+            .send({ name: "DupTheme", tokens: { light: { primary: "1 1% 1%" } } });
+        expect(first.status).toBe(201);
+        const second = await auth(request(app).post("/items/baasix_Theme"))
+            .send({ name: "DupTheme", tokens: { light: { primary: "2 2% 2%" } } });
+
+        let expectedId = first.body.data.id;
+        if (second.status === 201) {
+            // PG12: the (tenant_Id, name) unique index isn't enforced for null-tenant rows,
+            // so both rows exist — compute the deterministic winner the way the route does.
+            const rows = [];
+            for (const id of [first.body.data.id, second.body.data.id]) {
+                const row = await auth(request(app).get(`/items/baasix_Theme/${id}`));
+                rows.push({ id: String(id), createdAt: row.body.data.createdAt });
+            }
+            rows.sort((a, b) =>
+                a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1
+                : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+            expectedId = rows[0].id;
+        }
+        // else: PG15+ enforced uniqueness — only the first row exists, which is also the winner.
+
+        const importRes = await auth(request(app).post("/pages/import")).send({
+            bundle: themedBundle({
+                pageSlug: "dup-theme-page",
+                themeId: "66666666-6666-6666-6666-666666666666",
+                theme: { name: "DupTheme", tokens: { light: { primary: "3 3% 3%" } }, isDefault: false },
+            }),
+        });
+        expect(importRes.status).toBe(200);
+        const created = importRes.body.results.find((r) => r.action === "created" && r.slug === "dup-theme-page");
+        expect(created).toBeTruthy();
+
+        const importedPage = await auth(request(app).get(`/items/baasix_Page/${created.id}`));
+        expect(importedPage.body.data.options.theme.themeId).toBe(String(expectedId));
+
+        // Matched, not created: no third DupTheme row appeared.
+        const themes = await auth(request(app).get("/pages/themes"));
+        const dupCount = themes.body.themes.filter((t) => t.name === "DupTheme").length;
+        expect(dupCount).toBe(second.status === 201 ? 2 : 1);
+    });
 });
