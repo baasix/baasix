@@ -101,6 +101,30 @@ describe("validateBlockData routes manifest-mode types through the manifest", ()
   });
 });
 
+describe("wave-1 input block validation", () => {
+  const cases = [
+    { name: "select static valid", data: { type: "select", config: { name: "status", optionsSource: "static", options: [{ label: "Open", value: "open" }] } }, ok: true },
+    { name: "select missing name", data: { type: "select", config: { optionsSource: "static" } }, ok: false, err: /name/ },
+    { name: "select bad name pattern", data: { type: "select", config: { name: "9bad", optionsSource: "static" } }, ok: false, err: /name/ },
+    { name: "daterange valid", data: { type: "daterange", config: { name: "created", mode: "range" } }, ok: true },
+    { name: "daterange bad mode", data: { type: "daterange", config: { name: "created", mode: "weekly" } }, ok: false, err: /mode/ },
+    { name: "slider valid", data: { type: "slider", config: { name: "price", min: 0, max: 100 } }, ok: true },
+    { name: "slider missing bounds", data: { type: "slider", config: { name: "price" } }, ok: false, err: /min|max/ },
+    { name: "switch segmented needs options rows valid", data: { type: "switch", config: { name: "mode", variant: "segmented", options: [{ label: "A", value: "a" }] } }, ok: true },
+    { name: "switch bad variant", data: { type: "switch", config: { name: "m", variant: "dial" } }, ok: false, err: /variant/ },
+    { name: "rating input valid", data: { type: "rating", config: { mode: "input", name: "score", max: 5 } }, ok: true },
+    { name: "rating max too big", data: { type: "rating", config: { mode: "input", name: "score", max: 50 } }, ok: false, err: /max/ },
+    { name: "unknown type still rejected", data: { type: "carouselx" }, ok: false, err: /type/ },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, noFields);
+      if (c.ok) expect(fn).not.toThrow();
+      else expect(fn).toThrow(c.err);
+    });
+  }
+});
+
 describe("appearance validation (common envelope)", () => {
   const block = (appearance) => ({ type: "divider", config: { appearance } });
   test("valid appearance accepted on any type", () => {

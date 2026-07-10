@@ -104,7 +104,7 @@ describe("block registry", () => {
   });
   test("unknown type is not registered", () => {
     expect(isKnownBlockType("bogus")).toBe(false);
-    expect(listManifests().length).toBe(LEGACY_TYPES.length);
+    expect(listManifests().length).toBeGreaterThanOrEqual(LEGACY_TYPES.length);
   });
 });
 
