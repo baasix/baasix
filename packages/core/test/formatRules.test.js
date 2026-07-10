@@ -2,6 +2,7 @@ import { test, expect, describe } from "@jest/globals";
 import { validateFormatRules, FORMAT_OPERATORS } from "../baasix/blocks/format-rules.js";
 import { validateManifest } from "../baasix/blocks/manifest-types.js";
 import { validateConfigAgainstManifest } from "../baasix/blocks/validate-from-manifest.js";
+import { validateBlockData } from "../baasix/services/BlockConfigService.js";
 
 const rule = (over = {}) => ({ field: "status", operator: "eq", value: "open", style: { textColor: "success" }, ...over });
 
@@ -44,5 +45,38 @@ describe("format-rules manifest kind", () => {
     expect(run([rule()])).not.toThrow();
     expect(run([rule({ operator: "bogus" })])).toThrow(/operator/);
     expect(run("nope")).toThrow(/formatting/);
+  });
+});
+
+const fields = () => ({ status: {}, name: {}, total: {} });
+
+describe("legacy block formatting validation", () => {
+  const tableBase = { type: "table", collection: "orders", config: { columns: [{ field: "status" }] } };
+  test("table column + row rules valid", () => {
+    expect(() => validateBlockData({ ...tableBase, config: { ...tableBase.config, formatting: {
+      columns: { status: [rule()] },
+      rows: [rule({ style: { background: "#fef9c3" } })],
+    } } }, fields)).not.toThrow();
+  });
+  test("table formatting must be an object with known keys", () => {
+    expect(() => validateBlockData({ ...tableBase, config: { ...tableBase.config, formatting: [rule()] } }, fields)).toThrow(/formatting/);
+  });
+  test("table row rules reject non-background styles", () => {
+    expect(() => validateBlockData({ ...tableBase, config: { ...tableBase.config, formatting: {
+      rows: [rule({ style: { textColor: "primary" } })],
+    } } }, fields)).toThrow(/rows.*background/i);
+  });
+  test("table column rules validate rule shape", () => {
+    expect(() => validateBlockData({ ...tableBase, config: { ...tableBase.config, formatting: {
+      columns: { status: [rule({ operator: "bogus" })] },
+    } } }, fields)).toThrow(/operator/);
+  });
+  test("details/cardlist/kanban/progress take a flat rules array", () => {
+    expect(() => validateBlockData({ type: "details", collection: "orders",
+      config: { fields: [{ field: "status" }], formatting: [rule()] } }, fields)).not.toThrow();
+    expect(() => validateBlockData({ type: "progress", collection: "orders",
+      config: { variant: "bar", aggregate: { function: "count", field: "*" }, target: 10, formatting: [rule({ field: "value", operator: "gt", value: 5 })] } }, fields)).not.toThrow();
+    expect(() => validateBlockData({ type: "details", collection: "orders",
+      config: { fields: [{ field: "status" }], formatting: { rows: [] } } }, fields)).toThrow(/formatting/);
   });
 });

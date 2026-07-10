@@ -2,6 +2,7 @@ import { APIError } from "../utils/errorHandler.js";
 import { getManifest, isKnownBlockType, collectionRequirement, listManifests } from "../blocks/registry.js";
 import { validateConfigAgainstManifest } from "../blocks/validate-from-manifest.js";
 import { validateAppearance } from "../blocks/appearance-fragment.js";
+import { validateFormatRules } from "../blocks/format-rules.js";
 
 /**
  * BlockConfigService — server-side validation for the page-builder collections
@@ -203,6 +204,45 @@ function assertSheetTitle(config: any, fieldMap: Record<string, any>): void {
     }
 }
 
+/**
+ * Validate config.formatting for the legacy sheet-shaped blocks (table):
+ * `{columns?: {field: FormatRule[]}, rows?: FormatRule[]}`. Row rules are
+ * restricted to the "background" style — text color / icon / bold don't make
+ * sense applied to a whole row and are reserved for column (cell) rules.
+ */
+function validateTableFormatting(formatting: any): void {
+    if (formatting == null) return;
+    if (typeof formatting !== "object" || Array.isArray(formatting)) {
+        throw new APIError(`Invalid "formatting": must be an object with "columns" and/or "rows"`, 400);
+    }
+    if (formatting.columns != null) {
+        if (typeof formatting.columns !== "object" || Array.isArray(formatting.columns)) {
+            throw new APIError(`Invalid "formatting.columns": must be a map of field -> rules`, 400);
+        }
+        for (const [field, rules] of Object.entries(formatting.columns)) {
+            validateFormatRules(rules, `formatting.columns.${field}`);
+        }
+    }
+    if (formatting.rows != null) {
+        validateFormatRules(formatting.rows, "formatting.rows");
+        for (const r of formatting.rows as Array<{ style: Record<string, unknown> }>) {
+            const extra = Object.keys(r.style).filter((k) => k !== "background");
+            if (extra.length > 0) {
+                throw new APIError(`Invalid "formatting.rows": row rules support only "background" (got ${extra.join(", ")})`, 400);
+            }
+        }
+    }
+}
+
+/**
+ * Validate config.formatting for the legacy record/aggregate-shaped blocks
+ * (details/cardlist/kanban/progress): a flat FormatRule[] — no rows/columns
+ * split since these blocks render one record (or one aggregate) at a time.
+ */
+function validateFlatFormatting(config: any): void {
+    if (config?.formatting != null) validateFormatRules(config.formatting, "formatting");
+}
+
 function validatePosition(position: any): void {
     if (position == null) return;
     if (typeof position !== "object" || Array.isArray(position)) {
@@ -304,6 +344,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         if (type === "table") {
             assertFieldEntries(config.columns, fieldMap, "config.columns", true);
             assertSheetTitle(config, fieldMap);
+            validateTableFormatting(config.formatting);
         } else if (type === "form") {
             if (config.mode != null && !FORM_MODES.has(config.mode)) {
                 throw new APIError(
@@ -338,11 +379,13 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         } else if (type === "details") {
             assertFieldEntries(config.fields, fieldMap, "config.fields", true);
             assertRecordSource(config.source);
+            validateFlatFormatting(config);
         } else if (type === "kanban") {
             requireConfigField(config, "groupByField", fieldMap);
             requireConfigField(config, "cardTitleField", fieldMap);
             assertFieldEntries(config.cardFields, fieldMap, "config.cardFields", true);
             assertSheetTitle(config, fieldMap);
+            validateFlatFormatting(config);
         } else if (type === "calendar") {
             requireConfigField(config, "startField", fieldMap);
             requireConfigField(config, "titleField", fieldMap);
@@ -436,6 +479,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     );
                 }
             }
+            validateFlatFormatting(config);
         } else if (type === "geochart") {
             // Choropleth world map: records are grouped by regionField (country
             // codes/names) and shaded by the aggregated value.
@@ -584,6 +628,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     400
                 );
             }
+            validateFlatFormatting(config);
         } else if (type === "repeater") {
             if (typeof config.template !== "string" || config.template.length === 0) {
                 throw new APIError(
