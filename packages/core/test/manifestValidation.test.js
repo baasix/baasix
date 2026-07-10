@@ -167,6 +167,28 @@ describe("wave-1 navigation block validation", () => {
   }
 });
 
+describe("wave-1 content block validation", () => {
+  const cases = [
+    { name: "video url valid", data: { type: "video", config: { source: "url", url: "https://youtu.be/x", kind: "video" } }, ok: true },
+    { name: "video bad url", data: { type: "video", config: { source: "url", url: "javascript:alert(1)" } }, ok: false, err: /url/ },
+    { name: "pdf valid", data: { type: "pdf", config: { source: "url", url: "https://x.dev/a.pdf" } }, ok: true },
+    { name: "carousel static valid", data: { type: "carousel", config: { source: "static", images: [{ url: "https://x.dev/a.png" }] } }, ok: true },
+    { name: "carousel bad image url", data: { type: "carousel", config: { source: "static", images: [{ url: "notaurl" }] } }, ok: false, err: /url/ },
+    { name: "alert valid", data: { type: "alert", config: { tone: "warning", body: "**careful**" } }, ok: true },
+    { name: "alert missing body", data: { type: "alert", config: { tone: "info" } }, ok: false, err: /body/ },
+    { name: "alert bad tone", data: { type: "alert", config: { tone: "loud", body: "x" } }, ok: false, err: /tone/ },
+    { name: "html valid", data: { type: "html", config: { html: "<b>hi</b>" } }, ok: true },
+    { name: "html missing html", data: { type: "html", config: {} }, ok: false, err: /html/ },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, noFields);
+      if (c.ok) expect(fn).not.toThrow();
+      else expect(fn).toThrow(c.err);
+    });
+  }
+});
+
 describe("appearance validation (common envelope)", () => {
   const block = (appearance) => ({ type: "divider", config: { appearance } });
   test("valid appearance accepted on any type", () => {
