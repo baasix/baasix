@@ -13,6 +13,7 @@ import {
 } from "../services/PageBundleService.js";
 import { getBlockConfigDoc } from "../utils/blockConfigDoc.js";
 import { listManifests } from "../blocks/registry.js";
+import { APPEARANCE_GROUP } from "../blocks/appearance-fragment.js";
 import env from "../utils/env.js";
 import type { Express } from "../types/index.js";
 
@@ -310,7 +311,8 @@ const registerEndpoint = (app: Express) => {
     /** GET /pages/block-manifests: Returns all block manifests. Admin only. */
     app.get("/pages/block-manifests", adminOnly, async (_req: any, res: any, next: any) => {
         try {
-            res.status(200).json({ manifests: listManifests() });
+            const manifests = listManifests().map((m) => ({ ...m, settings: [...m.settings, APPEARANCE_GROUP] }));
+            res.status(200).json({ manifests });
         } catch (error: any) {
             next(error instanceof APIError ? error : new APIError("Error serving block manifests", 500, error.message));
         }

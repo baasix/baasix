@@ -27,6 +27,7 @@ describe("GET /pages/block-manifests", () => {
     const divider = res.body.manifests.find((m) => m.type === "divider");
     expect(divider.settingsMode).toBe("manifest");
     expect(divider.settings[0].fields[0].key).toBe("label");
+    expect(divider.settings.some((g) => g.key === "appearance")).toBe(true);
     const table = res.body.manifests.find((m) => m.type === "table");
     expect(table.category).toBe("data");
   });

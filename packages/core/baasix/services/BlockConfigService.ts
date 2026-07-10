@@ -1,6 +1,7 @@
 import { APIError } from "../utils/errorHandler.js";
 import { getManifest, isKnownBlockType, collectionRequirement, listManifests } from "../blocks/registry.js";
 import { validateConfigAgainstManifest } from "../blocks/validate-from-manifest.js";
+import { validateAppearance } from "../blocks/appearance-fragment.js";
 
 /**
  * BlockConfigService — server-side validation for the page-builder collections
@@ -282,6 +283,10 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     }
 
     validatePosition(position);
+
+    // Common envelope: appearance is validated for EVERY block type, both
+    // manifest-mode and legacy, when config is present.
+    if (config != null) validateAppearance((config as Record<string, unknown>).appearance);
 
     // Manifest-mode types (divider, markdown, iframe, and future wave-1
     // types) validate their config generically from the manifest instead of

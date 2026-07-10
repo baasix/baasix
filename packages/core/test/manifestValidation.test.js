@@ -100,3 +100,27 @@ describe("validateBlockData routes manifest-mode types through the manifest", ()
     expect(() => validateBlockData({ type: "bogus" }, noFields)).toThrow(/type/);
   });
 });
+
+describe("appearance validation (common envelope)", () => {
+  const block = (appearance) => ({ type: "divider", config: { appearance } });
+  test("valid appearance accepted on any type", () => {
+    expect(() => validateBlockData(block({
+      background: "muted", borderColor: "#334155", borderWidth: 1, borderRadius: 12,
+      shadow: "sm", padding: "md", hideCard: true, titleAlign: "center", titleSize: "lg",
+      titleColor: "primary", accent: "#22c55e",
+    }), noFields)).not.toThrow();
+  });
+  test("bad values rejected", () => {
+    expect(() => validateBlockData(block({ shadow: "huge" }), noFields)).toThrow(/shadow/);
+    expect(() => validateBlockData(block({ borderWidth: 99 }), noFields)).toThrow(/borderWidth/);
+    expect(() => validateBlockData(block({ background: "url(x)" }), noFields)).toThrow(/background/);
+    expect(() => validateBlockData(block({ hideCard: "yes" }), noFields)).toThrow(/hideCard/);
+    expect(() => validateBlockData(block("solid"), noFields)).toThrow(/appearance/);
+  });
+  test("appearance is validated for legacy types too", () => {
+    expect(() => validateBlockData(
+      { type: "table", collection: "posts", config: { columns: [{ field: "name" }], appearance: { shadow: "huge" } } },
+      stubFields({ name: {} })
+    )).toThrow(/shadow/);
+  });
+});
