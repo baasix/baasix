@@ -125,6 +125,29 @@ describe("wave-1 input block validation", () => {
   }
 });
 
+describe("wave-1 display block validation", () => {
+  const fields = stubFields({ name: {}, parent_Id: {}, status: {} });
+  const cases = [
+    { name: "stat valid", data: { type: "stat", collection: "posts", config: { tiles: [{ label: "Total", aggregate: { function: "count" } }] } }, ok: true },
+    { name: "stat empty tiles", data: { type: "stat", collection: "posts", config: { tiles: [] } }, ok: false, err: /tiles/ },
+    { name: "stat missing collection", data: { type: "stat", config: { tiles: [{ label: "T" }] } }, ok: false, err: /collection/i },
+    { name: "tree valid", data: { type: "tree", collection: "cats", config: { labelField: "name", parentField: "parent_Id" } }, ok: true },
+    { name: "tree missing parentField", data: { type: "tree", collection: "cats", config: { labelField: "name" } }, ok: false, err: /parentField/ },
+    { name: "tree unknown field", data: { type: "tree", collection: "cats", config: { labelField: "nope", parentField: "parent_Id" } }, ok: false, err: /nope/ },
+    { name: "steps valid", data: { type: "steps", collection: "orders", config: { statusField: "status", steps: [{ label: "A", value: "a" }, { label: "B", value: "b" }] } }, ok: true },
+    { name: "steps too few", data: { type: "steps", collection: "orders", config: { statusField: "status", steps: [{ label: "A", value: "a" }] } }, ok: false, err: /steps/ },
+    { name: "badge valid with colors", data: { type: "badge", collection: "orders", config: { field: "status", colorMap: [{ value: "open", color: "success" }] } }, ok: true },
+    { name: "badge bad color", data: { type: "badge", collection: "orders", config: { field: "status", colorMap: [{ value: "open", color: "url(x)" }] } }, ok: false, err: /color/ },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, fields);
+      if (c.ok) expect(fn).not.toThrow();
+      else expect(fn).toThrow(c.err);
+    });
+  }
+});
+
 describe("appearance validation (common envelope)", () => {
   const block = (appearance) => ({ type: "divider", config: { appearance } });
   test("valid appearance accepted on any type", () => {
