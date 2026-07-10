@@ -76,6 +76,28 @@ describe("validateConfigAgainstManifest", () => {
     expect(run({ ...ok, field: "author.name" }, "posts", getFields)).not.toThrow();
   });
   test("unknown config keys are allowed", () => expect(run({ ...ok, somethingElse: 1 })).not.toThrow());
+  test("non-required multi-select with [] remains valid (not treated as missing)", () => expect(run({ ...ok, tags: [] })).not.toThrow());
+});
+
+describe("required treats empty arrays as missing (validator-wide)", () => {
+  const FIXTURE_REQ_LIST = {
+    ...FIXTURE,
+    settings: [{ key: "g", label: "G", fields: [
+      { key: "req", label: "Req", kind: "actions", required: true },
+      { key: "optNoMin", label: "OptNoMin", kind: "list", item: [{ key: "f", label: "F", kind: "text" }] },
+    ] }],
+  };
+  const run = (config) => () => validateConfigAgainstManifest(FIXTURE_REQ_LIST, config, null, noFields);
+
+  test("required actions field with [] is rejected as missing", () => {
+    expect(run({ req: [] })).toThrow(/req/);
+  });
+  test("required actions field with a non-empty array passes", () => {
+    expect(run({ req: [{ label: "A", action: { type: "page", slug: "a" } }] })).not.toThrow();
+  });
+  test("non-required list field (no minItems) with [] remains valid", () => {
+    expect(run({ req: [{ label: "A", action: { type: "page", slug: "a" } }], optNoMin: [] })).not.toThrow();
+  });
 });
 
 describe("validateBlockData routes manifest-mode types through the manifest", () => {
@@ -91,6 +113,10 @@ describe("validateBlockData routes manifest-mode types through the manifest", ()
     expect(() => validateBlockData({ type: "iframe", config: {} }, noFields)).toThrow(/url/i);
     expect(() => validateBlockData({ type: "iframe", config: { url: "ftp://x" } }, noFields)).toThrow(/url/i);
     expect(() => validateBlockData({ type: "iframe", config: { url: "https://x.dev", height: 480 } }, noFields)).not.toThrow();
+  });
+  test("iframe: url scheme match is case-insensitive, javascript: still rejected", () => {
+    expect(() => validateBlockData({ type: "iframe", config: { url: "HTTPS://x.dev" } }, noFields)).not.toThrow();
+    expect(() => validateBlockData({ type: "iframe", config: { url: "javascript:alert(1)" } }, noFields)).toThrow(/url/i);
   });
   test("legacy types still validate through the old chain", () => {
     expect(() => validateBlockData(
@@ -154,6 +180,7 @@ describe("wave-1 navigation block validation", () => {
     { name: "breadcrumbs bad mode", data: { type: "breadcrumbs", config: { mode: "magic" } }, ok: false, err: /mode/ },
     { name: "links valid", data: { type: "links", config: { layout: "grid", items: [{ label: "Home", action: { type: "page", slug: "home" } }] } }, ok: true },
     { name: "links missing items", data: { type: "links", config: { layout: "grid" } }, ok: false, err: /items/ },
+    { name: "links empty items array", data: { type: "links", config: { layout: "grid", items: [] } }, ok: false, err: /items/ },
     { name: "links action without label", data: { type: "links", config: { items: [{ action: { type: "page", slug: "x" } }] } }, ok: false, err: /label/ },
     { name: "header valid", data: { type: "header", config: { heading: "Dashboard" } }, ok: true },
     { name: "header missing heading", data: { type: "header", config: {} }, ok: false, err: /heading/ },
@@ -171,9 +198,12 @@ describe("wave-1 content block validation", () => {
   const cases = [
     { name: "video url valid", data: { type: "video", config: { source: "url", url: "https://youtu.be/x", kind: "video" } }, ok: true },
     { name: "video bad url", data: { type: "video", config: { source: "url", url: "javascript:alert(1)" } }, ok: false, err: /url/ },
+    { name: "video url scheme case-insensitive", data: { type: "video", config: { source: "url", url: "HtTpS://youtu.be/x", kind: "video" } }, ok: true },
     { name: "pdf valid", data: { type: "pdf", config: { source: "url", url: "https://x.dev/a.pdf" } }, ok: true },
+    { name: "pdf url scheme case-insensitive", data: { type: "pdf", config: { source: "url", url: "HTTP://x.dev/a.pdf" } }, ok: true },
     { name: "carousel static valid", data: { type: "carousel", config: { source: "static", images: [{ url: "https://x.dev/a.png" }] } }, ok: true },
     { name: "carousel bad image url", data: { type: "carousel", config: { source: "static", images: [{ url: "notaurl" }] } }, ok: false, err: /url/ },
+    { name: "carousel image url scheme case-insensitive", data: { type: "carousel", config: { source: "static", images: [{ url: "HTTPS://x.dev/a.png" }] } }, ok: true },
     { name: "alert valid", data: { type: "alert", config: { tone: "warning", body: "**careful**" } }, ok: true },
     { name: "alert missing body", data: { type: "alert", config: { tone: "info" } }, ok: false, err: /body/ },
     { name: "alert bad tone", data: { type: "alert", config: { tone: "loud", body: "x" } }, ok: false, err: /tone/ },

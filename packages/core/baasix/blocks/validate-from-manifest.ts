@@ -21,6 +21,16 @@ function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === "";
 }
 
+// A `[]` is "missing" for the purposes of `required`, but only there: a
+// non-required list/actions/multi-select/multi-field-picker field with an
+// empty array still flows into validateField below exactly as it does today
+// (e.g. so `minItems` on a non-required list is still enforced against a
+// present-but-empty array, and a non-required field with no minItems still
+// accepts `[]`).
+function isEmptyForRequired(value: unknown): boolean {
+  return isEmpty(value) || (Array.isArray(value) && value.length === 0);
+}
+
 function validateField(field: SettingsField, value: unknown, collection: string | null, getFields: GetFieldsFn): void {
   switch (field.kind) {
     case "text":
@@ -118,10 +128,8 @@ function validateValues(fields: SettingsField[], values: Record<string, unknown>
   for (const field of fields) {
     const value = values[field.key];
     const visible = isVisible(field, values);
-    if (isEmpty(value)) {
-      if (field.required && visible) bad(field.key, "is required");
-      continue;
-    }
+    if (field.required && visible && isEmptyForRequired(value)) bad(field.key, "is required");
+    if (isEmpty(value)) continue;
     if (field.kind !== "custom" && !visible) continue; // hidden values are ignored, not validated
     validateField(field, value, collection, getFields);
   }

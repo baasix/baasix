@@ -17,7 +17,7 @@ const manifest: BlockManifest = {
       { key: "items", label: "Links", kind: "actions", required: true },
     ] },
   ],
-  defaults: { layout: "grid", items: [] },
+  defaults: { layout: "grid" },
   configVersion: 1,
 };
 

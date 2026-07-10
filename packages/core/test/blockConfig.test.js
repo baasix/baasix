@@ -913,13 +913,13 @@ describe("validateBlockData – phase 2 types", () => {
             ).toThrow(/url/);
         });
 
-        test("iframe with javascript: url throws mentioning http", () => {
+        test("iframe with javascript: url throws mentioning url", () => {
             expect(() =>
                 validateBlockData(
                     { type: "iframe", config: { url: "javascript:alert(1)" } },
                     nullFields
                 )
-            ).toThrow(/http/);
+            ).toThrow(/url/);
         });
 
         test("iframe with non-numeric height throws mentioning height", () => {

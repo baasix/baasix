@@ -14,7 +14,7 @@ const manifest: BlockManifest = {
         { label: "Static images", value: "static" }, { label: "File field", value: "field" },
       ], default: "static", required: true },
       { key: "images", label: "Images", kind: "list", showIf: { field: "source", equals: "static" }, item: [
-        { key: "url", label: "Image URL", kind: "text", required: true, pattern: "^https?://|^/" },
+        { key: "url", label: "Image URL", kind: "text", required: true, pattern: "^[hH][tT][tT][pP][sS]?://|^/" },
         { key: "caption", label: "Caption", kind: "text" },
       ] },
       { key: "field", label: "File field", kind: "field-picker", showIf: { field: "source", equals: "field" } },
