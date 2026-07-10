@@ -317,6 +317,29 @@ const registerEndpoint = (app: Express) => {
             next(error instanceof APIError ? error : new APIError("Error serving block manifests", 500, error.message));
         }
     });
+
+    /**
+     * GET /pages/themes: List themes visible to the caller's tenant (tenant_Id
+     * match OR global/null). Any authenticated user — not admin-only, since the
+     * page builder's theme picker is used by any editor.
+     *
+     * NOTE: this is a static path and must stay registered before any future
+     * /pages/:param route (see Task 4) so Express doesn't shadow it.
+     */
+    app.get("/pages/themes", async (req: any, res: any, next: any) => {
+        try {
+            if (!req.accountability?.user?.id) throw new APIError("Authentication required", 401);
+            const service = new ItemsService("baasix_Theme", { accountability: undefined }); // system read; themes hold no sensitive data
+            const tenantId = req.accountability?.tenant ?? null;
+            const filter = tenantId
+                ? { OR: [{ tenant_Id: { eq: tenantId } }, { tenant_Id: { isNull: true } }] }
+                : { tenant_Id: { isNull: true } };
+            const result = await service.readByQuery({ filter, sort: ["name"], limit: -1 }, true);
+            res.status(200).json({ themes: result?.data ?? [] });
+        } catch (error: any) {
+            next(error instanceof APIError ? error : new APIError("Error listing themes", 500, error.message));
+        }
+    });
 };
 
 export default {

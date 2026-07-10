@@ -3,6 +3,7 @@ import { getManifest, isKnownBlockType, collectionRequirement, listManifests } f
 import { validateConfigAgainstManifest } from "../blocks/validate-from-manifest.js";
 import { validateAppearance } from "../blocks/appearance-fragment.js";
 import { validateFormatRules } from "../blocks/format-rules.js";
+import { validateThemeTokens, validatePageThemeOption } from "../blocks/theme-tokens.js";
 
 /**
  * BlockConfigService — server-side validation for the page-builder collections
@@ -1254,6 +1255,7 @@ export async function registerPageBuilderHooks(): Promise<void> {
     // ── baasix_Page ───────────────────────────────────────────────────────
     hooksManager.registerHook("baasix_Page", "items.create", async (ctx: any) => {
         validatePageData(ctx.data, true);
+        validatePageThemeOption(ctx.data?.options?.theme);
         // Derive tenant scope the same way validateAndEnforceTenantContext does:
         // accountability.tenant is the raw tenant ID (string | null).
         const tenantId: string | null =
@@ -1265,6 +1267,9 @@ export async function registerPageBuilderHooks(): Promise<void> {
     hooksManager.registerHook("baasix_Page", "items.update", async (ctx: any) => {
         if (!ctx.data) return ctx;
         validatePageData(ctx.data, false);
+        if (ctx.data.options !== undefined) {
+            validatePageThemeOption(ctx.data.options?.theme);
+        }
 
         if (ctx.data.slug != null && ctx.id != null) {
             // Fetch the existing row so we can:
@@ -1294,6 +1299,18 @@ export async function registerPageBuilderHooks(): Promise<void> {
             await assertSlugUnique(ctx.data.slug, tenantId, ctx.id);
         }
 
+        return ctx;
+    });
+
+    // ── baasix_Theme ──────────────────────────────────────────────────────
+    hooksManager.registerHook("baasix_Theme", "items.create", async (ctx: any) => {
+        if (typeof ctx.data?.name !== "string" || !ctx.data.name.trim()) throw new APIError(`Invalid "name": is required`, 400);
+        validateThemeTokens(ctx.data?.tokens ?? {});
+        return ctx;
+    });
+    hooksManager.registerHook("baasix_Theme", "items.update", async (ctx: any) => {
+        if (ctx.data?.tokens !== undefined) validateThemeTokens(ctx.data.tokens);
+        if (ctx.data?.name !== undefined && (typeof ctx.data.name !== "string" || !ctx.data.name.trim())) throw new APIError(`Invalid "name": must be a non-empty string`, 400);
         return ctx;
     });
 }

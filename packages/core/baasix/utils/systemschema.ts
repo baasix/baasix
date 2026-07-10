@@ -2059,6 +2059,56 @@ export const systemSchemas = {
             },
         },
         {
+            collectionName: "baasix_Theme",
+            schema: {
+                name: "Theme",
+                timestamps: true,
+                usertrack: true,
+                fields: {
+                    id: {
+                        type: "UUID",
+                        primaryKey: true,
+                        defaultValue: { type: "UUIDV4" },
+                        SystemGenerated: "true",
+                    },
+                    name: { type: "String", allowNull: false, SystemGenerated: "true" },
+                    tokens: {
+                        type: "JSON",
+                        allowNull: false,
+                        defaultValue: {},
+                        SystemGenerated: "true",
+                        description: "{light?: {...tokens}, dark?: {...tokens}}",
+                    },
+                    isDefault: { type: "Boolean", allowNull: false, defaultValue: false, SystemGenerated: "true" },
+                    tenant_Id: {
+                        type: "UUID",
+                        allowNull: true,
+                        SystemGenerated: "true",
+                        description: "Tenant ID for tenant-specific themes. NULL means global theme.",
+                    },
+                    tenant: {
+                        relType: "BelongsTo",
+                        target: "baasix_Tenant",
+                        foreignKey: "tenant_Id",
+                        as: "tenant",
+                        onDelete: "CASCADE",
+                        SystemGenerated: "true",
+                        description: "M2O",
+                        showAs: ["name"],
+                    },
+                },
+                indexes: [
+                    {
+                        fields: ["tenant_Id", "name"],
+                        unique: true,
+                        nullsNotDistinct: true,
+                        name: "baasix_Theme_tenant_name_unique",
+                        SystemGenerated: "true",
+                    },
+                ],
+            },
+        },
+        {
             collectionName: "baasix_Block",
             schema: {
                 name: "Block",
