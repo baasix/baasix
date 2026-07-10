@@ -148,6 +148,25 @@ describe("wave-1 display block validation", () => {
   }
 });
 
+describe("wave-1 navigation block validation", () => {
+  const cases = [
+    { name: "breadcrumbs auto valid", data: { type: "breadcrumbs", config: { mode: "auto" } }, ok: true },
+    { name: "breadcrumbs bad mode", data: { type: "breadcrumbs", config: { mode: "magic" } }, ok: false, err: /mode/ },
+    { name: "links valid", data: { type: "links", config: { layout: "grid", items: [{ label: "Home", action: { type: "page", slug: "home" } }] } }, ok: true },
+    { name: "links missing items", data: { type: "links", config: { layout: "grid" } }, ok: false, err: /items/ },
+    { name: "links action without label", data: { type: "links", config: { items: [{ action: { type: "page", slug: "x" } }] } }, ok: false, err: /label/ },
+    { name: "header valid", data: { type: "header", config: { heading: "Dashboard" } }, ok: true },
+    { name: "header missing heading", data: { type: "header", config: {} }, ok: false, err: /heading/ },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, noFields);
+      if (c.ok) expect(fn).not.toThrow();
+      else expect(fn).toThrow(c.err);
+    });
+  }
+});
+
 describe("appearance validation (common envelope)", () => {
   const block = (appearance) => ({ type: "divider", config: { appearance } });
   test("valid appearance accepted on any type", () => {

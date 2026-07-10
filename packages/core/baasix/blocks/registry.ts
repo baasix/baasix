@@ -13,6 +13,9 @@ import stat from "./manifests/stat.js";
 import tree from "./manifests/tree.js";
 import steps from "./manifests/steps.js";
 import badge from "./manifests/badge.js";
+import breadcrumbs from "./manifests/breadcrumbs.js";
+import links from "./manifests/links.js";
+import header from "./manifests/header.js";
 
 const registry = new Map<string, BlockManifest>();
 
@@ -36,7 +39,7 @@ export function registerManifests(manifests: BlockManifest[]): void {
   }
 }
 
-registerManifests([...LEGACY_MANIFESTS, divider, markdown, iframe, select, daterange, slider, switchManifest, rating, stat, tree, steps, badge]);
+registerManifests([...LEGACY_MANIFESTS, divider, markdown, iframe, select, daterange, slider, switchManifest, rating, stat, tree, steps, badge, breadcrumbs, links, header]);
 // Wave-1 manifests register here in later tasks (imports appended above).
 
 export function getManifest(type: string): BlockManifest | undefined {
