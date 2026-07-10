@@ -157,6 +157,10 @@ describe("wave-1 display block validation", () => {
     { name: "stat valid", data: { type: "stat", collection: "posts", config: { tiles: [{ label: "Total", aggregate: { function: "count" } }] } }, ok: true },
     { name: "stat empty tiles", data: { type: "stat", collection: "posts", config: { tiles: [] } }, ok: false, err: /tiles/ },
     { name: "stat missing collection", data: { type: "stat", config: { tiles: [{ label: "T" }] } }, ok: false, err: /collection/i },
+    // Per-tile value formatting is `kind: "custom"` (slot "format-rules-value")
+    // — custom kinds skip generic validation, so any array-shaped value on a
+    // tile is accepted here; this just confirms the field doesn't get rejected.
+    { name: "stat tile with formatting accepted", data: { type: "stat", collection: "posts", config: { tiles: [{ label: "Total", aggregate: { function: "count" }, formatting: [{ field: "value", operator: "gt", value: 100, style: { textColor: "destructive" } }] }] } }, ok: true },
     { name: "tree valid", data: { type: "tree", collection: "cats", config: { labelField: "name", parentField: "parent_Id" } }, ok: true },
     { name: "tree missing parentField", data: { type: "tree", collection: "cats", config: { labelField: "name" } }, ok: false, err: /parentField/ },
     { name: "tree unknown field", data: { type: "tree", collection: "cats", config: { labelField: "nope", parentField: "parent_Id" } }, ok: false, err: /nope/ },

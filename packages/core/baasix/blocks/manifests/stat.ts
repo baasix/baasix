@@ -21,6 +21,7 @@ const manifest: BlockManifest = {
         { key: "prefix", label: "Prefix", kind: "text" },
         { key: "suffix", label: "Suffix", kind: "text" },
         { key: "sparkline", label: "Sparkline", kind: "custom", slot: "sparkline" },
+        { key: "formatting", label: "Value formatting", kind: "custom", slot: "format-rules-value" },
       ] },
       { key: "columns", label: "Columns", kind: "number", min: 1, max: 4, integer: true },
     ] },
