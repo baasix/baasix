@@ -1,6 +1,7 @@
 import { test, expect, describe } from "@jest/globals";
 import { validateManifest } from "../baasix/blocks/manifest-types.js";
 import { getManifest, listManifests, isKnownBlockType, collectionRequirement } from "../baasix/blocks/registry.js";
+import systemSchemaModule from "../baasix/utils/systemschema.js";
 
 const minimal = () => ({
   type: "demo",
@@ -103,5 +104,13 @@ describe("block registry", () => {
   test("unknown type is not registered", () => {
     expect(isKnownBlockType("bogus")).toBe(false);
     expect(listManifests().length).toBe(LEGACY_TYPES.length);
+  });
+});
+
+describe("systemschema", () => {
+  test("baasix_Block.type is a String, not an ENUM", () => {
+    const block = systemSchemaModule.schemas.find((s) => s.collectionName === "baasix_Block");
+    expect(block.schema.fields.type.type).toBe("String");
+    expect(block.schema.fields.type.values).toBeUndefined();
   });
 });

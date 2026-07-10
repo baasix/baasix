@@ -2084,8 +2084,7 @@ export const systemSchemas = {
                         showAs: ["name"],
                     },
                     type: {
-                        type: "ENUM",
-                        values: ["table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map", "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code", "geochart", "tabs", "container", "modal", "divider", "timeline", "progress", "repeater", "richtext", "report", "input"],
+                        type: "String",
                         allowNull: false,
                         SystemGenerated: "true",
                     },
