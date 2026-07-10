@@ -1,5 +1,6 @@
 import { test, expect, describe } from "@jest/globals";
 import { validateManifest } from "../baasix/blocks/manifest-types.js";
+import { getManifest, listManifests, isKnownBlockType, collectionRequirement } from "../baasix/blocks/registry.js";
 
 const minimal = () => ({
   type: "demo",
@@ -66,5 +67,41 @@ describe("validateManifest", () => {
     const m = minimal();
     m.settings[0].fields[1].showIf = { field: "missing", truthy: true };
     expect(() => validateManifest(m)).toThrow(/showIf.*missing/i);
+  });
+});
+
+const LEGACY_TYPES = [
+  "table", "form", "details", "kanban", "calendar", "chart", "cardlist", "map",
+  "markdown", "filter", "buttons", "media", "feed", "iframe", "upload", "code",
+  "geochart", "tabs", "container", "modal", "divider", "timeline", "progress",
+  "repeater", "richtext", "report", "input",
+];
+
+describe("block registry", () => {
+  test("contains a manifest for every legacy block type", () => {
+    for (const t of LEGACY_TYPES) {
+      expect(isKnownBlockType(t)).toBe(true);
+      const m = getManifest(t);
+      expect(m.label.length).toBeGreaterThan(0);
+      expect(m.description.length).toBeGreaterThan(0);
+      expect(m.icon.length).toBeGreaterThan(0);
+    }
+  });
+  test("divider, markdown, iframe are manifest-mode; table stays legacy", () => {
+    expect(getManifest("divider").settingsMode).toBe("manifest");
+    expect(getManifest("markdown").settingsMode).toBe("manifest");
+    expect(getManifest("iframe").settingsMode).toBe("manifest");
+    expect(getManifest("table").settingsMode).toBe("legacy");
+  });
+  test("collection requirements match existing service semantics", () => {
+    expect(collectionRequirement("table")).toBe(true);
+    expect(collectionRequirement("markdown")).toBe(false);
+    expect(collectionRequirement("code")).toBe("optional");
+    expect(collectionRequirement("richtext")).toBe("optional");
+    expect(collectionRequirement("nope")).toBeUndefined();
+  });
+  test("unknown type is not registered", () => {
+    expect(isKnownBlockType("bogus")).toBe(false);
+    expect(listManifests().length).toBe(LEGACY_TYPES.length);
   });
 });
