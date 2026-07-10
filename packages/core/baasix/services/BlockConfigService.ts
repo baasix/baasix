@@ -1,4 +1,6 @@
 import { APIError } from "../utils/errorHandler.js";
+import { getManifest, isKnownBlockType, collectionRequirement, listManifests } from "../blocks/registry.js";
+import { validateConfigAgainstManifest } from "../blocks/validate-from-manifest.js";
 
 /**
  * BlockConfigService — server-side validation for the page-builder collections
@@ -9,37 +11,14 @@ import { APIError } from "../utils/errorHandler.js";
  * that touches runtime singletons (hooksManager, schemaManager, ItemsService)
  * is lazily imported inside registerPageBuilderHooks / the hook bodies so that
  * importing this module from tests has no side effects.
+ *
+ * The block-type registry (baasix/blocks/registry.ts) is the authority for
+ * "is this a known block type" and "does it need a collection" — see
+ * isKnownBlockType / collectionRequirement below. Types whose manifest has
+ * settingsMode "manifest" (divider, markdown, iframe, and future wave-1
+ * types) validate their config generically against the manifest instead of
+ * through the inline per-type chain in this file.
  */
-
-const BLOCK_TYPES = [
-    "table",
-    "form",
-    "details",
-    "kanban",
-    "calendar",
-    "chart",
-    "cardlist",
-    "map",
-    "markdown",
-    "filter",
-    "buttons",
-    "media",
-    "feed",
-    "iframe",
-    "upload",
-    "code",
-    "geochart",
-    "tabs",
-    "container",
-    "modal",
-    "divider",
-    "timeline",
-    "progress",
-    "repeater",
-    "richtext",
-    "report",
-    "input",
-];
 
 const FORM_CONDITION_OPERATORS = new Set(["eq", "neq", "in", "notEmpty", "empty"]);
 const FORM_WIDGETS = new Set(["rating", "slider", "color", "phone", "currency", "signature"]);
@@ -74,25 +53,6 @@ function assertFormFieldEntry(entry: any, fieldMap: Record<string, any>): void {
 const CONTAINER_TYPES = new Set(["tabs", "container", "modal"]);
 /** Nesting depth cap (top level = depth 0). */
 const MAX_NESTING_DEPTH = 3;
-
-const COLLECTION_REQUIRED = new Set([
-    "table",
-    "form",
-    "details",
-    "kanban",
-    "calendar",
-    "chart",
-    "cardlist",
-    "map",
-    "filter",
-    "media",
-    "feed",
-    "geochart",
-    "timeline",
-    "progress",
-    "repeater",
-    "report",
-]);
 
 const FORM_MODES = new Set(["create", "edit"]);
 
@@ -300,16 +260,17 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
 
     const { type, collection, position, config } = data;
 
-    if (!BLOCK_TYPES.includes(type)) {
+    if (!isKnownBlockType(type)) {
+        const known = listManifests().map((m) => m.type);
         throw new APIError(
-            `Invalid block type "${type}". Must be one of: ${BLOCK_TYPES.join(", ")}`,
+            `Invalid block type "${type}". Must be one of: ${known.join(", ")}`,
             400
         );
     }
 
     let fieldMap: Record<string, any> | null = null;
 
-    if (COLLECTION_REQUIRED.has(type)) {
+    if (collectionRequirement(type) === true) {
         if (!collection || typeof collection !== "string") {
             throw new APIError(`Block type "${type}" requires a collection`, 400);
         }
@@ -322,7 +283,19 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
 
     validatePosition(position);
 
-    if (config != null && fieldMap) {
+    // Manifest-mode types (divider, markdown, iframe, and future wave-1
+    // types) validate their config generically from the manifest instead of
+    // the inline per-type chain below. Config-absent stays lenient, matching
+    // every other collectionless legacy type in this chain (renderers handle
+    // configless blocks defensively) — so this only runs when config != null.
+    // The chain's common tail (nesting / parentBlock_Id / slot checks below)
+    // still applies to manifest-mode types, so this does NOT return early.
+    const manifest = getManifest(type)!; // isKnownBlockType guaranteed above
+    if (manifest.settingsMode === "manifest") {
+        if (config != null) {
+            validateConfigAgainstManifest(manifest, config as Record<string, unknown>, collection ?? null, getFields);
+        }
+    } else if (config != null && fieldMap) {
         if (type === "table") {
             assertFieldEntries(config.columns, fieldMap, "config.columns", true);
             assertSheetTitle(config, fieldMap);
@@ -665,29 +638,11 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         }
     }
 
-    // markdown has no collection (and therefore no fieldMap) — validate its
-    // config independently of the fieldMap guard above.
-    if (config != null && type === "markdown") {
-        if (typeof config.content !== "string") {
-            throw new APIError(
-                `Markdown block config requires "content" to be a string`,
-                400
-            );
-        }
-    }
-
     // buttons also has no collection — when a config is present, "items" must
     // be a non-empty array of valid button items. No config at all stays
     // lenient (renderers handle configless blocks defensively).
     if (config != null && type === "buttons") {
         validateButtonsConfig(config);
-    }
-
-    // iframe also has no collection — when a config is present, "url" is
-    // required and must be http(s). No config at all stays lenient
-    // (renderers handle configless blocks defensively).
-    if (config != null && type === "iframe") {
-        validateIframeConfig(config);
     }
 
     // upload also has no collection — every config key is optional, but each
@@ -737,11 +692,6 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             );
         }
     }
-    if (config != null && type === "divider") {
-        if (config.label != null && typeof config.label !== "string") {
-            throw new APIError(`Invalid divider label: must be a string`, 400);
-        }
-    }
 
     // Nesting (shape only — existence/cycles are checked in the DB hook):
     // parentBlock_Id must be a string id and slot a sane string when present.
@@ -760,9 +710,9 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         }
     }
 
-    // code has an OPTIONAL collection (like markdown it is not in
-    // COLLECTION_REQUIRED, so fieldMap above is null). Validate its config
-    // here; recordField additionally requires the block to carry a collection
+    // code has an OPTIONAL collection (collectionRequirement(type) is not
+    // true, so fieldMap above is null). Validate its config here;
+    // recordField additionally requires the block to carry a collection
     // whose field map contains the field, so the collection is resolved on
     // demand. No config at all stays lenient.
     if (config != null && type === "code") {
@@ -890,41 +840,6 @@ function validateUploadConfig(config: any): void {
     }
     if (config.folder != null && typeof config.folder !== "string") {
         throw new APIError(`Invalid upload folder: must be a string`, 400);
-    }
-}
-
-/**
- * Validate an iframe block config: `url` must be a non-empty http(s) string
- * (javascript:/data:/etc. schemes are rejected); optional `height` (positive
- * number), `allowFullscreen` (boolean) and `sandbox` (string override of the
- * renderer's default sandbox attribute).
- */
-function validateIframeConfig(config: any): void {
-    const url = typeof config.url === "string" ? config.url.trim() : config.url;
-    if (typeof url !== "string" || url.length === 0) {
-        throw new APIError(
-            `Iframe block config requires "url" to be a non-empty string`,
-            400
-        );
-    }
-    if (!/^https?:\/\//i.test(url)) {
-        throw new APIError(
-            `Invalid iframe url: must start with http:// or https://`,
-            400
-        );
-    }
-    if (config.height != null) {
-        if (typeof config.height !== "number" || !Number.isFinite(config.height) || config.height <= 0) {
-            throw new APIError(`Invalid iframe height: must be a positive number`, 400);
-        }
-    }
-    if (config.allowFullscreen != null && typeof config.allowFullscreen !== "boolean") {
-        throw new APIError(`Invalid iframe allowFullscreen: must be a boolean`, 400);
-    }
-    // sandbox token content is deliberately not validated — config is admin-authored;
-    // callers own sandbox semantics and are responsible for the policy they pass.
-    if (config.sandbox != null && typeof config.sandbox !== "string") {
-        throw new APIError(`Invalid iframe sandbox: must be a string`, 400);
     }
 }
 
