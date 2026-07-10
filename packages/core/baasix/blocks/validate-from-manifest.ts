@@ -1,5 +1,6 @@
 import { APIError } from "../utils/errorHandler.js";
 import type { BlockManifest, SettingsField, ListField, SelectField, NumberField, TextField, FieldPickerField, CustomField } from "./manifest-types.js";
+import { validateFormatRules } from "./format-rules.js";
 
 export type GetFieldsFn = (collection: string) => Record<string, any> | null | undefined;
 
@@ -117,6 +118,10 @@ function validateField(field: SettingsField, value: unknown, collection: string 
         if (row == null || typeof row !== "object" || Array.isArray(row)) bad(field.key, "each item must be an object");
         validateValues(f.item, row as Record<string, unknown>, collection, getFields);
       }
+      return;
+    }
+    case "format-rules": {
+      validateFormatRules(value, field.key);
       return;
     }
     case "custom":

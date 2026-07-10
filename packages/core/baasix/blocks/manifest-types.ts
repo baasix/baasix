@@ -11,7 +11,7 @@ export type BlockCategory = "data" | "input" | "display" | "content" | "layout" 
 
 export type SettingsFieldKind =
   | "text" | "number" | "boolean" | "select" | "color" | "json" | "markdown"
-  | "collection-picker" | "field-picker" | "filter-dsl" | "actions" | "list" | "custom";
+  | "collection-picker" | "field-picker" | "filter-dsl" | "actions" | "list" | "custom" | "format-rules";
 
 export interface SettingsFieldBase {
   key: string;
@@ -39,10 +39,11 @@ export interface ActionsField extends SettingsFieldBase { kind: "actions"; }
 export interface ListField extends SettingsFieldBase { kind: "list"; item: SettingsField[]; minItems?: number; maxItems?: number; }
 /** Escape hatch: the app renders a bespoke editor registered under `slot`. */
 export interface CustomField extends SettingsFieldBase { kind: "custom"; slot: string; }
+export interface FormatRulesField extends SettingsFieldBase { kind: "format-rules"; }
 
 export type SettingsField =
   | TextField | NumberField | BooleanField | SelectField | ColorField | JsonField | MarkdownField
-  | CollectionPickerField | FieldPickerField | FilterDslField | ActionsField | ListField | CustomField;
+  | CollectionPickerField | FieldPickerField | FilterDslField | ActionsField | ListField | CustomField | FormatRulesField;
 
 export interface SettingsGroup { key: string; label: string; fields: SettingsField[]; }
 
@@ -68,7 +69,7 @@ export interface BlockManifest {
 const CATEGORIES: BlockCategory[] = ["data", "input", "display", "content", "layout", "navigation"];
 const KINDS: SettingsFieldKind[] = [
   "text", "number", "boolean", "select", "color", "json", "markdown",
-  "collection-picker", "field-picker", "filter-dsl", "actions", "list", "custom",
+  "collection-picker", "field-picker", "filter-dsl", "actions", "list", "custom", "format-rules",
 ];
 
 function fail(path: string, message: string): never {
