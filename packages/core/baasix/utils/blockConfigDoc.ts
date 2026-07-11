@@ -132,6 +132,8 @@ Time mode (series family bar/line/area only): \`xType: "time"\` + \`timeField\` 
 hours/days/weeks/months/years, max amount 1000).
 Pie family (pie/doughnut/polar/treemap) uses groupBy + the FIRST aggregate alias.
 \`stat\` renders metric cards; \`compare? { timeField, range }\` adds previous-period delta badges.
+\`clickInput?\` (identifier \`^[A-Za-z][A-Za-z0-9_]*$\`; cartesian bar/line/area + pie/doughnut only —
+on click, publishes \`"$input.<clickInput>"\` with the clicked category; clicking it again clears it).
 
 ### cardlist
 \`titleField\` (required), \`subtitleField?\`, \`imageField?\` (file UUID field), \`fields?: []\`,
@@ -147,6 +149,8 @@ settings as \`metadata.googleMapsApiKey\` — without one the block falls back t
 \`regionField\` (required; values are ISO 3166-1 alpha-2 "IN", alpha-3 "IND" or country names, case-insensitive),
 \`aggregate?: "count"|"sum"|"avg"|"min"|"max"\` (default count), \`valueField?\` (numeric; REQUIRED when aggregate != count),
 \`region?: "world"\` (only "world" accepted), \`filter?\`. Renders a choropleth world map.
+\`clickInput?\` (identifier \`^[A-Za-z][A-Za-z0-9_]*$\`; on country click, publishes
+\`"$input.<clickInput>"\` with the clicked region's raw \`regionField\` value; clicking it again clears it).
 
 ### input
 \`inputType: "text"|"select"|"date"|"toggle"\` (required), \`name\` (required, \`^[a-zA-Z][a-zA-Z0-9_]*$\`,

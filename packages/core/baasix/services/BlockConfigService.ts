@@ -495,6 +495,14 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                 }
             }
             assertFieldEntries(config.groupBy, fieldMap, "config.groupBy");
+            if (config.clickInput != null) {
+                if (typeof config.clickInput !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(config.clickInput)) {
+                    throw new APIError(
+                        `Invalid clickInput: must be an identifier (letters, digits, underscore, starting with a letter)`,
+                        400
+                    );
+                }
+            }
         } else if (type === "cardlist") {
             requireConfigField(config, "titleField", fieldMap);
             if (config.subtitleField != null) {
@@ -539,6 +547,14 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                     `Invalid geochart region "${config.region}". Only "world" is supported for now`,
                     400
                 );
+            }
+            if (config.clickInput != null) {
+                if (typeof config.clickInput !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(config.clickInput)) {
+                    throw new APIError(
+                        `Invalid clickInput: must be an identifier (letters, digits, underscore, starting with a letter)`,
+                        400
+                    );
+                }
             }
         } else if (type === "map") {
             if (config.provider != null && config.provider !== "leaflet" && config.provider !== "google") {

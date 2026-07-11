@@ -491,6 +491,42 @@ describe("validateBlockData – phase 2 types", () => {
                 )
             ).toThrow(/bogusField/);
         });
+
+        test("chart valid clickInput does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "chart",
+                        collection: "tasks",
+                        config: {
+                            chartType: "bar",
+                            aggregate: { count: { function: "count", field: "*" } },
+                            groupBy: ["status"],
+                            clickInput: "region",
+                        },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("chart invalid clickInput throws mentioning clickInput", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "chart",
+                        collection: "tasks",
+                        config: {
+                            chartType: "bar",
+                            aggregate: { count: { function: "count", field: "*" } },
+                            groupBy: ["status"],
+                            clickInput: "2bad",
+                        },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/clickInput/);
+        });
     });
 
     describe("cardlist", () => {
@@ -775,6 +811,32 @@ describe("validateBlockData – phase 2 types", () => {
                     phase2Fields
                 )
             ).toThrow(/world/);
+        });
+
+        test("geochart valid clickInput does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "count", clickInput: "region" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("geochart invalid clickInput throws mentioning clickInput", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "count", clickInput: "2bad" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/clickInput/);
         });
     });
 
