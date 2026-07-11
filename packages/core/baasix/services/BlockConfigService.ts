@@ -4,6 +4,7 @@ import { validateConfigAgainstManifest } from "../blocks/validate-from-manifest.
 import { validateAppearance } from "../blocks/appearance-fragment.js";
 import { validateFormatRules } from "../blocks/format-rules.js";
 import { validateThemeTokens, validatePageThemeOption } from "../blocks/theme-tokens.js";
+import { isExpressionString } from "../blocks/expressions.js";
 
 /**
  * BlockConfigService — server-side validation for the page-builder collections
@@ -655,6 +656,13 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             if (typeof target === "number") {
                 if (!Number.isFinite(target)) {
                     throw new APIError(`Invalid progress target: must be a finite number`, 400);
+                }
+            } else if (typeof target === "string") {
+                if (!isExpressionString(target)) {
+                    throw new APIError(
+                        `Invalid progress target: a string target must be a {{ expression }}`,
+                        400
+                    );
                 }
             } else if (target && typeof target === "object" && !Array.isArray(target)) {
                 if (!AGGREGATE_FUNCTIONS.has(target.function)) {

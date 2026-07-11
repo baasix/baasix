@@ -1515,6 +1515,71 @@ describe("validateBlockData – phase 2 types", () => {
         });
     });
 
+    describe("progress", () => {
+        const progressFields = stubFields({ amount: {}, goal: {} });
+
+        test("valid progress config with numeric target does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: { aggregate: { function: "sum", field: "amount" }, target: 100 },
+                    },
+                    progressFields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid progress config with {function, field} target does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: {
+                            aggregate: { function: "sum", field: "amount" },
+                            target: { function: "sum", field: "goal" },
+                        },
+                    },
+                    progressFields
+                )
+            ).not.toThrow();
+        });
+
+        test("progress config with {{ expression }} string target does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: {
+                            aggregate: { function: "sum", field: "amount" },
+                            target: "{{ input.goal }}",
+                        },
+                    },
+                    progressFields
+                )
+            ).not.toThrow();
+        });
+
+        test("progress config with non-expression string target throws mentioning target", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: {
+                            aggregate: { function: "sum", field: "amount" },
+                            target: "not a number",
+                        },
+                    },
+                    progressFields
+                )
+            ).toThrow(/target/);
+        });
+    });
+
     describe("media", () => {
         test("valid media config does not throw", () => {
             expect(() =>
