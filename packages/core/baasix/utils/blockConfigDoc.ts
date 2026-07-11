@@ -55,7 +55,8 @@ evaluated client-side against a context object:
 - \`param\` — the page URL's query params.
 - \`input\` — page input values by input block \`name\`.
 - \`selection\` — selected record by block id: \`selection.<blockId>.<field>\`.
-- \`user\` — \`{ id, firstName, lastName, fullName, email, roleName }\`, best-effort; \`null\` on public pages.
+- \`user\` — \`{ id, firstName, lastName, fullName, email, roleName }\`, best-effort; \`null\` on public pages
+  (use optional chaining, e.g. \`{{ user?.firstName }}\`, in any expression that may run on a public page).
 - \`now\` — a \`Date\`.
 Typing rule: a config value that is ENTIRELY one \`{{ expr }}\` run (nothing before/after, once
 trimmed) returns the expression's raw typed result — so a number/boolean/select/json field can

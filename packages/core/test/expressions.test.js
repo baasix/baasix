@@ -46,6 +46,27 @@ describe("expression strings in manifest config", () => {
   });
 });
 
+describe("expression strings on pattern-guarded text fields", () => {
+  const m = {
+    type: "demo-y", label: "D", description: "d", icon: "square", category: "display",
+    needsCollection: false, settingsMode: "manifest",
+    settings: [{ key: "g", label: "G", fields: [
+      { key: "url", label: "URL", kind: "text", pattern: "^https?://" },
+      { key: "label", label: "Label", kind: "text" },
+    ] }],
+    defaults: {}, configVersion: 1,
+  };
+  test("expression REJECTED on a text field with a pattern (URL-scheme guard)", () => {
+    expect(() => validateConfigAgainstManifest(m, { url: "{{ input.u }}" }, null, () => ({}))).toThrow(/url/);
+  });
+  test("expression still ACCEPTED on a text field without a pattern", () => {
+    expect(() => validateConfigAgainstManifest(m, { label: "{{ input.l }}" }, null, () => ({}))).not.toThrow();
+  });
+  test("a literal value matching the pattern is still accepted", () => {
+    expect(() => validateConfigAgainstManifest(m, { url: "https://example.com" }, null, () => ({}))).not.toThrow();
+  });
+});
+
 describe("strict envelopes reject expressions", () => {
   test("appearance color rejects expression", () => {
     expect(() => validateBlockData({ type: "markdown", config: { content: "x", appearance: { background: "{{ input.c }}" } } }, () => ({}))).toThrow(/background/);

@@ -77,8 +77,19 @@ function validateField(field: SettingsField, value: unknown, collection: string 
   // client-controlled expression text. filter-dsl is a JSON object, not a
   // string, so it can never itself be an "expression string" — its nested
   // string leaves are handled separately, see the "filter-dsl" case below.
+  //
+  // A `text` field that also declares a `pattern` is format-constrained
+  // (URL-scheme guards on iframe/pdf/video/image/carousel url fields, name
+  // patterns on input blocks, etc). An expression string must NOT be able to
+  // stand in for that value and skip the pattern check — a client-controlled
+  // runtime value (e.g. `{{ param.doc }}` resolving to `javascript:...`)
+  // would otherwise reach an unguarded sink (iframe/video/img src). Reject
+  // it outright, same as the forbidden kinds above.
   if (typeof value === "string" && isExpressionString(value)) {
     if (EXPRESSION_FORBIDDEN_KINDS.has(field.kind)) bad(field.key, "expressions are not allowed in this field");
+    if (field.kind === "text" && (field as TextField).pattern) {
+      bad(field.key, "expressions are not allowed in a format-constrained field");
+    }
     assertBalancedExpression(value, field.key);
     return; // skip kind validation
   }
