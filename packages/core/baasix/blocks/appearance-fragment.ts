@@ -1,5 +1,6 @@
 import { APIError } from "../utils/errorHandler.js";
 import type { SettingsGroup } from "./manifest-types.js";
+import { isExpressionString } from "./expressions.js";
 
 const HEX_RE = /^#([0-9a-fA-F]{3,8})$/;
 const TOKEN_RE = /^[a-z][a-z0-9-]*$/;
@@ -27,7 +28,15 @@ export const APPEARANCE_GROUP: SettingsGroup = {
   ],
 };
 
+// Note: HEX_RE/TOKEN_RE already reject a "{{ ... }}" string incidentally
+// (neither pattern's charset includes "{"), but the explicit
+// isExpressionString check below makes the security boundary intentional
+// rather than an accident of the regex shape — appearance colors can end up
+// interpolated into inline style attributes client-side, so a runtime
+// expression must never be accepted here (see EXPRESSION_FORBIDDEN_KINDS in
+// validate-from-manifest.ts for the same rule on manifest "color" fields).
 function isColor(v: unknown): boolean {
+  if (isExpressionString(v)) return false;
   return typeof v === "string" && (HEX_RE.test(v) || TOKEN_RE.test(v));
 }
 

@@ -1,4 +1,5 @@
 import { APIError } from "../utils/errorHandler.js";
+import { isExpressionString } from "./expressions.js";
 
 export const FORMAT_OPERATORS = [
   "eq", "neq", "gt", "gte", "lt", "lte", "contains", "empty", "notEmpty",
@@ -28,7 +29,12 @@ function bad(key: string, message: string): never {
   throw new APIError(`Invalid "${key}": ${message}`, 400);
 }
 
+// Explicit expression reject (see the matching note in appearance-fragment.ts
+// isColor): style colors can end up interpolated into inline CSS for a
+// rendered row/cell, so a runtime {{ expr }} must never pass here even
+// though HEX_RE/TOKEN_RE already fail on it incidentally.
 function isColor(v: unknown): boolean {
+  if (isExpressionString(v)) return false;
   return typeof v === "string" && (HEX_RE.test(v) || TOKEN_RE.test(v));
 }
 

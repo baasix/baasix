@@ -1,4 +1,5 @@
 import { APIError } from "../utils/errorHandler.js";
+import { isExpressionString } from "./expressions.js";
 
 /**
  * theme-tokens — shared token contract for baasix_Theme.tokens and
@@ -32,6 +33,12 @@ function validateTokenSet(set: unknown, path: string): void {
   for (const [key, value] of Object.entries(set as Record<string, unknown>)) {
     if (!(THEME_TOKENS as readonly string[]).includes(key)) bad(key, `unknown theme token (allowed: ${THEME_TOKENS.join(", ")})`);
     if (typeof value !== "string") bad(key, "must be a string");
+    // Theme tokens are interpolated directly into a <style> block as raw CSS
+    // custom-property values (see the module doc above) — a runtime
+    // {{ expr }} string must never reach that, so reject it explicitly
+    // before the HSL/length regex checks (which would already fail it, but
+    // this makes the security boundary intentional, not incidental).
+    if (isExpressionString(value)) bad(key, "expressions are not allowed in theme tokens");
     if (key === "radius") {
       if (!LENGTH_RE.test(value)) bad("radius", "must be a plain CSS length like 0.5rem or 8px");
     } else if (!HSL_TRIPLE_RE.test(value)) {

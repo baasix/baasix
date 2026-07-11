@@ -1,11 +1,22 @@
 import { APIError } from "../utils/errorHandler.js";
 import type { BlockManifest, SettingsField, ListField, SelectField, NumberField, TextField, FieldPickerField, CustomField } from "./manifest-types.js";
 import { validateFormatRules } from "./format-rules.js";
+import { isExpressionString, assertBalancedExpression } from "./expressions.js";
 
 export type GetFieldsFn = (collection: string) => Record<string, any> | null | undefined;
 
 const HEX_RE = /^#([0-9a-fA-F]{3,8})$/;
 const TOKEN_RE = /^[a-z][a-z0-9-]*$/;
+
+// Kinds where a {{ expression }} string would let a client-controlled runtime
+// value flow somewhere injection-sensitive: color (inline CSS / theme
+// tokens), format-rules (its own "kind" field validates a *nested* config
+// shape, not a single value — an expression can't stand in for the whole
+// array), and the two pickers, which must name a real collection/field
+// (an expression there would defeat the existence check below). Every other
+// kind treats a well-formed expression string as an opaque runtime value and
+// skips its normal kind check — see the isExpressionString branch below.
+const EXPRESSION_FORBIDDEN_KINDS = new Set(["color", "format-rules", "field-picker", "collection-picker"]);
 
 function bad(key: string, message: string): never {
   throw new APIError(`Invalid "${key}": ${message}`, 400);
@@ -32,7 +43,45 @@ function isEmptyForRequired(value: unknown): boolean {
   return isEmpty(value) || (Array.isArray(value) && value.length === 0);
 }
 
+/**
+ * Recursively walk a filter-dsl value (objects/arrays of the Baasix filter
+ * grammar, e.g. { field: { eq: "x" } } or { and: [...] }) and run the
+ * balanced-brace check on every string leaf. Expression strings are ALLOWED
+ * inside filter values (a filter comparing a field to a runtime input is a
+ * core use case — see filter/table/stat/comparison/leaderboard/tree/avatar
+ * manifests), so this does NOT apply EXPRESSION_FORBIDDEN_KINDS or any
+ * field/collection existence check — only the cheap brace-balance guard,
+ * same as every other allowed kind gets.
+ */
+function walkFilterDslStrings(value: unknown, key: string): void {
+  if (typeof value === "string") {
+    if (isExpressionString(value)) assertBalancedExpression(value, key);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) walkFilterDslStrings(item, key);
+    return;
+  }
+  if (value != null && typeof value === "object") {
+    for (const v of Object.values(value as Record<string, unknown>)) walkFilterDslStrings(v, key);
+  }
+}
+
 function validateField(field: SettingsField, value: unknown, collection: string | null, getFields: GetFieldsFn): void {
+  // Expression strings: most kinds treat a well-formed {{ expr }} string as
+  // an opaque runtime value and skip kind validation entirely (the actual
+  // expression is resolved client-side / at render time). Forbidden kinds
+  // (color, format-rules, field-picker, collection-picker — see
+  // EXPRESSION_FORBIDDEN_KINDS above) still reject it: those values must be
+  // a real color/collection/field-name, or a well-formed rules array, never
+  // client-controlled expression text. filter-dsl is a JSON object, not a
+  // string, so it can never itself be an "expression string" — its nested
+  // string leaves are handled separately, see the "filter-dsl" case below.
+  if (typeof value === "string" && isExpressionString(value)) {
+    if (EXPRESSION_FORBIDDEN_KINDS.has(field.kind)) bad(field.key, "expressions are not allowed in this field");
+    assertBalancedExpression(value, field.key);
+    return; // skip kind validation
+  }
   switch (field.kind) {
     case "text":
     case "markdown": {
@@ -74,9 +123,16 @@ function validateField(field: SettingsField, value: unknown, collection: string 
       }
       return;
     }
-    case "json":
+    case "json": {
+      if (value == null || typeof value !== "object") bad(field.key, "must be an object or array");
+      return;
+    }
     case "filter-dsl": {
       if (value == null || typeof value !== "object") bad(field.key, "must be an object or array");
+      // Deep-walk: expression strings ARE allowed inside nested filter
+      // values (e.g. { s: { eq: "{{ input.s }}" } }) — only brace-balance
+      // is checked, no field/collection restriction (see walkFilterDslStrings).
+      walkFilterDslStrings(value, field.key);
       return;
     }
     case "collection-picker": {
@@ -116,6 +172,11 @@ function validateField(field: SettingsField, value: unknown, collection: string 
       if (f.maxItems != null && value.length > f.maxItems) bad(field.key, `allows at most ${f.maxItems} item(s)`);
       for (const row of value) {
         if (row == null || typeof row !== "object" || Array.isArray(row)) bad(field.key, "each item must be an object");
+        // Each row's fields go back through validateValues -> validateField,
+        // so the expression skip-rule and EXPRESSION_FORBIDDEN_KINDS
+        // self-apply per item field (e.g. a list row with a "color" item
+        // field rejects {{ }} there exactly like a top-level color field).
+        // No special-casing needed here.
         validateValues(f.item, row as Record<string, unknown>, collection, getFields);
       }
       return;
