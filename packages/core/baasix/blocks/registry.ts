@@ -29,6 +29,7 @@ import subpage from "./manifests/subpage.js";
 import comparison from "./manifests/comparison.js";
 import keyvalue from "./manifests/keyvalue.js";
 import leaderboard from "./manifests/leaderboard.js";
+import widget from "./manifests/widget.js";
 
 const registry = new Map<string, BlockManifest>();
 
@@ -52,7 +53,7 @@ export function registerManifests(manifests: BlockManifest[]): void {
   }
 }
 
-registerManifests([...LEGACY_MANIFESTS, divider, markdown, iframe, select, daterange, slider, switchManifest, rating, stat, tree, steps, badge, breadcrumbs, links, header, video, pdf, carousel, alert, html, image, spacer, countdown, avatar, subpage, comparison, keyvalue, leaderboard]);
+registerManifests([...LEGACY_MANIFESTS, divider, markdown, iframe, select, daterange, slider, switchManifest, rating, stat, tree, steps, badge, breadcrumbs, links, header, video, pdf, carousel, alert, html, image, spacer, countdown, avatar, subpage, comparison, keyvalue, leaderboard, widget]);
 
 export function getManifest(type: string): BlockManifest | undefined {
   return registry.get(type);

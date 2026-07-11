@@ -198,6 +198,24 @@ describe("wave-1 navigation block validation", () => {
   }
 });
 
+describe("widget block validation", () => {
+  const f = () => ({ status: {}, createdAt: {} });
+  const cases = [
+    { name: "widget valid minimal", data: { type: "widget", config: { html: "<div></div>" } }, ok: true },
+    { name: "widget missing html", data: { type: "widget", config: {} }, ok: false, err: /html/ },
+    { name: "widget height out of range", data: { type: "widget", config: { html: "<div></div>", height: 5000 } }, ok: false, err: /height/ },
+    { name: "widget with data binding valid", data: { type: "widget", collection: "orders", config: { html: "<div></div>", fields: ["status"], limit: 50, sort: "-createdAt" } }, ok: true },
+    { name: "widget limit out of range", data: { type: "widget", collection: "orders", config: { html: "<div></div>", limit: 9999 } }, ok: false, err: /limit/ },
+    { name: "widget html expression allowed", data: { type: "widget", config: { html: "{{ input.snippet }}" } }, ok: true },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, f);
+      if (c.ok) expect(fn).not.toThrow(); else expect(fn).toThrow(c.err);
+    });
+  }
+});
+
 describe("wave-1 content block validation", () => {
   const cases = [
     { name: "video url valid", data: { type: "video", config: { source: "url", url: "https://youtu.be/x", kind: "video" } }, ok: true },
