@@ -4,6 +4,8 @@
  * No DB access here: routes inject data and validators so everything is jest-testable.
  */
 
+import { validateThemeTokens } from "../blocks/theme-tokens.js";
+
 export const PAGE_BUNDLE_VERSION = 1;
 
 const PAGE_EXPORT_FIELDS = [
@@ -341,7 +343,14 @@ export interface ImportContext {
     getFields: (collection: string) => Record<string, any> | null | undefined;
     roleIdExists: (id: string) => boolean;
     roleIdByName: (name: string) => string | undefined;
-    /** Scoped to the importing tenant — see resolveThemeId. */
+    /**
+     * NOT tenant-scoped: baasix_Theme is not a tenant-specific system
+     * collection, so these accessors see/match every theme regardless of
+     * tenant_Id — global by-name matching, the same as the role accessors
+     * above. See resolveThemeId and the FOLLOW-UP note at the pages.route.ts
+     * call site (multi-tenant scoping of bundle role/theme resolution is a
+     * known pre-existing gap).
+     */
     themeIdExists: (id: string) => boolean;
     themeIdByName: (name: string) => string | undefined;
     /** Inject validateBlockData bound to the target instance's getFields. */
@@ -435,15 +444,33 @@ export function analyzeImport(bundle: any, ctx: ImportContext) {
     }
 
     // Theme report: for every bundle theme, whether it already resolves on the
-    // target (id or name match) or will be created on import. Guarded so bundles
-    // without themes, or a ctx without theme accessors, behave exactly as before
-    // (byte-identical dry-run report — see pageBundle.test.js regression tests).
-    const themes: Record<string, { exists: boolean }> = {};
+    // target (id or name match) or will be created on import, plus whether its
+    // tokens would themselves pass validateThemeTokens (a bundle can be hand-
+    // edited or come from an older/foreign instance with a since-tightened
+    // token contract; surfacing `valid` in the dry-run report lets the admin
+    // catch a doomed create before running the real import — the theme create
+    // in pass 0 already throws on bad tokens, but only at write time). Guarded
+    // so bundles without themes, or a ctx without theme accessors, behave
+    // exactly as before (byte-identical dry-run report — see pageBundle.test.js
+    // regression tests).
+    const themes: Record<string, { exists: boolean; valid: boolean }> = {};
     const themeNames: Record<string, string> = bundle.themeNames || {};
+    const bundleThemesByName = new Map<string, { tokens: any }>(
+        (bundle.themes || []).map((t: any) => [t.name, t])
+    );
     if (typeof ctx.themeIdExists === "function" && typeof ctx.themeIdByName === "function") {
         for (const [id, name] of Object.entries(themeNames)) {
             const { resolved } = resolveThemeId(id, themeNames, ctx);
-            themes[name] = { exists: !!resolved };
+            let valid = true;
+            const themeDef = bundleThemesByName.get(name);
+            if (themeDef) {
+                try {
+                    validateThemeTokens(themeDef.tokens ?? {});
+                } catch {
+                    valid = false;
+                }
+            }
+            themes[name] = { exists: !!resolved, valid };
         }
     }
 

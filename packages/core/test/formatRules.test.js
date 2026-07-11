@@ -80,3 +80,32 @@ describe("legacy block formatting validation", () => {
       config: { fields: [{ field: "status" }], formatting: { rows: [] } } }, fields)).toThrow(/formatting/);
   });
 });
+
+describe("value-formatting server validation (stat/comparison/leaderboard)", () => {
+  const f = () => ({ status: {} });
+  test("stat tile with bad value-formatting rejected", () => {
+    expect(() => validateBlockData({ type: "stat", collection: "orders", config: {
+      tiles: [{ label: "T", aggregate: { function: "count", field: "*" }, formatting: [{ field: "value", operator: "wat", value: 1, style: { bold: true } }] }],
+    } }, f)).toThrow(/operator/);
+  });
+  test("stat tile with valid value-formatting accepted", () => {
+    expect(() => validateBlockData({ type: "stat", collection: "orders", config: {
+      tiles: [{ label: "T", aggregate: { function: "count", field: "*" }, formatting: [{ field: "value", operator: "gt", value: 5, style: { textColor: "destructive" } }] }],
+    } }, f)).not.toThrow();
+  });
+  test("comparison with bad formatting rejected", () => {
+    expect(() => validateBlockData({ type: "comparison", collection: "orders", config: {
+      leftLabel: "A", rightLabel: "B", formatting: [{ field: "value", operator: "wat", value: 1, style: { bold: true } }],
+    } }, f)).toThrow(/operator/);
+  });
+  test("leaderboard with valid value-formatting accepted", () => {
+    expect(() => validateBlockData({ type: "leaderboard", collection: "orders", config: {
+      groupField: "status", limit: 10, formatting: [{ field: "value", operator: "gt", value: 5, style: { textColor: "destructive" } }],
+    } }, f)).not.toThrow();
+  });
+  test("leaderboard with bad formatting rejected", () => {
+    expect(() => validateBlockData({ type: "leaderboard", collection: "orders", config: {
+      groupField: "status", limit: 10, formatting: [{ field: "value", operator: "wat", value: 1, style: { bold: true } }],
+    } }, f)).toThrow(/operator/);
+  });
+});

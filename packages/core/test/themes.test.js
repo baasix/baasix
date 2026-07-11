@@ -104,4 +104,36 @@ describe("baasix_Theme + GET /pages/themes", () => {
     expect(res.status).toBe(200);
     expect(res.body.themes.some((t) => t.name === "Ocean")).toBe(true);
   });
+
+  describe("theme isDefault demotion", () => {
+    test("creating a second default demotes the first", async () => {
+      const a = await request(app).post("/items/baasix_Theme").set("Authorization", `Bearer ${adminToken}`)
+        .send({ name: "DefA", tokens: { light: {} }, isDefault: true });
+      expect(a.status).toBe(201);
+      const b = await request(app).post("/items/baasix_Theme").set("Authorization", `Bearer ${adminToken}`)
+        .send({ name: "DefB", tokens: { light: {} }, isDefault: true });
+      expect(b.status).toBe(201);
+      const list = await request(app).get("/pages/themes").set("Authorization", `Bearer ${adminToken}`);
+      const defaults = list.body.themes.filter((t) => t.isDefault);
+      expect(defaults.length).toBe(1);
+      expect(defaults[0].name).toBe("DefB");
+    });
+
+    test("updating an existing theme to isDefault:true demotes the previous default", async () => {
+      const a = await request(app).post("/items/baasix_Theme").set("Authorization", `Bearer ${adminToken}`)
+        .send({ name: "UpdDefA", tokens: { light: {} }, isDefault: true });
+      expect(a.status).toBe(201);
+      const b = await request(app).post("/items/baasix_Theme").set("Authorization", `Bearer ${adminToken}`)
+        .send({ name: "UpdDefB", tokens: { light: {} }, isDefault: false });
+      expect(b.status).toBe(201);
+      const bId = b.body.data.id;
+      const promoted = await request(app).patch(`/items/baasix_Theme/${bId}`).set("Authorization", `Bearer ${adminToken}`)
+        .send({ isDefault: true });
+      expect(promoted.status).toBe(200);
+      const list = await request(app).get("/pages/themes").set("Authorization", `Bearer ${adminToken}`);
+      const defaults = list.body.themes.filter((t) => t.isDefault);
+      expect(defaults.length).toBe(1);
+      expect(defaults[0].name).toBe("UpdDefB");
+    });
+  });
 });

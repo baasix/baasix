@@ -244,6 +244,33 @@ function validateFlatFormatting(config: any): void {
     if (config?.formatting != null) validateFormatRules(config.formatting, "formatting");
 }
 
+/**
+ * Validate the "format-rules-value" custom slot used by stat/comparison/
+ * leaderboard manifests (single-value formatting, as opposed to table's
+ * columns/rows split). validateConfigAgainstManifest skips `kind: "custom"`
+ * fields entirely ("validated by the per-block hook if one exists" — see
+ * validate-from-manifest.ts), so this closes that gap for the one custom slot
+ * that has real shape to validate; the other custom slots (aggregate,
+ * sparkline) are unvalidated pre-existing behavior, out of scope here.
+ *
+ * - comparison/leaderboard: a single top-level `config.formatting` array.
+ * - stat: no top-level formatting — instead each `config.tiles[]` entry may
+ *   carry its own `formatting` array, validated per-tile so an error message
+ *   points at the offending tile.
+ */
+function validateValueFormatting(config: any): void {
+    if (config?.formatting != null) {
+        validateFormatRules(config.formatting, "formatting");
+    }
+    if (Array.isArray(config?.tiles)) {
+        config.tiles.forEach((tile: any, i: number) => {
+            if (tile?.formatting != null) {
+                validateFormatRules(tile.formatting, `config.tiles[${i}].formatting`);
+            }
+        });
+    }
+}
+
 function validatePosition(position: any): void {
     if (position == null) return;
     if (typeof position !== "object" || Array.isArray(position)) {
@@ -340,6 +367,12 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
     if (manifest.settingsMode === "manifest") {
         if (config != null) {
             validateConfigAgainstManifest(manifest, config as Record<string, unknown>, collection ?? null, getFields);
+            // "format-rules-value" is a `kind: "custom"` slot on these three
+            // manifests, so the generic manifest validator above skips it —
+            // validate it explicitly here (see validateValueFormatting).
+            if (type === "stat" || type === "comparison" || type === "leaderboard") {
+                validateValueFormatting(config as Record<string, unknown>);
+            }
         }
     } else if (config != null && fieldMap) {
         if (type === "table") {
@@ -1302,15 +1335,79 @@ export async function registerPageBuilderHooks(): Promise<void> {
         return ctx;
     });
 
+    /**
+     * Demote every OTHER default theme in the same tenant scope so at most one
+     * default survives per scope (tenant_Id match, including null == global).
+     * Called from the create/update hooks below only when `isDefault === true`
+     * is present on the incoming patch — the demotion write itself sets
+     * `isDefault: false`, which does not satisfy that guard, so re-entering
+     * this same hook (updateOneCore runs items.update before-hooks per row,
+     * including for updateMany) does NOT recurse back into demotion.
+     *
+     * `excludeId` is omitted on create (the new row has no id yet — every
+     * existing default in scope is demoted, then the new row's own
+     * isDefault:true stands untouched since it isn't written by this helper)
+     * and set to ctx.id on update (so the row being promoted isn't demoted
+     * out from under itself).
+     */
+    const demoteSiblingDefaults = async (
+        tenantId: string | null,
+        excludeId?: string | number
+    ): Promise<void> => {
+        const { default: ItemsService } = await import("./ItemsService.js");
+        const itemsService = new ItemsService("baasix_Theme", {
+            accountability: undefined,
+        });
+
+        const filter: Record<string, any> = {
+            isDefault: { eq: true },
+            tenant_Id: tenantId === null ? { isNull: true } : { eq: tenantId },
+        };
+        if (excludeId !== undefined && excludeId !== null) {
+            filter.id = { ne: excludeId };
+        }
+
+        const result = await itemsService.readByQuery(
+            { filter, fields: ["id"], limit: -1 },
+            true // bypassPermissions: internal scan
+        );
+        const siblings = result?.data ?? [];
+        if (siblings.length === 0) return;
+
+        await itemsService.updateMany(
+            siblings.map((row: any) => ({ id: row.id, data: { isDefault: false } })),
+            { bypassPermissions: true }
+        );
+    };
+
     // ── baasix_Theme ──────────────────────────────────────────────────────
     hooksManager.registerHook("baasix_Theme", "items.create", async (ctx: any) => {
         if (typeof ctx.data?.name !== "string" || !ctx.data.name.trim()) throw new APIError(`Invalid "name": is required`, 400);
         validateThemeTokens(ctx.data?.tokens ?? {});
+        if (ctx.data?.isDefault === true) {
+            const tenantId: string | null =
+                ctx.data.tenant_Id ?? ctx.accountability?.tenant ?? null;
+            await demoteSiblingDefaults(tenantId);
+        }
         return ctx;
     });
     hooksManager.registerHook("baasix_Theme", "items.update", async (ctx: any) => {
         if (ctx.data?.tokens !== undefined) validateThemeTokens(ctx.data.tokens);
         if (ctx.data?.name !== undefined && (typeof ctx.data.name !== "string" || !ctx.data.name.trim())) throw new APIError(`Invalid "name": must be a non-empty string`, 400);
+        if (ctx.data?.isDefault === true) {
+            const { default: ItemsService } = await import("./ItemsService.js");
+            const itemsService = new ItemsService("baasix_Theme", {
+                accountability: undefined,
+            });
+            const existing = await itemsService.readOne(
+                ctx.id,
+                { fields: ["id", "tenant_Id"] },
+                true // bypassPermissions: internal read
+            );
+            const tenantId: string | null =
+                ctx.data.tenant_Id ?? existing?.tenant_Id ?? ctx.accountability?.tenant ?? null;
+            await demoteSiblingDefaults(tenantId, ctx.id);
+        }
         return ctx;
     });
 }

@@ -476,7 +476,16 @@ const registerEndpoint = (app: Express) => {
                     isDefault: { eq: true },
                     tenant_Id: page.tenant_Id ? { eq: page.tenant_Id } : { isNull: true },
                 };
-                const defaults = await themeService.readByQuery({ filter: defaultFilter, limit: 1 }, true);
+                // The registerPageBuilderHooks demotion keeps at most one isDefault:true
+                // row per scope going forward, but pre-existing duplicates (e.g. rows
+                // created before that hook shipped, or PG12 where the partial unique
+                // index can't be enforced) are still possible — sort deterministically
+                // so "the" default is stable across requests instead of whatever the
+                // DB happens to return first.
+                const defaults = await themeService.readByQuery(
+                    { filter: defaultFilter, sort: ["createdAt", "id"], limit: 1 },
+                    true
+                );
                 theme = defaults?.data?.[0] ?? null;
             }
 

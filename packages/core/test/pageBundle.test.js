@@ -335,9 +335,28 @@ describe("analyzeImport", () => {
         };
         const report = analyzeImport(b, themeCtx);
         expect(report.themes).toEqual({
-            Brand: { exists: true },
-            Ocean: { exists: true },
-            Forest: { exists: false },
+            Brand: { exists: true, valid: true },
+            Ocean: { exists: true, valid: true },
+            Forest: { exists: false, valid: true },
+        });
+    });
+
+    test("themes report: dry-run token validation flags an invalid bundled theme, leaves a valid one alone", () => {
+        const b = baseBundle();
+        b.themeNames = { "th-local": "Brand", "th-bad": "Broken" };
+        b.themes = [
+            { name: "Brand", tokens: { light: { primary: "199 89% 48%" } }, isDefault: false },
+            { name: "Broken", tokens: { light: { evil: "1 1% 1%" } }, isDefault: false },
+        ];
+        const themeCtx = {
+            ...ctx,
+            themeIdExists: (id) => id === "th-local",
+            themeIdByName: () => undefined,
+        };
+        const report = analyzeImport(b, themeCtx);
+        expect(report.themes).toEqual({
+            Brand: { exists: true, valid: true },
+            Broken: { exists: false, valid: false },
         });
     });
 });
@@ -454,7 +473,28 @@ describe("page bundle theme embedding (GET /pages/export, POST /pages/import)", 
         const before = await auth(request(app).get("/pages/themes"));
         const dryRunRes = await auth(request(app).post("/pages/import")).query({ dryRun: "true" }).send({ bundle });
         expect(dryRunRes.status).toBe(200);
-        expect(dryRunRes.body.report.themes).toEqual({ GhostTheme: { exists: false } });
+        expect(dryRunRes.body.report.themes).toEqual({ GhostTheme: { exists: false, valid: true } });
+
+        const after = await auth(request(app).get("/pages/themes"));
+        expect(after.body.themes.length).toBe(before.body.themes.length); // dryRun wrote nothing
+    });
+
+    test("dryRun import flags a bundled theme with invalid tokens as valid:false, without writing", async () => {
+        const bundle = {
+            bundleVersion: PAGE_BUNDLE_VERSION, baasixVersion: "1", exportedAt: "x",
+            pages: [{ id: "py2", name: "DryRunBad", slug: "dry-run-bad-theme-page", icon: null, description: null,
+                      parent_Id: null, sort: 0, isPublic: false, enabled: true, roles: null,
+                      options: { theme: { themeId: "22222222-2222-2222-2222-222222222222" } } }],
+            blocks: [],
+            roleNames: {},
+            themes: [{ name: "BrokenTheme", tokens: { light: { evil: "1 1% 1%" } }, isDefault: false }],
+            themeNames: { "22222222-2222-2222-2222-222222222222": "BrokenTheme" },
+            requires: { collections: {} },
+        };
+        const before = await auth(request(app).get("/pages/themes"));
+        const dryRunRes = await auth(request(app).post("/pages/import")).query({ dryRun: "true" }).send({ bundle });
+        expect(dryRunRes.status).toBe(200);
+        expect(dryRunRes.body.report.themes).toEqual({ BrokenTheme: { exists: false, valid: false } });
 
         const after = await auth(request(app).get("/pages/themes"));
         expect(after.body.themes.length).toBe(before.body.themes.length); // dryRun wrote nothing
