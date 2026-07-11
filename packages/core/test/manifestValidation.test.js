@@ -298,3 +298,20 @@ describe("wave-2 block validation", () => {
     });
   }
 });
+
+describe("phase5 click-action fields", () => {
+  const f = () => ({ name: {}, parent_Id: {}, points: {} });
+  const act = { type: "view" };
+  const cases = [
+    { name: "tree itemAction accepted", data: { type: "tree", collection: "c", config: { labelField: "name", parentField: "parent_Id", itemAction: act } }, ok: true },
+    { name: "leaderboard itemAction accepted", data: { type: "leaderboard", collection: "c", config: { groupField: "name", metric: { function: "count", field: "*" }, itemAction: act } }, ok: true },
+    { name: "avatar itemAction accepted", data: { type: "avatar", collection: "c", config: { nameField: "name", itemAction: act } }, ok: true },
+    { name: "stat per-tile action accepted", data: { type: "stat", collection: "c", config: { tiles: [{ label: "T", aggregate: { function: "count", field: "*" }, action: act }] } }, ok: true },
+  ];
+  for (const c of cases) {
+    test(c.name, () => {
+      const fn = () => validateBlockData(c.data, f);
+      if (c.ok) expect(fn).not.toThrow(); else expect(fn).toThrow(c.err);
+    });
+  }
+});

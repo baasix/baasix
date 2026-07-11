@@ -16,6 +16,7 @@ const manifest: BlockManifest = {
       { key: "limit", label: "Limit", kind: "number", min: 3, max: 25, integer: true, default: 10 },
       { key: "labelPrefix", label: "Label prefix", kind: "text" },
       { key: "formatting", label: "Format rules", kind: "custom", slot: "format-rules-value" },
+      { key: "itemAction", label: "On item click", kind: "custom", slot: "single-action", help: "Runs when a row is clicked." },
     ] },
   ],
   defaults: { limit: 10 },
