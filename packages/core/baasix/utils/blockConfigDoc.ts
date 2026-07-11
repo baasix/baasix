@@ -47,6 +47,32 @@ A data-block filter value may also be one of these runtime placeholders (master-
 While a referenced param/selection is absent the condition is stripped and the block shows a
 "Select a record" state instead of querying unfiltered; unset non-required inputs strip silently.
 
+## Expressions
+
+Most manifest-driven config fields (text, number, boolean, select, json, markdown) accept a
+\`{{ expr }}\` string in place of a literal value: a single JavaScript expression (no statements)
+evaluated client-side against a context object:
+- \`param\` — the page URL's query params.
+- \`input\` — page input values by input block \`name\`.
+- \`selection\` — selected record by block id: \`selection.<blockId>.<field>\`.
+- \`user\` — \`{ id, firstName, lastName, fullName, email, roleName }\`, best-effort; \`null\` on public pages.
+- \`now\` — a \`Date\`.
+Typing rule: a config value that is ENTIRELY one \`{{ expr }}\` run (nothing before/after, once
+trimmed) returns the expression's raw typed result — so a number/boolean/select/json field can
+hold a real number/boolean/option-value/object. A value with any surrounding or interposed text
+(e.g. \`"Hi {{ user.firstName }}"\`) interpolates each \`{{ }}\` run as a string and concatenates —
+always yielding a string. Errors and undefined results resolve to \`undefined\`, so the field falls
+back to its normal empty/default handling — an expression can never crash a block.
+Same trust model as \`compute\` field-entry expressions: admin-authored, evaluated unsandboxed in
+the viewer's browser. Do not put user-provided strings in an expression.
+Expressions are FORBIDDEN (rejected server-side) in: any color value (appearance colors,
+format-rule \`style\` colors, theme tokens), the \`format-rules\` field itself, and
+field-picker/collection-picker fields — those must always be literal.
+In filter DSL values, \`{{ }}\` expressions work alongside the existing \`$param\`/\`$input\`/\`$selection\`
+placeholders described above.
+The in-place UI editor exposes this as an \`fx\` toggle next to eligible fields (text, number,
+boolean, select, json, markdown), swapping the native control for a raw expression textarea.
+
 ## Record sources
 
 Record-bound blocks (details, form mode:"edit", code with recordField) take their record id from
@@ -59,7 +85,8 @@ table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/m
 Types REQUIRING a collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart,
 media, feed, filter, timeline, progress, repeater, report.
 Collectionless types: markdown, buttons, iframe, upload, tabs, container, modal, divider, input.
-\`code\` and \`richtext\` take an OPTIONAL collection (required only when \`recordField\` is set).
+\`code\` and \`richtext\` take an OPTIONAL collection (required only when \`recordField\` is set);
+\`widget\` also takes an optional collection (data binding for \`window.Baasix.onData\`).
 All field names referenced in a config MUST exist on the bound collection (validated server-side).
 
 ### table
