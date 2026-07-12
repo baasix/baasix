@@ -10,7 +10,7 @@ const manifest: BlockManifest = {
   settingsMode: "manifest",
   settings: [
     { key: "general", label: "General", fields: [
-      { key: "html", label: "HTML", kind: "text", multiline: true, required: true, help: "Admin-authored HTML and <script>. Expressions {{ }} are allowed." },
+      { key: "html", label: "HTML", kind: "custom", slot: "html-editor", required: true, help: "Admin-authored HTML and <script>. Expressions {{ }} are allowed." },
       { key: "height", label: "Height (px)", kind: "number", min: 50, max: 2000, integer: true, default: 400, help: "Fixed height of the widget's frame in pixels." },
       { key: "allowInputs", label: "Allow inputs", kind: "boolean", default: true, help: "Lets scripts inside the widget publish $input values that filter sibling blocks (setInput)." },
     ] },
