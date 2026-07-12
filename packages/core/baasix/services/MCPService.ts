@@ -587,6 +587,10 @@ const TOOL_ACTION_MAP: Record<string, string> = {
 const PAGE_UPDATE_KEYS = ["name", "slug", "icon", "description", "isPublic", "enabled", "sort", "parent_Id", "options", "roles"];
 const BLOCK_UPDATE_KEYS = ["type", "collection", "position", "config", "configVersion", "parentBlock_Id", "slot"];
 
+// Reused verbatim by every tool that takes a block `config` object (create/update/validate).
+const BLOCK_CONFIG_FIELD_DESCRIPTION =
+  "Per-type config object — see baasix://docs/block-config: the §<type> field list plus the Filter DSL / Aggregates / Record source / Expressions sections.";
+
 /**
  * Parse MCP_ENABLED_ACTIONS env var.
  * Accepts a comma-separated list of: "all", "read", "create", "update", "delete"
@@ -3069,7 +3073,7 @@ Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>"
       type: z.string().describe("Block type — see baasix://docs/block-config or GET /pages/block-manifests for the current registry"),
       collection: z.string().optional().describe("Bound collection (see type rules)"),
       position: z.object({ row: z.number(), col: z.number(), span: z.number() }).describe("12-col grid placement (within the parent slot when nested)"),
-      config: z.record(z.any()).optional().describe("Per-type config (see baasix://docs/block-config)"),
+      config: z.record(z.any()).optional().describe(BLOCK_CONFIG_FIELD_DESCRIPTION),
       configVersion: z.number().optional(),
       parentBlock_Id: z.string().optional().describe("Parent container block id (tabs/container/modal on the same page) — omit for top level"),
       slot: z.string().optional().describe('Slot within the parent: "tab:<index>" for tabs, "body" otherwise'),
@@ -3095,7 +3099,7 @@ Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>"
     "Update a block (type/collection/position/config/parentBlock_Id/slot). The server re-validates the MERGED block, so a partial config patch replaces the whole config key — send the full new config object. Set parentBlock_Id (+ slot) to move a block into a tabs/container/modal block, or null to move it to the top level.",
     {
       id: z.string().describe("Block id (from baasix_get_page)"),
-      data: z.record(z.any()).describe("Partial block fields. Allowed keys: type, collection, position, config, configVersion."),
+      data: z.record(z.any()).describe(`Partial block fields. Allowed keys: type, collection, position, config, configVersion. config: ${BLOCK_CONFIG_FIELD_DESCRIPTION}`),
     },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {
       const body: Record<string, any> = {};
@@ -3113,7 +3117,7 @@ Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>"
 
   registerTool(
     "baasix_delete_block",
-    "Delete a single block from a page.",
+    "Delete a single block from a page. Deletion cascades to all descendant blocks (children of container/tabs/modal blocks, and their children recursively) via a database foreign key. Irreversible.",
     { id: z.string().describe("Block id") },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {
       const res = await callRoute("DELETE", `/items/baasix_Block/${encodeURIComponent(args.id)}`, extra);
@@ -3128,7 +3132,7 @@ Reactivity: filters accept "$param.<name>" (URL), "$selection.<blockId>.<field>"
     {
       type: z.string(),
       collection: z.string().optional(),
-      config: z.record(z.any()).optional(),
+      config: z.record(z.any()).optional().describe(BLOCK_CONFIG_FIELD_DESCRIPTION),
       position: z.object({ row: z.number(), col: z.number(), span: z.number() }).optional(),
     },
     async (args: any, extra: ToolExtra): Promise<ToolResult> => {

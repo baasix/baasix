@@ -118,6 +118,22 @@ describe("getBlockConfigDoc", () => {
   });
 });
 
+describe("block config doc parity (phase 6)", () => {
+  const doc = getBlockConfigDoc();
+  test("custom-kind fields are emitted with slot + help", () => {
+    expect(doc).toMatch(/aggregate.*custom: aggregate/i); // stat.aggregate line exists
+    expect(doc).toMatch(/record-source/);
+  });
+  test("list item fields carry their help", () => {
+    // stat tiles list: the item field 'label' line includes its help text
+    expect(doc).toMatch(/tiles\s*\(list\)/i);
+    expect(doc.split("\n").some((l) => /label/.test(l) && /—/.test(l) && /tile/i.test(l))).toBe(true);
+  });
+  test("topic guide sections exist", () => {
+    for (const h of ["## Aggregates", "## Record source", "## Expressions"]) expect(doc).toContain(h);
+  });
+});
+
 describe("systemschema", () => {
   test("baasix_Block.type is a String, not an ENUM", () => {
     const block = systemSchemaModule.schemas.find((s) => s.collectionName === "baasix_Block");
