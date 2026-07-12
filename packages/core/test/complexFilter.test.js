@@ -416,6 +416,60 @@ describe("Complex Filter Tests", () => {
         // Clean up: Delete the tasks schema
         await request(app).delete("/schemas/tasks").set("Authorization", `Bearer ${adminToken}`);
     });
+
+    describe("icontains operator (case-insensitive contains)", () => {
+        test("matches case-insensitively mid-string", async () => {
+            const response = await request(app)
+                .get("/items/employees")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({ filter: JSON.stringify({ firstName: { icontains: "OHN" } }) });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data).toHaveLength(1);
+            expect(response.body.data[0].firstName).toBe("John");
+        });
+
+        test("no match returns no rows", async () => {
+            const response = await request(app)
+                .get("/items/employees")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({ filter: JSON.stringify({ firstName: { icontains: "zzz-no-such-name" } }) });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data).toHaveLength(0);
+        });
+
+        test("mirrors iLike wildcard semantics (% in the value acts as a wildcard)", async () => {
+            // like/iLike in filterOperators.ts do NOT escape %/_ in the value; icontains
+            // follows the same convention, so it must behave identically to iLike here.
+            const icontainsRes = await request(app)
+                .get("/items/employees")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({ filter: JSON.stringify({ firstName: { icontains: "J%n" } }) });
+            const iLikeRes = await request(app)
+                .get("/items/employees")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({ filter: JSON.stringify({ firstName: { iLike: "J%n" } }) });
+
+            expect(icontainsRes.status).toBe(200);
+            expect(iLikeRes.status).toBe(200);
+            const icontainsNames = icontainsRes.body.data.map((e) => e.firstName).sort();
+            expect(icontainsNames).toEqual(["Jane", "John"]); // % passed through as a wildcard
+            expect(icontainsNames).toEqual(iLikeRes.body.data.map((e) => e.firstName).sort());
+        });
+
+        test("unknown operator still warns and drops the condition (rows unfiltered)", async () => {
+            const all = await request(app).get("/items/employees").set("Authorization", `Bearer ${adminToken}`);
+            const response = await request(app)
+                .get("/items/employees")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({ filter: JSON.stringify({ firstName: { totallyBogusOp: "x" } }) });
+
+            expect(response.status).toBe(200);
+            expect(all.status).toBe(200);
+            expect(response.body.data).toHaveLength(all.body.data.length);
+        });
+    });
 });
 
 afterAll(async () => {

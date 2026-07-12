@@ -6,7 +6,7 @@
  * 
  * Supports:
  * - Basic comparison operators (eq, ne, gt, lt, gte, lte)
- * - String pattern matching (like, ilike, startsWith, endsWith)
+ * - String pattern matching (like, ilike, icontains, startsWith, endsWith)
  * - Collection operators (in, notIn)
  * - Range operators (between, notBetween)
  * - Null checks (isNull, isNotNull)
@@ -489,8 +489,19 @@ export function notILikeOperator(ctx: OperatorContext, value: string, castType?:
     const leftSQL = buildColumnSQL(ctx.fieldName, castType);
     return sql`${leftSQL} NOT ILIKE ${'%' + escapeSqlValue(value) + '%'}`;
   }
-  
+
   return notIlike(ctx.column, `%${value}%`);
+}
+
+/**
+ * Operator: icontains (case-insensitive substring match)
+ * Example: { name: { icontains: 'john' } } -> name ILIKE '%john%'
+ * Alias of iLike — this is the spelling the admin app's page-builder filter UI and the
+ * block-config Filter DSL emit. Like like/iLike, wildcard characters (%/_) in the value
+ * are NOT escaped and pass through to the pattern.
+ */
+export function icontainsOperator(ctx: OperatorContext, value: string, castType?: string): SQL {
+  return iLikeOperator(ctx, value, castType);
 }
 
 /**
@@ -1383,6 +1394,7 @@ export const OPERATOR_MAP = {
   notLike: notLikeOperator,
   iLike: iLikeOperator,
   notILike: notILikeOperator,
+  icontains: icontainsOperator,
   
   startsWith: startsWithOperator,
   startsWiths: startsWithsOperator,
