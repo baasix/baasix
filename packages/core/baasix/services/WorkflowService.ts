@@ -28,6 +28,45 @@ export function workflowsEnabled(): boolean {
 }
 
 /**
+ * Normalize a baasix_Workflow write payload's trigger_webhook_path so it
+ * always starts with "/" when the path is non-empty. Mutates `data` in
+ * place (matches the ctx.data mutation pattern used elsewhere in hooks).
+ *
+ * Empty/null/undefined values are left as-is (no path configured yet, e.g.
+ * trigger_type isn't "webhook" or the field simply wasn't provided in this
+ * patch). Exported for unit testing.
+ */
+export function normalizeWebhookPath(data: any): void {
+  if (!data || typeof data.trigger_webhook_path !== "string") {
+    return;
+  }
+  const trimmed = data.trigger_webhook_path.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  data.trigger_webhook_path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+/**
+ * Build the readByQuery filter fragment for looking up a webhook workflow by
+ * its stored trigger_webhook_path. The /webhook/* dispatch route always derives
+ * a leading-slash path from req.path (e.g. "/legacy-hook"), but rows written
+ * BEFORE the write-normalization hook shipped may be stored WITHOUT the slash
+ * ("legacy-hook"). To resolve both without a data migration or re-save, this
+ * matches both forms via the `in` filter operator (see filterOperators.ts —
+ * the operator is `in`, not `_in`, in this codebase's filter DSL).
+ *
+ * `webhookPath` is expected to already have the leading slash (as the route
+ * computes it). The returned fragment is meant to be spread into a filter as
+ * `trigger_webhook_path: buildWebhookPathFilter(webhookPath)`.
+ */
+export function buildWebhookPathFilter(webhookPath: string): { in: string[] } {
+  const withSlash = webhookPath.startsWith("/") ? webhookPath : `/${webhookPath}`;
+  const withoutSlash = withSlash.replace(/^\//, "");
+  return { in: [withSlash, withoutSlash] };
+}
+
+/**
  * WorkflowService - Comprehensive workflow execution engine
  * Supports: HTTP requests, data transformation, conditions, loops, service operations
  */
@@ -156,6 +195,9 @@ class WorkflowService {
         try {
             // Register hooks for workflow triggers
             this.registerWorkflowHooks();
+
+            // Normalize baasix_Workflow's own fields on write (e.g. trigger_webhook_path)
+            this.registerWorkflowSelfHooks();
 
             // Initialize scheduled workflows
             await this.initializeScheduledWorkflows();
@@ -1272,6 +1314,32 @@ class WorkflowService {
         }
 
         return expression;
+    }
+
+    /**
+     * Register hooks that normalize baasix_Workflow's own fields on write.
+     *
+     * trigger_webhook_path is looked up by the /webhook/* dispatch route
+     * (packages/core/baasix/routes/workflow.route.ts) using a leading-slash
+     * path derived from req.path (e.g. "/p7-echo"). Admins naturally type the
+     * path without a leading slash (e.g. "p7-echo"), and the field had no
+     * write-side normalization, so a workflow saved as "p7-echo" would never
+     * match the lookup and the webhook would 404 even though it was correctly
+     * configured and active. Normalizing here (on create/update, for both the
+     * generic /items/baasix_Workflow route and the import route — both go
+     * through ItemsService) keeps stored rows consistent with the lookup and
+     * matches the existing hook pattern used by BlockConfigService/TasksService.
+     */
+    registerWorkflowSelfHooks() {
+        hooksManager.registerHook("baasix_Workflow", "items.create", async (ctx: any) => {
+            normalizeWebhookPath(ctx.data);
+            return ctx;
+        });
+
+        hooksManager.registerHook("baasix_Workflow", "items.update", async (ctx: any) => {
+            normalizeWebhookPath(ctx.data);
+            return ctx;
+        });
     }
 
     /**

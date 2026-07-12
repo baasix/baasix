@@ -2,6 +2,8 @@ import request from "supertest";
 import { destroyAllTablesInDB, startServerForTesting } from "../baasix";
 import { beforeAll, afterAll, test, expect, describe } from "@jest/globals";
 import env from "../baasix/utils/env";
+import { normalizeWebhookPath, buildWebhookPathFilter } from "../baasix/services/WorkflowService";
+import { getSqlClient } from "../baasix/utils/db.js";
 
 let app;
 let adminToken;
@@ -353,6 +355,152 @@ describe("Webhook Workflow Execution", () => {
     test("should trigger workflow via webhook", async () => {
         const res = await request(app)
             .post("/webhook/test-webhook")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ test: "data" });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.message).toBe("Workflow triggered successfully");
+        expect(res.body.execution).toHaveProperty("id");
+    });
+
+    test("should normalize trigger_webhook_path to have a leading slash when stored without one", async () => {
+        // Admins naturally type the path without a leading slash (e.g. "p7-echo").
+        // The webhook dispatch route always computes a leading-slash path from
+        // req.path, so the stored value must be normalized on write to match.
+        const res = await request(app)
+            .post("/items/baasix_Workflow")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                id: "p7-echo",
+                name: "P7 Echo",
+                status: "active",
+                trigger_type: "webhook",
+                trigger_webhook_path: "p7-echo", // no leading slash
+                trigger_webhook_method: "POST",
+                flow_data: {
+                    nodes: [
+                        { id: "trigger-1", type: "trigger", data: {} },
+                        {
+                            id: "transform-1",
+                            type: "transform",
+                            data: {
+                                transformType: "script",
+                                script: "return { received: trigger.body };",
+                            },
+                        },
+                    ],
+                    edges: [{ source: "trigger-1", target: "transform-1" }],
+                },
+            });
+
+        expect(res.statusCode).toBe(201);
+
+        // Stored value should have been normalized to start with "/"
+        const getRes = await request(app)
+            .get("/items/baasix_Workflow/p7-echo")
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(getRes.body.data.trigger_webhook_path).toBe("/p7-echo");
+    });
+
+    test("should reach a webhook workflow whose path was stored without a leading slash", async () => {
+        const res = await request(app)
+            .post("/webhook/p7-echo")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ test: "data" });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.message).toBe("Workflow triggered successfully");
+        expect(res.body.execution).toHaveProperty("id");
+    });
+
+    test("should normalize trigger_webhook_path on update as well", async () => {
+        const createRes = await request(app)
+            .post("/items/baasix_Workflow")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                id: "p7-echo-update",
+                name: "P7 Echo Update",
+                status: "draft",
+                trigger_type: "webhook",
+                trigger_webhook_path: "/p7-echo-update",
+                trigger_webhook_method: "POST",
+                flow_data: { nodes: [], edges: [] },
+            });
+        expect(createRes.statusCode).toBe(201);
+
+        const updateRes = await request(app)
+            .patch("/items/baasix_Workflow/p7-echo-update")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                status: "active",
+                trigger_webhook_path: "p7-echo-update-2", // no leading slash
+            });
+        expect(updateRes.statusCode).toBe(200);
+
+        const getRes = await request(app)
+            .get("/items/baasix_Workflow/p7-echo-update")
+            .set("Authorization", `Bearer ${adminToken}`);
+        expect(getRes.body.data.trigger_webhook_path).toBe("/p7-echo-update-2");
+    });
+
+    // Read-side tolerance (belt-and-braces): rows stored WITHOUT a leading slash
+    // *before* the write-normalization hook shipped must still resolve, with no
+    // data migration and no re-save.
+    test("buildWebhookPathFilter matches both the leading-slash and no-slash forms", () => {
+        // The route always derives a leading-slash path from req.path.
+        const filter = buildWebhookPathFilter("/legacy-hook");
+        expect(filter).toHaveProperty("in");
+        expect(filter.in).toEqual(expect.arrayContaining(["/legacy-hook", "legacy-hook"]));
+        // Root path "/" degenerates to ["/", ""] — both harmless forms.
+        const root = buildWebhookPathFilter("/");
+        expect(root.in).toEqual(expect.arrayContaining(["/", ""]));
+    });
+
+    test("should reach a webhook workflow whose stored path lost its leading slash (legacy row)", async () => {
+        // Create normally (hook normalizes to "/legacy-hook")...
+        const createRes = await request(app)
+            .post("/items/baasix_Workflow")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                id: "legacy-hook-wf",
+                name: "Legacy Hook",
+                status: "active",
+                trigger_type: "webhook",
+                trigger_webhook_path: "legacy-hook",
+                trigger_webhook_method: "POST",
+                flow_data: {
+                    nodes: [
+                        { id: "trigger-1", type: "trigger", data: {} },
+                        {
+                            id: "transform-1",
+                            type: "transform",
+                            data: {
+                                transformType: "script",
+                                script: "return { received: trigger.body };",
+                            },
+                        },
+                    ],
+                    edges: [{ source: "trigger-1", target: "transform-1" }],
+                },
+            });
+        expect(createRes.statusCode).toBe(201);
+
+        // ...then simulate a pre-fix stored row by stripping the leading slash
+        // directly in the DB, bypassing the write-normalization hook entirely.
+        const sql = getSqlClient();
+        await sql`
+            UPDATE "baasix_Workflow"
+            SET "trigger_webhook_path" = 'legacy-hook'
+            WHERE "id" = 'legacy-hook-wf'
+        `;
+        const [row] = await sql`
+            SELECT "trigger_webhook_path" AS path FROM "baasix_Workflow" WHERE "id" = 'legacy-hook-wf'
+        `;
+        expect(row.path).toBe("legacy-hook"); // confirm the row is now no-slash
+
+        // The dispatch route must still resolve it via read-side tolerance.
+        const res = await request(app)
+            .post("/webhook/legacy-hook")
             .set("Authorization", `Bearer ${adminToken}`)
             .send({ test: "data" });
 

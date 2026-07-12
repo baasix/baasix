@@ -1,6 +1,6 @@
 import type { Express } from "../types/index.js";
 import { APIError } from "../utils/errorHandler.js";
-import workflowService, { workflowsEnabled } from "../services/WorkflowService.js";
+import workflowService, { workflowsEnabled, buildWebhookPathFilter } from "../services/WorkflowService.js";
 import ItemsService from "../services/ItemsService.js";
 import fileUpload from "express-fileupload";
 import {
@@ -377,7 +377,10 @@ const registerEndpoint = (app: Express) => {
                 filter: {
                     status: "active",
                     trigger_type: "webhook",
-                    trigger_webhook_path: webhookPath,
+                    // Match both the leading-slash and no-slash stored forms so rows
+                    // written before the write-normalization hook shipped still resolve
+                    // without a data migration (belt-and-braces with normalizeWebhookPath).
+                    trigger_webhook_path: buildWebhookPathFilter(webhookPath),
                     trigger_webhook_method: method,
                 },
                 fields: ["id", "status", "trigger_type", "allowed_roles"],
