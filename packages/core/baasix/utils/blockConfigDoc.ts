@@ -3,6 +3,11 @@
  * via GET /pages/block-config-doc and the MCP resource baasix://docs/block-config.
  * Source of truth: docs/superpowers/specs/2026-06-11-app-builder-contracts-design.md §2
  * and BlockConfigService.ts — update this file when either changes.
+ *
+ * KEEP IN SYNC with app src/components/pages/editor/help-topics.ts (HELP_TOPICS): the
+ * "## Aggregates", "## Record sources", "## Expressions", and "## Filter DSL" sections below
+ * are the MCP-facing counterpart of that file's "aggregate", "record-source", "expressions",
+ * and "filter-dsl" topics — same facts, same examples where sensible.
  */
 export const BLOCK_CONFIG_DOC = `# Baasix page-builder: block config reference
 
@@ -36,9 +41,15 @@ Data blocks may also carry \`realtime?: true\` (socket push / 10s poll fallback)
 
 ## Filter DSL
 
-Every \`filter\` value anywhere in a config uses the items-API filter DSL — the same operators
-(\`eq, neq, gt, gte, lt, lte, in, contains, between, dwithin\`, …) and dynamic variables
-(\`$CURRENT_USER\`, \`$CURRENT_TENANT\`, \`$NOW±DAYS_N\`) as baasix_Permission conditions and GET /items.
+Every \`filter\` value anywhere in a config uses the items-API filter DSL, shaped as
+\`{"field": {"op": value}}\`, e.g. \`{"status":{"eq":"open"},"total":{"gt":100}}\`. The editor's own
+filter block (and this doc's block configs) stick to the core comparison set — \`eq, ne, icontains\`
+(case-insensitive text contains), \`gt, gte, lt, lte, in\`, plus \`isNull\`/\`isNotNull\` for matching or
+excluding empty values; the full items-API/permission-condition operator set (\`like, iLike,
+between, arraycontains, jsonbContains, dwithin\`, and the other JSONB/geo/vector operators) is also
+accepted server-side wherever a \`filter\` value is read directly by ItemsService, plus dynamic
+variables \`$CURRENT_USER\`, \`$CURRENT_TENANT\`, \`$NOW±DAYS_N\`. Combine several conditions with an \`"AND"\` or \`"OR"\` array of these same rules — the
+keys must be UPPERCASE (lowercase \`"and"\`/\`"or"\` is ignored).
 A data-block filter value may also be one of these runtime placeholders (master-detail wiring):
 - \`"$param.<name>"\` — resolved from the page URL's query params.
 - \`"$selection.<blockId>.<fieldPath>"\` — the record last clicked in the sibling data block with
@@ -74,12 +85,25 @@ placeholders described above.
 The in-place UI editor exposes this as an \`fx\` toggle next to eligible fields (text, number,
 boolean, select, json, markdown), swapping the native control for a raw expression textarea.
 
+## Aggregates
+
+An aggregate reduces a set of rows down to one number, shaped as \`{"function": ..., "field": ...}\`.
+Choose a \`function\` — \`count, sum, avg, min, max\` — and the \`field\` it should measure. \`count\` is
+the one exception: it doesn't need a real field, so \`field: "*"\` just counts matching rows. Add an
+optional \`filter\` (see Filter DSL) to narrow down which rows get counted or measured before the
+function runs, e.g. only "open" orders instead of every order. Used by the \`aggregate\`/\`sparkline\`
+custom-slot fields (stat tiles, comparison, leaderboard) and by chart's \`aggregate\` map and
+progress's \`aggregate\`/\`target\`.
+Example: sum of total → \`{"function":"sum","field":"total"}\`
+
 ## Record sources
 
-Record-bound blocks (details, form mode:"edit", code with recordField) take their record id from
-\`source\`: \`{type:"param"}\` (default; the ?id= URL param — legacy string "route-param" still
+Record-bound blocks (details, form mode:"edit", code with recordField, and the \`record-source\`
+custom-slot fields on badge/carousel/image/keyvalue/pdf/rating/steps/video) take their record id
+from \`source\`: \`{type:"param"}\` (default; the ?id= URL param — legacy string "route-param" still
 accepted) or \`{type:"block", blockId}\` — following the selection published by a sibling
-table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/marker.
+table/cardlist/kanban/calendar/map block when the user clicks a row/card/event/marker. Use the URL
+form for links you share or bookmark, and the sibling-block form for master/detail layouts.
 
 ## Block types
 
@@ -265,9 +289,25 @@ runs an action, the record selection is still published for consumption by sibli
 import { listManifests } from "../blocks/registry.js";
 import type { BlockManifest, SettingsField } from "../blocks/manifest-types.js";
 
-function fieldLine(f: SettingsField): string {
-  const bits: string[] = [`\`${f.key}\``];
-  bits.push(f.kind);
+/** Shape hint appended for a `custom` field, keyed by its editor slot (see slots/bootstrap.ts). */
+const CUSTOM_SLOT_SHAPES: Record<string, string> = {
+  aggregate: '{function, field, filter?} — see Aggregates',
+  sparkline: '{function, field, filter?} — see Aggregates',
+  "record-source": '{type:"param"} | {type:"block", blockId} — see Record source',
+  "format-rules-value": "FormatRule[]",
+  "single-action": "BlockAction (see Actions)",
+};
+
+function fieldLine(f: SettingsField, indent = ""): string {
+  const bits: string[] = [f.kind === "list" ? `\`${f.key} (list)\`` : `\`${f.key}\``];
+  if (f.kind === "custom") {
+    const slot = (f as any).slot;
+    bits.push(`custom: ${slot}`);
+    const shape = CUSTOM_SLOT_SHAPES[slot];
+    if (shape) bits.push(shape);
+  } else if (f.kind !== "list") {
+    bits.push(f.kind);
+  }
   if (f.required) bits.push("**required**");
   if (f.kind === "select") bits.push(`one of: ${(f as any).options.map((o: any) => o.value).join(", ")}`);
   if (f.kind === "number") {
@@ -277,9 +317,17 @@ function fieldLine(f: SettingsField): string {
     if (max != null) bits.push(`max ${max}`);
   }
   if (f.kind === "text" && (f as any).pattern) bits.push(`pattern \`${(f as any).pattern}\``);
-  if (f.kind === "list") bits.push(`items: ${(f as any).item.map((it: SettingsField) => it.key).join(", ")}`);
+  if (f.kind === "list") {
+    const min = (f as any).minItems, max = (f as any).maxItems;
+    if (min != null) bits.push(`min ${min}`);
+    if (max != null) bits.push(`max ${max}`);
+  }
   if (f.help) bits.push(`— ${f.help}`);
-  return `- ${bits.join(" · ")}`;
+  const lines = [`${indent}- ${bits.join(" · ")}`];
+  if (f.kind === "list") {
+    for (const item of (f as any).item as SettingsField[]) lines.push(fieldLine(item, `${indent}  `));
+  }
+  return lines.join("\n");
 }
 
 function manifestSection(m: BlockManifest): string {
@@ -287,8 +335,8 @@ function manifestSection(m: BlockManifest): string {
     m.needsCollection === true ? "Requires a collection."
     : m.needsCollection === "optional" ? "Collection optional."
     : "No collection.";
-  const fields = m.settings.flatMap((g) => g.fields).filter((f) => f.kind !== "custom");
-  return [`### ${m.type}`, "", `${m.description} ${collection}`, "", ...fields.map(fieldLine), ""].join("\n");
+  const fields = m.settings.flatMap((g) => g.fields);
+  return [`### ${m.type}`, "", `${m.description} ${collection}`, "", ...fields.map((f) => fieldLine(f)), ""].join("\n");
 }
 
 export function getBlockConfigDoc(): string {

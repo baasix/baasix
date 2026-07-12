@@ -10,7 +10,7 @@ const manifest: BlockManifest = {
   settingsMode: "manifest",
   settings: [
     { key: "general", label: "General", fields: [
-      { key: "height", label: "Height (px)", kind: "number", min: 4, max: 400, integer: true, required: true, default: 24 },
+      { key: "height", label: "Height (px)", kind: "number", min: 4, max: 400, integer: true, required: true, default: 24, help: "How much vertical gap to add, in pixels." },
     ] },
   ],
   defaults: { height: 24 },

@@ -12,10 +12,10 @@ const manifest: BlockManifest = {
     { key: "general", label: "General", fields: [
       { key: "mode", label: "Mode", kind: "select", options: [
         { label: "Countdown", value: "countdown" }, { label: "Clock", value: "clock" },
-      ], default: "countdown", required: true },
+      ], default: "countdown", required: true, help: "Countdown counts down to a target date; clock shows the current time." },
       { key: "target", label: "Target date/time", kind: "text", showIf: { field: "mode", equals: "countdown" }, help: "ISO datetime, e.g. 2026-12-31T00:00:00Z" },
-      { key: "endedLabel", label: "Ended label", kind: "text", showIf: { field: "mode", equals: "countdown" } },
-      { key: "showSeconds", label: "Show seconds", kind: "boolean", default: true },
+      { key: "endedLabel", label: "Ended label", kind: "text", showIf: { field: "mode", equals: "countdown" }, help: "Text shown once the target date/time has passed." },
+      { key: "showSeconds", label: "Show seconds", kind: "boolean", default: true, help: "Includes a seconds unit in the display." },
     ] },
   ],
   defaults: { mode: "countdown", showSeconds: true },

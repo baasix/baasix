@@ -118,10 +118,48 @@ describe("getBlockConfigDoc", () => {
   });
 });
 
+describe("block config doc parity (phase 6)", () => {
+  const doc = getBlockConfigDoc();
+  test("custom-kind fields are emitted with slot + help", () => {
+    expect(doc).toMatch(/aggregate.*custom: aggregate/i); // stat.aggregate line exists
+    expect(doc).toMatch(/record-source/);
+  });
+  test("list item fields carry their help", () => {
+    // stat tiles list: the item field 'label' line includes its help text
+    expect(doc).toMatch(/tiles\s*\(list\)/i);
+    expect(doc.split("\n").some((l) => /label/.test(l) && /—/.test(l) && /tile/i.test(l))).toBe(true);
+  });
+  test("topic guide sections exist", () => {
+    for (const h of ["## Aggregates", "## Record source", "## Expressions"]) expect(doc).toContain(h);
+  });
+});
+
 describe("systemschema", () => {
   test("baasix_Block.type is a String, not an ENUM", () => {
     const block = systemSchemaModule.schemas.find((s) => s.collectionName === "baasix_Block");
     expect(block.schema.fields.type.type).toBe("String");
     expect(block.schema.fields.type.values).toBeUndefined();
+  });
+});
+
+describe("every manifest settings field has real help", () => {
+  const restates = (help, label) => help.trim().toLowerCase() === label.trim().toLowerCase();
+  const checkFields = (fields, path, failures) => {
+    for (const f of fields) {
+      const where = `${path}.${f.key}`;
+      if (typeof f.help !== "string" || f.help.trim().length < 15 || restates(f.help, f.label ?? "")) {
+        failures.push(where);
+      }
+      if (f.kind === "list" && Array.isArray(f.item)) checkFields(f.item, `${where}[]`, failures);
+    }
+  };
+  test("all fields helped (>=15 chars, not a label restatement)", () => {
+    const failures = [];
+    const allManifests = listManifests();
+    for (const m of allManifests) {
+      if (!m.settings?.length) continue; // legacy entries exempt
+      for (const group of m.settings) checkFields(group.fields, `${m.type}.${group.key}`, failures);
+    }
+    expect(failures).toEqual([]); // the diff lists every unhelped field
   });
 });
