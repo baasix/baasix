@@ -125,3 +125,25 @@ describe("systemschema", () => {
     expect(block.schema.fields.type.values).toBeUndefined();
   });
 });
+
+describe("every manifest settings field has real help", () => {
+  const restates = (help, label) => help.trim().toLowerCase() === label.trim().toLowerCase();
+  const checkFields = (fields, path, failures) => {
+    for (const f of fields) {
+      const where = `${path}.${f.key}`;
+      if (typeof f.help !== "string" || f.help.trim().length < 15 || restates(f.help, f.label ?? "")) {
+        failures.push(where);
+      }
+      if (f.kind === "list" && Array.isArray(f.item)) checkFields(f.item, `${where}[]`, failures);
+    }
+  };
+  test("all fields helped (>=15 chars, not a label restatement)", () => {
+    const failures = [];
+    const allManifests = listManifests();
+    for (const m of allManifests) {
+      if (!m.settings?.length) continue; // legacy entries exempt
+      for (const group of m.settings) checkFields(group.fields, `${m.type}.${group.key}`, failures);
+    }
+    expect(failures).toEqual([]); // the diff lists every unhelped field
+  });
+});

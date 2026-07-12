@@ -12,10 +12,10 @@ const manifest: BlockManifest = {
     { key: "general", label: "General", fields: [
       { key: "mode", label: "Mode", kind: "select", options: [
         { label: "Automatic (page hierarchy)", value: "auto" }, { label: "Manual", value: "manual" },
-      ], default: "auto" },
-      { key: "items", label: "Items", kind: "list", showIf: { field: "mode", equals: "manual" }, item: [
-        { key: "label", label: "Label", kind: "text", required: true },
-        { key: "slug", label: "Page slug", kind: "text" },
+      ], default: "auto", help: "Automatic follows the page's parent pages; manual lets you list the trail yourself." },
+      { key: "items", label: "Items", kind: "list", showIf: { field: "mode", equals: "manual" }, help: "The crumbs shown in order, left to right.", item: [
+        { key: "label", label: "Label", kind: "text", required: true, help: "Text shown for this crumb." },
+        { key: "slug", label: "Page slug", kind: "text", help: "Slug of the page this crumb links to. Leave blank for plain text." },
       ] },
     ] },
   ],

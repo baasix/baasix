@@ -11,12 +11,12 @@ const manifest: BlockManifest = {
   settings: [
     { key: "general", label: "General", fields: [
       { key: "name", label: "Input name", kind: "text", required: true, pattern: "^[a-zA-Z][a-zA-Z0-9_]*$", help: "Range mode publishes $input.<name>_from and $input.<name>_to; single mode publishes $input.<name>." },
-      { key: "label", label: "Label", kind: "text" },
+      { key: "label", label: "Label", kind: "text", help: "Text shown above the date picker." },
       { key: "mode", label: "Mode", kind: "select", options: [
         { label: "Range", value: "range" }, { label: "Single date", value: "single" },
-      ], default: "range" },
+      ], default: "range", help: "Range shows a start and end date; single shows one date field." },
       { key: "presets", label: "Show presets", kind: "boolean", help: "Today, Last 7 days, Last 30 days, This month." },
-      { key: "required", label: "Required", kind: "boolean" },
+      { key: "required", label: "Required", kind: "boolean", help: "Consumers stay disabled until a date is chosen." },
     ] },
   ],
   defaults: { mode: "range", presets: true },

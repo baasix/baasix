@@ -10,14 +10,14 @@ const manifest: BlockManifest = {
   settingsMode: "manifest",
   settings: [
     { key: "general", label: "General", fields: [
-      { key: "name", label: "Input name", kind: "text", required: true, pattern: "^[a-zA-Z][a-zA-Z0-9_]*$" },
-      { key: "label", label: "Label", kind: "text" },
+      { key: "name", label: "Input name", kind: "text", required: true, pattern: "^[a-zA-Z][a-zA-Z0-9_]*$", help: "Reference as $input.<name> in sibling block filters." },
+      { key: "label", label: "Label", kind: "text", help: "Text shown next to the switch." },
       { key: "variant", label: "Variant", kind: "select", options: [
         { label: "Toggle (boolean)", value: "toggle" }, { label: "Segmented (options)", value: "segmented" },
-      ], default: "toggle" },
-      { key: "options", label: "Options", kind: "list", showIf: { field: "variant", equals: "segmented" }, item: [
-        { key: "label", label: "Label", kind: "text", required: true },
-        { key: "value", label: "Value", kind: "text", required: true },
+      ], default: "toggle", help: "Toggle publishes true when on and clears the value when off; segmented publishes one of the option values below." },
+      { key: "options", label: "Options", kind: "list", showIf: { field: "variant", equals: "segmented" }, help: "The segments shown in the control.", item: [
+        { key: "label", label: "Label", kind: "text", required: true, help: "Text shown on this segment's button." },
+        { key: "value", label: "Value", kind: "text", required: true, help: "Value published to $input.<name> when this segment is picked." },
       ] },
     ] },
   ],

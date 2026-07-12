@@ -13,7 +13,7 @@ const manifest: BlockManifest = {
       key: "general",
       label: "General",
       fields: [
-        { key: "content", label: "Content", kind: "markdown", required: true },
+        { key: "content", label: "Content", kind: "markdown", required: true, help: "The text shown on the page, written in markdown (headings, bold, links, lists)." },
       ],
     },
   ],

@@ -10,14 +10,14 @@ const manifest: BlockManifest = {
   settingsMode: "manifest",
   settings: [
     { key: "general", label: "General", fields: [
-      { key: "heading", label: "Heading", kind: "text", required: true },
-      { key: "subheading", label: "Subheading", kind: "text" },
-      { key: "description", label: "Description", kind: "text", multiline: true },
+      { key: "heading", label: "Heading", kind: "text", required: true, help: "Main title text, e.g. Dashboard." },
+      { key: "subheading", label: "Subheading", kind: "text", help: "Short text shown next to or below the heading." },
+      { key: "description", label: "Description", kind: "text", multiline: true, help: "Longer explanatory text shown under the heading." },
       { key: "icon", label: "Icon", kind: "text", help: "lucide icon name" },
       { key: "align", label: "Alignment", kind: "select", options: [
         { label: "Left", value: "left" }, { label: "Center", value: "center" },
-      ], default: "left" },
-      { key: "actions", label: "Actions", kind: "actions" },
+      ], default: "left", help: "Horizontal alignment of the heading and description text." },
+      { key: "actions", label: "Actions", kind: "actions", help: "Buttons shown alongside the header, e.g. New record or Export." },
     ] },
   ],
   defaults: { align: "left" },
