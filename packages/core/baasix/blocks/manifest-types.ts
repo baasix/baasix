@@ -22,6 +22,12 @@ export interface SettingsFieldBase {
   help?: string;
   /** Show only when a sibling field matches. `equals` wins over `truthy`. */
   showIf?: { field: string; equals?: unknown; truthy?: boolean };
+  /**
+   * Display hint only: the app disables/greys this field (with an
+   * explanatory note) when the block has no bound collection. No
+   * runtime/validation behavior keys off this beyond the type-check below.
+   */
+  requiresCollection?: boolean;
 }
 
 export interface TextField extends SettingsFieldBase { kind: "text"; placeholder?: string; multiline?: boolean; pattern?: string; }
@@ -87,6 +93,9 @@ function validateFields(fields: SettingsField[], path: string, seenKeys: Set<str
     if (!KINDS.includes(f.kind)) fail(`${fpath}(${f.key})`, `unknown kind "${(f as { kind?: string }).kind}"`);
     if (seenKeys.has(f.key)) fail(`${fpath}(${f.key})`, `duplicate field key "${f.key}"`);
     seenKeys.add(f.key);
+    if (f.requiresCollection !== undefined && typeof f.requiresCollection !== "boolean") {
+      fail(`${fpath}(${f.key})`, `requiresCollection must be a boolean`);
+    }
     if (f.kind === "select" && (!Array.isArray((f as SelectField).options) || (f as SelectField).options.length === 0)) {
       fail(`${fpath}(${f.key})`, "select field requires non-empty options");
     }

@@ -17,8 +17,8 @@ const manifest: BlockManifest = {
     { key: "data", label: "Data Binding", fields: [
       { key: "filter", label: "Filter", kind: "filter-dsl", help: "Only records matching this filter are passed into the widget's data." },
       { key: "fields", label: "Fields", kind: "field-picker", multiple: true, help: "Which record fields are included in the data passed to the widget." },
-      { key: "sort", label: "Sort", kind: "text", help: "e.g. -createdAt" },
-      { key: "limit", label: "Limit", kind: "number", min: 1, max: 500, integer: true, default: 100, help: "Maximum number of records passed into the widget's data." },
+      { key: "sort", label: "Sort", kind: "text", requiresCollection: true, help: "e.g. -createdAt" },
+      { key: "limit", label: "Limit", kind: "number", min: 1, max: 500, integer: true, default: 100, requiresCollection: true, help: "Maximum number of records passed into the widget's data." },
     ] },
   ],
   defaults: { height: 400, allowInputs: true, limit: 100 },

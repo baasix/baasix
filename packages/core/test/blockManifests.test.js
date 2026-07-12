@@ -70,6 +70,16 @@ describe("validateManifest", () => {
     m.settings[0].fields[1].showIf = { field: "missing", truthy: true };
     expect(() => validateManifest(m)).toThrow(/showIf.*missing/i);
   });
+  test("accepts a field with requiresCollection: true", () => {
+    const m = minimal();
+    m.settings[0].fields.push({ key: "sort", label: "Sort", kind: "text", requiresCollection: true });
+    expect(() => validateManifest(m)).not.toThrow();
+  });
+  test("rejects a non-boolean requiresCollection", () => {
+    const m = minimal();
+    m.settings[0].fields.push({ key: "sort", label: "Sort", kind: "text", requiresCollection: "yes" });
+    expect(() => validateManifest(m)).toThrow(/requiresCollection/i);
+  });
 });
 
 const LEGACY_TYPES = [
