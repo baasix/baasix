@@ -134,6 +134,38 @@ describe("block config doc parity (phase 6)", () => {
   });
 });
 
+describe("block config doc parity (phase 7)", () => {
+  const doc = getBlockConfigDoc();
+  test("### input section lists the full typed inputType union", () => {
+    const section = doc.slice(doc.indexOf("### input"), doc.indexOf("### tabs"));
+    for (const t of ["text", "textarea", "number", "decimal", "email", "url", "password", "tel", "select", "date", "toggle"]) {
+      expect(section).toContain(t);
+    }
+    expect(section).toMatch(/min.*max.*step/i);
+    expect(section).toMatch(/minLength.*maxLength.*pattern/i);
+  });
+  test("### upload section documents the name knob", () => {
+    const section = doc.slice(doc.indexOf("### upload"), doc.indexOf("### code"));
+    expect(section).toMatch(/`name\??`/);
+    expect(section).toMatch(/\$input\.<name>/);
+  });
+  test("### form section documents target/workflowId/customFields and the webhook note", () => {
+    const section = doc.slice(doc.indexOf("### form"), doc.indexOf("### details"));
+    expect(section).toMatch(/target/);
+    expect(section).toMatch(/workflowId/);
+    expect(section).toMatch(/customFields/);
+    expect(section).toMatch(/\bblockId\b/);
+    expect(section).toMatch(/webhook/i);
+    expect(section).toMatch(/anonymous|public/i);
+  });
+  test("daterange manifest section documents the kind field", () => {
+    expect(doc).toMatch(/### daterange[\s\S]*?`kind`/);
+  });
+  test("switch manifest section documents explicitFalse", () => {
+    expect(doc).toMatch(/### switch[\s\S]*?explicitFalse/);
+  });
+});
+
 describe("systemschema", () => {
   test("baasix_Block.type is a String, not an ENUM", () => {
     const block = systemSchemaModule.schemas.find((s) => s.collectionName === "baasix_Block");

@@ -26,8 +26,33 @@ import { isExpressionString } from "../blocks/expressions.js";
 
 const FORM_CONDITION_OPERATORS = new Set(["eq", "neq", "in", "notEmpty", "empty"]);
 const FORM_WIDGETS = new Set(["rating", "slider", "color", "phone", "currency", "signature"]);
-const INPUT_TYPES = new Set(["text", "select", "date", "toggle"]);
+/**
+ * INPUT_TYPES — exact union shared with the client's InputType (see app
+ * src/components/pages/blocks/input-validation.ts): text, textarea, number,
+ * decimal, email, url, password, tel, select, date, toggle. Server validates
+ * CONFIG coherence (which knobs are legal for a given inputType); the client
+ * owns runtime value validation.
+ */
+const INPUT_TYPES = new Set([
+    "text",
+    "textarea",
+    "number",
+    "decimal",
+    "email",
+    "url",
+    "password",
+    "tel",
+    "select",
+    "date",
+    "toggle",
+]);
+/** number/decimal knobs: min/max/step. `number` step must stay an integer (default 1). */
+const NUMERIC_INPUT_TYPES = new Set(["number", "decimal"]);
+/** text-ish knobs: minLength/maxLength/pattern. */
+const TEXTISH_INPUT_TYPES = new Set(["text", "textarea", "email", "url", "password", "tel"]);
 const INPUT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+/** form.target enum — "collection" (default) submits/edits a record, "workflow" triggers a workflow. */
+const FORM_TARGETS = new Set(["collection", "workflow"]);
 
 /** Validate one form field entry (flat list or inside a wizard step). */
 function assertFormFieldEntry(entry: any, fieldMap: Record<string, any>): void {
@@ -294,6 +319,83 @@ function validatePosition(position: any): void {
 }
 
 /**
+ * Validate the knob-coherence rules shared by the standalone `input` block
+ * and form workflow-mode `customFields` entries: `min`/`max`/`step` are only
+ * legal on number/decimal inputTypes (`number` additionally requires an
+ * integer step, matching the client's default-1 whole-number semantics);
+ * `minLength`/`maxLength`/`pattern` are only legal on text-ish inputTypes
+ * (text/textarea/email/url/password/tel); `min` must not exceed `max` when
+ * both are present. `context` prefixes error messages (e.g. "Input block
+ * config" or `Form customFields[0] ("email")`).
+ */
+function validateInputTypeKnobs(config: any, inputType: string, context: string): void {
+    const hasNumericKnob = config.min != null || config.max != null || config.step != null;
+    if (hasNumericKnob && !NUMERIC_INPUT_TYPES.has(inputType)) {
+        throw new APIError(
+            `${context}: "min"/"max"/"step" are only valid when inputType is "number" or "decimal" (got "${inputType}")`,
+            400
+        );
+    }
+    if (inputType === "number" && config.step != null && !Number.isInteger(config.step)) {
+        throw new APIError(
+            `${context}: "step" must be an integer when inputType is "number" (got ${config.step})`,
+            400
+        );
+    }
+    if (
+        typeof config.min === "number" &&
+        typeof config.max === "number" &&
+        config.min > config.max
+    ) {
+        throw new APIError(`${context}: "min" must not be greater than "max"`, 400);
+    }
+    const hasTextKnob = config.minLength != null || config.maxLength != null || config.pattern != null;
+    if (hasTextKnob && !TEXTISH_INPUT_TYPES.has(inputType)) {
+        throw new APIError(
+            `${context}: "minLength"/"maxLength"/"pattern" are only valid on text-ish inputTypes (text, textarea, email, url, password, tel) — got "${inputType}"`,
+            400
+        );
+    }
+}
+
+/**
+ * Validate a standalone `input` block config: `name` + `inputType` are
+ * required, `options` (select only) is either a static list or a
+ * {collection, valueField, labelField} binding, and the knob-coherence rules
+ * above apply. Shared by the top-level `input` block branch (typeKey
+ * "inputType") and form workflow-mode `customFields` entries (typeKey
+ * "type" — same INPUT_TYPES union and knob rules, different config key name).
+ */
+function validateInputConfig(config: any, context: string, typeKey: "inputType" | "type" = "inputType"): void {
+    const inputType = config[typeKey];
+    if (!INPUT_TYPES.has(inputType)) {
+        throw new APIError(
+            `Invalid ${typeKey} "${inputType}" in ${context}. Must be one of: ${[...INPUT_TYPES].join(", ")}`,
+            400
+        );
+    }
+    validateInputTypeKnobs(config, inputType, context);
+    if (config.options != null) {
+        const options = config.options;
+        const staticOk =
+            Array.isArray(options) &&
+            options.every((o: any) => o && typeof o === "object" && typeof o.value === "string");
+        const dynamicOk =
+            !Array.isArray(options) &&
+            typeof options === "object" &&
+            typeof options.collection === "string" &&
+            typeof options.valueField === "string" &&
+            typeof options.labelField === "string";
+        if (!staticOk && !dynamicOk) {
+            throw new APIError(
+                `Invalid input options in ${context}: must be [{label, value}] or {collection, valueField, labelField}`,
+                400
+            );
+        }
+    }
+}
+
+/**
  * Validate a baasix_Block payload.
  *
  * @param data       the (partial) block payload
@@ -380,37 +482,6 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
             assertFieldEntries(config.columns, fieldMap, "config.columns", true);
             assertSheetTitle(config, fieldMap);
             validateTableFormatting(config.formatting);
-        } else if (type === "form") {
-            if (config.mode != null && !FORM_MODES.has(config.mode)) {
-                throw new APIError(
-                    `Invalid form mode "${config.mode}". Must be one of: create, edit`,
-                    400
-                );
-            }
-            if (Array.isArray(config.steps) && config.steps.length > 0) {
-                if (Array.isArray(config.fields) && config.fields.length > 0) {
-                    throw new APIError(
-                        `Form block config cannot set both "fields" and "steps" — wizard steps replace the flat list`,
-                        400
-                    );
-                }
-                for (const step of config.steps) {
-                    if (!step || typeof step !== "object" || typeof step.title !== "string" || !step.title) {
-                        throw new APIError(`Invalid form step: needs a "title"`, 400);
-                    }
-                    if (!Array.isArray(step.fields) || step.fields.length === 0) {
-                        throw new APIError(`Invalid form step "${step.title}": "fields" must be a non-empty array`, 400);
-                    }
-                    for (const entry of step.fields) {
-                        assertFormFieldEntry(entry, fieldMap);
-                    }
-                }
-            } else if (Array.isArray(config.fields)) {
-                for (const entry of config.fields) {
-                    assertFormFieldEntry(entry, fieldMap);
-                }
-            }
-            assertRecordSource(config.source);
         } else if (type === "details") {
             assertFieldEntries(config.fields, fieldMap, "config.fields", true);
             assertRecordSource(config.source);
@@ -746,6 +817,15 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         }
     }
 
+    // form's collection is now OPTIONAL (needsCollection: "optional"): collection
+    // mode (target absent/"collection") still requires one, but workflow mode
+    // does not, so this is handled as its own top-level branch (like code/
+    // richtext below) rather than inside the `fieldMap`-gated chain above —
+    // fieldMap is resolved on demand here only when collection mode applies.
+    if (config != null && type === "form") {
+        validateFormConfig(config, collection, getFields);
+    }
+
     // buttons also has no collection — when a config is present, "items" must
     // be a non-empty array of valid button items. No config at all stays
     // lenient (renderers handle configless blocks defensively).
@@ -829,7 +909,9 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
 
     // input is collectionless: name + inputType are required in any config;
     // select options are a static list or a {collection, valueField, labelField}
-    // binding (the collection is validated on read by the renderer's query).
+    // binding (the collection is validated on read by the renderer's query);
+    // knob coherence (min/max/step, minLength/maxLength/pattern) is enforced
+    // by validateInputConfig, shared with form workflow-mode customFields.
     if (config != null && type === "input") {
         if (typeof config.name !== "string" || !INPUT_NAME_RE.test(config.name)) {
             throw new APIError(
@@ -837,30 +919,7 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
                 400
             );
         }
-        if (!INPUT_TYPES.has(config.inputType)) {
-            throw new APIError(
-                `Invalid inputType "${config.inputType}". Must be one of: text, select, date, toggle`,
-                400
-            );
-        }
-        if (config.options != null) {
-            const options = config.options;
-            const staticOk =
-                Array.isArray(options) &&
-                options.every((o: any) => o && typeof o === "object" && typeof o.value === "string");
-            const dynamicOk =
-                !Array.isArray(options) &&
-                typeof options === "object" &&
-                typeof options.collection === "string" &&
-                typeof options.valueField === "string" &&
-                typeof options.labelField === "string";
-            if (!staticOk && !dynamicOk) {
-                throw new APIError(
-                    `Invalid input options: must be [{label, value}] or {collection, valueField, labelField}`,
-                    400
-                );
-            }
-        }
+        validateInputConfig(config, "Input block config");
     }
 
     // richtext mirrors code: OPTIONAL collection, required when recordField
@@ -887,6 +946,143 @@ export function validateBlockData(data: any, getFields: GetFieldsFn): void {
         }
         assertRecordSource(config.source);
     }
+}
+
+/**
+ * Validate a form block config. `target: "collection" | "workflow"` (default
+ * "collection", absent = byte-identical to pre-Phase-7 behavior) picks the
+ * submit destination:
+ *
+ * - Collection mode (target absent or "collection"): today's rules unchanged
+ *   — the block requires a collection, `fields`/`steps` entries reference
+ *   the collection's fields via assertFormFieldEntry, and workflow-only keys
+ *   (`workflowId`, `customFields`) are rejected.
+ * - Workflow mode (target "workflow"): `workflowId` must be a non-empty
+ *   string, `customFields` must be a non-empty array of
+ *   `{name: identifier+unique-in-config, type: one of INPUT_TYPES, knobs...}`
+ *   (validated with the same knob-coherence rules as the standalone input
+ *   block), and collection-mode `fields` must be ABSENT (mutually exclusive
+ *   — `steps` is still allowed, but each step's field entries must reference
+ *   a customFields name rather than a collection field, mirroring
+ *   assertFormFieldEntry's collection-mode field-existence check). The block
+ *   itself does not require — and must not require — a collection in this
+ *   mode, since submission goes to a workflow, not a collection record.
+ */
+function validateFormConfig(config: any, collection: any, getFields: GetFieldsFn): void {
+    if (config.mode != null && !FORM_MODES.has(config.mode)) {
+        throw new APIError(`Invalid form mode "${config.mode}". Must be one of: create, edit`, 400);
+    }
+    const target = config.target ?? "collection";
+    if (!FORM_TARGETS.has(target)) {
+        throw new APIError(`Invalid form target "${config.target}". Must be one of: collection, workflow`, 400);
+    }
+
+    if (target === "workflow") {
+        if (config.fields != null) {
+            throw new APIError(
+                `Form block config cannot set "fields" when target is "workflow" — use "customFields" instead (collection-mode fields and workflow customFields are mutually exclusive)`,
+                400
+            );
+        }
+        if (typeof config.workflowId !== "string" || config.workflowId.length === 0) {
+            throw new APIError(
+                `Form block config requires "workflowId" (non-empty string) when target is "workflow"`,
+                400
+            );
+        }
+        if (!Array.isArray(config.customFields) || config.customFields.length === 0) {
+            throw new APIError(
+                `Form block config requires "customFields" (non-empty array) when target is "workflow"`,
+                400
+            );
+        }
+        const seenNames = new Set<string>();
+        const fieldMap: Record<string, any> = {};
+        config.customFields.forEach((entry: any, index: number) => {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                throw new APIError(`Invalid customFields[${index}]: must be an object {name, type, ...}`, 400);
+            }
+            if (typeof entry.name !== "string" || !INPUT_NAME_RE.test(entry.name)) {
+                throw new APIError(
+                    `Invalid customFields[${index}].name: must match ${INPUT_NAME_RE}`,
+                    400
+                );
+            }
+            if (seenNames.has(entry.name)) {
+                throw new APIError(
+                    `Duplicate name "${entry.name}" in customFields: names must be unique`,
+                    400
+                );
+            }
+            seenNames.add(entry.name);
+            fieldMap[entry.name] = true;
+            validateInputConfig(entry, `customFields[${index}] ("${entry.name}")`, "type");
+        });
+
+        if (Array.isArray(config.steps) && config.steps.length > 0) {
+            for (const step of config.steps) {
+                if (!step || typeof step !== "object" || typeof step.title !== "string" || !step.title) {
+                    throw new APIError(`Invalid form step: needs a "title"`, 400);
+                }
+                if (!Array.isArray(step.fields) || step.fields.length === 0) {
+                    throw new APIError(`Invalid form step "${step.title}": "fields" must be a non-empty array`, 400);
+                }
+                for (const entry of step.fields) {
+                    assertFormFieldEntry(entry, fieldMap);
+                }
+            }
+        }
+        // Workflow mode publishes { form, page, blockId } as the trigger payload:
+        // authenticated sessions call baasixClient.workflows.execute directly;
+        // anonymous (public-shell) sessions POST the workflow's stored
+        // webhookPath/webhookMethod instead — validated/stored on the workflow
+        // itself, not on this block config, so there is nothing further to
+        // check here.
+        assertRecordSource(config.source);
+        return;
+    }
+
+    // Collection mode (target absent or "collection"): today's rules,
+    // unchanged — a collection is required, and workflow-only keys are
+    // rejected so the two modes can't be mixed.
+    if (config.workflowId != null) {
+        throw new APIError(`Form block config "workflowId" is only valid when target is "workflow"`, 400);
+    }
+    if (config.customFields != null) {
+        throw new APIError(`Form block config "customFields" is only valid when target is "workflow"`, 400);
+    }
+    if (!collection || typeof collection !== "string") {
+        throw new APIError(`Block type "form" requires a collection`, 400);
+    }
+    const fieldMap = getFields(collection);
+    if (!fieldMap) {
+        throw new APIError(`Unknown collection "${collection}" for block`, 400);
+    }
+
+    if (Array.isArray(config.steps) && config.steps.length > 0) {
+        if (Array.isArray(config.fields) && config.fields.length > 0) {
+            throw new APIError(
+                `Form block config cannot set both "fields" and "steps" — wizard steps replace the flat list`,
+                400
+            );
+        }
+        for (const step of config.steps) {
+            if (!step || typeof step !== "object" || typeof step.title !== "string" || !step.title) {
+                throw new APIError(`Invalid form step: needs a "title"`, 400);
+            }
+            if (!Array.isArray(step.fields) || step.fields.length === 0) {
+                throw new APIError(`Invalid form step "${step.title}": "fields" must be a non-empty array`, 400);
+            }
+            for (const entry of step.fields) {
+                assertFormFieldEntry(entry, fieldMap);
+            }
+        }
+    } else if (Array.isArray(config.fields)) {
+        for (const entry of config.fields) {
+            assertFormFieldEntry(entry, fieldMap);
+        }
+    }
+    assertRecordSource(config.source);
 }
 
 /**
@@ -928,7 +1124,10 @@ function validateCodeConfig(config: any, collection: any, getFields: GetFieldsFn
  * Validate an upload block config. All keys are optional: `accept` (string
  * passed to the file input's accept attribute, e.g. "image/*,.pdf"),
  * `maxSizeMB` (positive finite number — client-side size cap), `multiple`
- * (boolean) and `folder` (string stored on the created baasix_File rows).
+ * (boolean), `folder` (string stored on the created baasix_File rows), and
+ * `name` (identifier matching INPUT_NAME_RE — when set, publishes the
+ * server-confirmed created file id string, or string[] when `multiple`, as
+ * $input.<name> for sibling blocks; unset is byte-identical to today).
  */
 function validateUploadConfig(config: any): void {
     if (config.accept != null && typeof config.accept !== "string") {
@@ -948,6 +1147,12 @@ function validateUploadConfig(config: any): void {
     }
     if (config.folder != null && typeof config.folder !== "string") {
         throw new APIError(`Invalid upload folder: must be a string`, 400);
+    }
+    if (config.name != null && (typeof config.name !== "string" || !INPUT_NAME_RE.test(config.name))) {
+        throw new APIError(
+            `Invalid upload name "${config.name}": must match ${INPUT_NAME_RE} (referenced as $input.<name>)`,
+            400
+        );
     }
 }
 

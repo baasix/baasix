@@ -15,6 +15,7 @@ const manifest: BlockManifest = {
       { key: "variant", label: "Variant", kind: "select", options: [
         { label: "Toggle (boolean)", value: "toggle" }, { label: "Segmented (options)", value: "segmented" },
       ], default: "toggle", help: "Toggle publishes true when on and clears the value when off; segmented publishes one of the option values below." },
+      { key: "explicitFalse", label: "Publish false explicitly", kind: "boolean", showIf: { field: "variant", equals: "toggle" }, help: "Off publishes the literal value false instead of clearing $input.<name> — use when sibling filters need to distinguish off from unset." },
       { key: "options", label: "Options", kind: "list", showIf: { field: "variant", equals: "segmented" }, help: "The segments shown in the control.", item: [
         { key: "label", label: "Label", kind: "text", required: true, help: "Text shown on this segment's button." },
         { key: "value", label: "Value", kind: "text", required: true, help: "Value published to $input.<name> when this segment is picked." },

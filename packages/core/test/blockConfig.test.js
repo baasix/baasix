@@ -2284,6 +2284,305 @@ describe("validateBlockData – phase 4 (wizard/conditional/widgets/input)", () 
             )
         ).toThrow(/options/);
     });
+
+    test("input unknown inputType 'money' throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "money", name: "x" } },
+                userLikeFields
+            )
+        ).toThrow(/inputType/);
+    });
+
+    test("input number with min/max passes", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "number", name: "qty", min: 1, max: 10 } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input text with min throws (min/max/step only on number/decimal)", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "text", name: "x", min: 1 } },
+                userLikeFields
+            )
+        ).toThrow(/min/);
+    });
+
+    test("input number step 0.5 throws (number step must be an integer)", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "number", name: "x", step: 0.5 } },
+                userLikeFields
+            )
+        ).toThrow(/step/);
+    });
+
+    test("input decimal step 0.5 passes", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "decimal", name: "x", step: 0.5 } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input number min:0 (falsy but valid) passes", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "number", name: "x", min: 0, max: 5, step: 1 } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input min > max throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "number", name: "x", min: 10, max: 1 } },
+                userLikeFields
+            )
+        ).toThrow(/min/);
+    });
+
+    test("input text with minLength/maxLength/pattern passes", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "input",
+                    config: { inputType: "text", name: "x", minLength: 1, maxLength: 10, pattern: "^[a-z]+$" },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("input select with minLength throws (minLength/maxLength/pattern only on text-ish)", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "select", name: "x", minLength: 1 } },
+                userLikeFields
+            )
+        ).toThrow(/minLength/);
+    });
+
+    test("input email/url/password/tel accept minLength/maxLength/pattern", () => {
+        for (const inputType of ["email", "url", "password", "tel"]) {
+            expect(() =>
+                validateBlockData(
+                    { type: "input", config: { inputType, name: "x", minLength: 1, maxLength: 20 } },
+                    userLikeFields
+                )
+            ).not.toThrow();
+        }
+    });
+
+    test("input textarea accepts minLength/maxLength/pattern", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "input", config: { inputType: "textarea", name: "x", minLength: 1, maxLength: 500 } },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+});
+
+describe("upload block config — name knob", () => {
+    test("upload with valid name passes", () => {
+        expect(() =>
+            validateBlockData({ type: "upload", config: { name: "attachment" } }, userLikeFields)
+        ).not.toThrow();
+    });
+
+    test("upload with bad name '2bad' throws", () => {
+        expect(() =>
+            validateBlockData({ type: "upload", config: { name: "2bad" } }, userLikeFields)
+        ).toThrow(/name/);
+    });
+
+    test("upload with no name still passes (name optional)", () => {
+        expect(() =>
+            validateBlockData({ type: "upload", config: { accept: "image/*" } }, userLikeFields)
+        ).not.toThrow();
+    });
+});
+
+describe("form block config — workflow target", () => {
+    test("form workflow minimal (no collection) passes", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: {
+                        target: "workflow",
+                        workflowId: "w1",
+                        customFields: [{ name: "email", type: "email", required: true }],
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("form workflow + fields throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: {
+                        target: "workflow",
+                        workflowId: "w1",
+                        customFields: [{ name: "email", type: "email" }],
+                        fields: [{ field: "name" }],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/fields/);
+    });
+
+    test("form workflow missing workflowId throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: { target: "workflow", customFields: [{ name: "email", type: "email" }] },
+                },
+                userLikeFields
+            )
+        ).toThrow(/workflowId/);
+    });
+
+    test("form workflow customFields dup names throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: {
+                        target: "workflow",
+                        workflowId: "w1",
+                        customFields: [
+                            { name: "email", type: "email" },
+                            { name: "email", type: "text" },
+                        ],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/customFields/);
+    });
+
+    test("form workflow customFields bad type throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: {
+                        target: "workflow",
+                        workflowId: "w1",
+                        customFields: [{ name: "amount", type: "money" }],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/type/);
+    });
+
+    test("form collection-mode + workflowId throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    collection: "posts",
+                    config: { target: "collection", workflowId: "w1", fields: [{ field: "name" }] },
+                },
+                userLikeFields
+            )
+        ).toThrow(/workflowId/);
+    });
+
+    test("form collection-mode + customFields throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    collection: "posts",
+                    config: { customFields: [{ name: "email", type: "email" }], fields: [{ field: "name" }] },
+                },
+                userLikeFields
+            )
+        ).toThrow(/customFields/);
+    });
+
+    test("form with no collection and no target throws (collection still required for collection mode)", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "form", config: { fields: [{ field: "name" }] } },
+                userLikeFields
+            )
+        ).toThrow(/collection/);
+    });
+
+    test("form with no collection and target 'collection' throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "form", config: { target: "collection", fields: [{ field: "name" }] } },
+                userLikeFields
+            )
+        ).toThrow(/collection/);
+    });
+
+    test("form workflow steps referencing customFields names pass", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: {
+                        target: "workflow",
+                        workflowId: "w1",
+                        customFields: [
+                            { name: "email", type: "email" },
+                            { name: "message", type: "textarea" },
+                        ],
+                        steps: [
+                            { title: "Contact", fields: [{ field: "email" }] },
+                            { title: "Message", fields: [{ field: "message" }] },
+                        ],
+                    },
+                },
+                userLikeFields
+            )
+        ).not.toThrow();
+    });
+
+    test("form workflow steps referencing unknown customFields name throws", () => {
+        expect(() =>
+            validateBlockData(
+                {
+                    type: "form",
+                    config: {
+                        target: "workflow",
+                        workflowId: "w1",
+                        customFields: [{ name: "email", type: "email" }],
+                        steps: [{ title: "Contact", fields: [{ field: "nope" }] }],
+                    },
+                },
+                userLikeFields
+            )
+        ).toThrow(/nope/);
+    });
+
+    test("form workflow invalid target enum throws", () => {
+        expect(() =>
+            validateBlockData(
+                { type: "form", config: { target: "bogus" } },
+                userLikeFields
+            )
+        ).toThrow(/target/);
+    });
 });
 
 describe("validateBlockData – map provider", () => {

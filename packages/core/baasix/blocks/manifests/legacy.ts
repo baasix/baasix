@@ -13,7 +13,7 @@ function legacy(
 
 export const LEGACY_MANIFESTS: BlockManifest[] = [
   legacy("table", "Table", "Paginated data table with filters, sorting, search, and row/bulk actions.", "table", "data", true),
-  legacy("form", "Form", "Create or edit a record with per-field widgets and wizard steps.", "clipboard-list", "data", true),
+  legacy("form", "Form", "Create or edit a record with per-field widgets and wizard steps, or submit to a workflow.", "clipboard-list", "data", "optional"),
   legacy("details", "Details", "Read-only field list for a single record.", "list", "data", true),
   legacy("kanban", "Kanban", "Drag-and-drop board grouped by a field.", "trello", "data", true),
   legacy("calendar", "Calendar", "Month/week/day event calendar from date fields.", "calendar", "data", true),
