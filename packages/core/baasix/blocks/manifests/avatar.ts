@@ -21,6 +21,7 @@ const manifest: BlockManifest = {
       { key: "avatarSize", label: "Size", kind: "select", options: [
         { label: "Small", value: "sm" }, { label: "Medium", value: "md" }, { label: "Large", value: "lg" },
       ], default: "md" },
+      { key: "itemAction", label: "On item click", kind: "custom", slot: "single-action", help: "Runs when an avatar is clicked." },
     ] },
   ],
   defaults: { max: 5, avatarSize: "md" },

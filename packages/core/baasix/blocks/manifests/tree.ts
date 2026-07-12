@@ -16,6 +16,7 @@ const manifest: BlockManifest = {
       { key: "filter", label: "Filter", kind: "filter-dsl" },
       { key: "sort", label: "Sort", kind: "text", help: "e.g. name or -createdAt" },
       { key: "selectable", label: "Publish selection on click", kind: "boolean", default: true },
+      { key: "itemAction", label: "On item click", kind: "custom", slot: "single-action", help: "Runs when a node is clicked. Selection is still published." },
     ] },
   ],
   defaults: { selectable: true },

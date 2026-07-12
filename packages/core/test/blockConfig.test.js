@@ -491,6 +491,42 @@ describe("validateBlockData – phase 2 types", () => {
                 )
             ).toThrow(/bogusField/);
         });
+
+        test("chart valid clickInput does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "chart",
+                        collection: "tasks",
+                        config: {
+                            chartType: "bar",
+                            aggregate: { count: { function: "count", field: "*" } },
+                            groupBy: ["status"],
+                            clickInput: "region",
+                        },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("chart invalid clickInput throws mentioning clickInput", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "chart",
+                        collection: "tasks",
+                        config: {
+                            chartType: "bar",
+                            aggregate: { count: { function: "count", field: "*" } },
+                            groupBy: ["status"],
+                            clickInput: "2bad",
+                        },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/clickInput/);
+        });
     });
 
     describe("cardlist", () => {
@@ -775,6 +811,32 @@ describe("validateBlockData – phase 2 types", () => {
                     phase2Fields
                 )
             ).toThrow(/world/);
+        });
+
+        test("geochart valid clickInput does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "count", clickInput: "region" },
+                    },
+                    phase2Fields
+                )
+            ).not.toThrow();
+        });
+
+        test("geochart invalid clickInput throws mentioning clickInput", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "geochart",
+                        collection: "orders",
+                        config: { regionField: "country", aggregate: "count", clickInput: "2bad" },
+                    },
+                    phase2Fields
+                )
+            ).toThrow(/clickInput/);
         });
     });
 
@@ -1450,6 +1512,71 @@ describe("validateBlockData – phase 2 types", () => {
                     feedFields
                 )
             ).toThrow(/order/);
+        });
+    });
+
+    describe("progress", () => {
+        const progressFields = stubFields({ amount: {}, goal: {} });
+
+        test("valid progress config with numeric target does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: { aggregate: { function: "sum", field: "amount" }, target: 100 },
+                    },
+                    progressFields
+                )
+            ).not.toThrow();
+        });
+
+        test("valid progress config with {function, field} target does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: {
+                            aggregate: { function: "sum", field: "amount" },
+                            target: { function: "sum", field: "goal" },
+                        },
+                    },
+                    progressFields
+                )
+            ).not.toThrow();
+        });
+
+        test("progress config with {{ expression }} string target does not throw", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: {
+                            aggregate: { function: "sum", field: "amount" },
+                            target: "{{ input.goal }}",
+                        },
+                    },
+                    progressFields
+                )
+            ).not.toThrow();
+        });
+
+        test("progress config with non-expression string target throws mentioning target", () => {
+            expect(() =>
+                validateBlockData(
+                    {
+                        type: "progress",
+                        collection: "DemoTask",
+                        config: {
+                            aggregate: { function: "sum", field: "amount" },
+                            target: "not a number",
+                        },
+                    },
+                    progressFields
+                )
+            ).toThrow(/target/);
         });
     });
 

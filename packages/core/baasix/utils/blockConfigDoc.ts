@@ -132,6 +132,8 @@ Time mode (series family bar/line/area only): \`xType: "time"\` + \`timeField\` 
 hours/days/weeks/months/years, max amount 1000).
 Pie family (pie/doughnut/polar/treemap) uses groupBy + the FIRST aggregate alias.
 \`stat\` renders metric cards; \`compare? { timeField, range }\` adds previous-period delta badges.
+\`clickInput?\` (identifier \`^[A-Za-z][A-Za-z0-9_]*$\`; cartesian bar/line/area + pie/doughnut only —
+on click, publishes \`"$input.<clickInput>"\` with the clicked category; clicking it again clears it).
 
 ### cardlist
 \`titleField\` (required), \`subtitleField?\`, \`imageField?\` (file UUID field), \`fields?: []\`,
@@ -140,13 +142,15 @@ Pie family (pie/doughnut/polar/treemap) uses groupBy + the FIRST aggregate alias
 ### map
 \`geometryField\` (required; GeoJSON/WKT), \`titleField?\`, \`popupFields?: []\`, \`defaultCenter?\`,
 \`defaultZoom?\`, \`filter?\`, \`clusterMarkers?: bool\`, \`colorField?\`, \`colorMap? { value: cssColor }\`,
-\`provider?: "leaflet"|"google"\` (default leaflet; google needs a Maps JS API key saved in project
+\`itemAction?: BlockAction\`, \`provider?: "leaflet"|"google"\` (default leaflet; google needs a Maps JS API key saved in project
 settings as \`metadata.googleMapsApiKey\` — without one the block falls back to leaflet).
 
 ### geochart
 \`regionField\` (required; values are ISO 3166-1 alpha-2 "IN", alpha-3 "IND" or country names, case-insensitive),
 \`aggregate?: "count"|"sum"|"avg"|"min"|"max"\` (default count), \`valueField?\` (numeric; REQUIRED when aggregate != count),
 \`region?: "world"\` (only "world" accepted), \`filter?\`. Renders a choropleth world map.
+\`clickInput?\` (identifier \`^[A-Za-z][A-Za-z0-9_]*$\`; on country click, publishes
+\`"$input.<clickInput>"\` with the clicked region's raw \`regionField\` value; clicking it again clears it).
 
 ### input
 \`inputType: "text"|"select"|"date"|"toggle"\` (required), \`name\` (required, \`^[a-zA-Z][a-zA-Z0-9_]*$\`,
@@ -176,8 +180,8 @@ Children use slot \`"body"\`. No collection.
 
 ### progress
 \`aggregate: {function, field}\` (required; "*" allowed for count) — the current value.
-\`target: number | {function, field, filter?}\` (required) — fixed goal or a second aggregate
-(e.g. value = count of done tasks, target = count of all tasks).
+\`target: number | {function, field, filter?} | string\` (required) — fixed goal, a second aggregate
+(e.g. value = count of done tasks, target = count of all tasks), or a \`{{ expression }}\` string resolving to a number.
 \`variant?: "bar"|"radial"\` (default bar), \`label?\`, \`format? {prefix?, suffix?, decimals?}\`,
 \`thresholds?: [{upTo, color}]\` (percent-based color), \`filter?\`.
 
@@ -216,7 +220,7 @@ data blocks (merged AND into each target's filter).
 ### feed
 \`textField\` (required), \`authorField?\` (usertrack \`userCreated\` recommended), \`timestampField?\`
 (default createdAt), \`order?: "asc"|"desc"\`, \`composer?\`, \`composerDefaults?\` (values support \`$param.<name>\`),
-\`fileField?\` (attachments), \`highlightOwn?/allowEditOwn?/allowDeleteOwn?\` (default true).
+\`fileField?\` (attachments), \`itemAction?: BlockAction\`, \`highlightOwn?/allowEditOwn?/allowDeleteOwn?\` (default true).
 
 ### upload
 \`accept?\` (file-input accept attr), \`maxSizeMB?\`, \`multiple?: bool\`, \`folder?\`. No collection.
@@ -238,6 +242,8 @@ data blocks (merged AND into each target's filter).
 - \`export-csv\` (header actions only)
 Used by buttons \`items\`, data-block \`headerActions\`, table/cardlist \`rowActions\`, kanban \`cardActions\`,
 and the single-action keys \`cardAction\`/\`itemAction\`/\`eventAction\`.
+When a data block's click-action key (\`itemAction\` on tree/leaderboard/avatar/map/feed, \`action\` per-tile on stat)
+runs an action, the record selection is still published for consumption by sibling blocks.
 
 ## Misc
 
