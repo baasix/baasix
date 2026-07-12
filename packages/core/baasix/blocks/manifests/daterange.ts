@@ -15,7 +15,10 @@ const manifest: BlockManifest = {
       { key: "mode", label: "Mode", kind: "select", options: [
         { label: "Range", value: "range" }, { label: "Single date", value: "single" },
       ], default: "range", help: "Range shows a start and end date; single shows one date field." },
-      { key: "presets", label: "Show presets", kind: "boolean", help: "Today, Last 7 days, Last 30 days, This month." },
+      { key: "kind", label: "Kind", kind: "select", options: [
+        { label: "Date", value: "date" }, { label: "Time", value: "time" }, { label: "Date & time", value: "datetime" },
+      ], default: "date", help: "date = calendar days (start/end of day); time = clock times (HH:mm); datetime = exact instants with a time picker." },
+      { key: "presets", label: "Show presets", kind: "boolean", help: "Today, Last 7 days, Last 30 days, This month. Hidden automatically when kind is time." },
       { key: "required", label: "Required", kind: "boolean", help: "Consumers stay disabled until a date is chosen." },
     ] },
   ],

@@ -107,11 +107,13 @@ form for links you share or bookmark, and the sibling-block form for master/deta
 
 ## Block types
 
-Types REQUIRING a collection: table, form, details, kanban, calendar, chart, cardlist, map, geochart,
+Types REQUIRING a collection: table, details, kanban, calendar, chart, cardlist, map, geochart,
 media, feed, filter, timeline, progress, repeater, report.
 Collectionless types: markdown, buttons, iframe, upload, tabs, container, modal, divider, input.
 \`code\` and \`richtext\` take an OPTIONAL collection (required only when \`recordField\` is set);
 \`widget\` also takes an optional collection (data binding for \`window.Baasix.onData\`).
+\`form\` takes an OPTIONAL collection: required when \`target\` is absent/\`"collection"\`, not used
+when \`target\` is \`"workflow"\` — see \`### form\`.
 All field names referenced in a config MUST exist on the bound collection (validated server-side).
 
 ### table
@@ -120,6 +122,11 @@ All field names referenced in a config MUST exist on the bound collection (valid
 \`bulkEdit?\`, \`bulkDelete?\`, \`advancedFilter?: bool\`, \`sheetTitle?\`, \`headerActions?\`, \`rowActions?\`.
 
 ### form
+\`target?: "collection"|"workflow"\` (default \`"collection"\`; omitted = today's byte-identical
+behavior). Collection is REQUIRED when target is \`"collection"\` (or absent); collection is
+NOT used/required when target is \`"workflow"\`.
+
+**Collection mode** (\`target\` absent or \`"collection"\`):
 \`mode: "create"|"edit"\`,
 \`fields: [{ field, label?, required?, defaultValue?, hidden?, visibleWhen?, widget?, widgetOptions? }]\`
 OR \`steps: [{ title, description?, fields: [entry…] }]\` (wizard: back/next + per-step required
@@ -132,6 +139,25 @@ Field entry extras:
   (rating/slider→Integer-ish, color/phone→String, currency→numeric, signature→String/Text PNG data-url).
 \`submitLabel?\`, \`successMessage?\`, \`redirectPageSlug?\`, \`humanCheck?: bool\`,
 \`source?\` (edit mode: where the record id comes from; see Record sources).
+\`workflowId\` and \`customFields\` are REJECTED in this mode.
+
+**Workflow mode** (\`target: "workflow"\`): submits to a workflow trigger instead of a collection
+record — \`fields\` (collection-mode) is REJECTED; use \`customFields\` instead.
+- \`workflowId\` (required, non-empty string) — the target workflow.
+- \`customFields\` (required, non-empty array) — \`{ name: "^[a-zA-Z][a-zA-Z0-9_]*$" (unique within
+  the array), type: <same union as input block's inputType>, required?, label?, ...same
+  min/max/step/minLength/maxLength/pattern knobs and coherence rules as the input block (see
+  \`### input\`) }\`.
+- \`steps?\` still applies for a wizarded workflow form; each step's \`fields[].field\` must
+  reference a \`customFields\` name (not a collection field, since there is no collection).
+- \`submitLabel?\`, \`successMessage?\`, \`redirectPageSlug?\`, \`humanCheck?: bool\` all still apply.
+- Trigger payload shape: \`{ form: { <customFields name>: <value>, ... }, page: <slug>, blockId }\`.
+- **Authenticated vs. public**: on an authenticated page the client calls
+  \`baasixClient.workflows.execute(workflowId, payload)\` directly. On a public page (\`/p/?slug=\`,
+  anonymous session) there is no authenticated API call available, so the client instead POSTs the
+  payload to the workflow's own stored \`webhookPath\`/\`webhookMethod\` (configured on the workflow,
+  not on this block). If the workflow has no webhook configured, the form's submit button is
+  disabled with an explanatory message — it never fires a POST that would 404.
 
 ### details
 \`fields: [{ field, label?, format? }]\`, \`source?: {type:"param"} | {type:"block", blockId}\`
@@ -177,11 +203,18 @@ settings as \`metadata.googleMapsApiKey\` — without one the block falls back t
 \`"$input.<clickInput>"\` with the clicked region's raw \`regionField\` value; clicking it again clears it).
 
 ### input
-\`inputType: "text"|"select"|"date"|"toggle"\` (required), \`name\` (required, \`^[a-zA-Z][a-zA-Z0-9_]*$\`,
+\`inputType: "text"|"textarea"|"number"|"decimal"|"email"|"url"|"password"|"tel"|"select"|"date"|"toggle"\`
+(required), \`name\` (required, \`^[a-zA-Z][a-zA-Z0-9_]*$\`,
 unique per page — filters reference \`"$input.<name>"\`), \`label?\`,
 \`options?: [{label, value}] | {collection, valueField, labelField}\` (select only),
 \`defaultValue?\`, \`debounceMs?\` (text; default 300), \`required?: bool\` (unset value blocks
 consumers instead of stripping their condition). No collection.
+Knob coherence (server-validated at save time): \`min?/max?/step?\` are only valid when
+\`inputType\` is \`"number"\` or \`"decimal"\` (\`number\` additionally requires \`step\` to be a whole
+number, default 1; \`min\` must not exceed \`max\`); \`minLength?/maxLength?/pattern?\` are only valid
+on text-ish types — text, textarea, email, url, password, tel. \`email\`/\`url\` also run a
+built-in format check on top of any \`pattern\`. An invalid value at runtime shows an inline error,
+publishes nothing, and clears any previously-published value for that input.
 
 ### tabs
 \`tabs: [{ label, icon? }]\` (required, non-empty; icon = lucide name). Child blocks carry
@@ -247,7 +280,11 @@ data blocks (merged AND into each target's filter).
 \`fileField?\` (attachments), \`itemAction?: BlockAction\`, \`highlightOwn?/allowEditOwn?/allowDeleteOwn?\` (default true).
 
 ### upload
-\`accept?\` (file-input accept attr), \`maxSizeMB?\`, \`multiple?: bool\`, \`folder?\`. No collection.
+\`accept?\` (file-input accept attr), \`maxSizeMB?\`, \`multiple?: bool\`, \`folder?\`,
+\`name?\` (\`^[a-zA-Z][a-zA-Z0-9_]*$\`; when set, publishes the server-confirmed created file id as
+\`"$input.<name>"\` — a string, or string[] when \`multiple\`, for sibling blocks to filter on;
+clearing the uploaded file(s) clears the input. Omitted = today's byte-identical behavior).
+No collection.
 
 ### code
 \`content?\` (static text), \`language?: "json"|"javascript"|"sql"|"html"|"css"|"text"\` (default "text"),
