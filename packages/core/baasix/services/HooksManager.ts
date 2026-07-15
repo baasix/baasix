@@ -267,9 +267,13 @@ if (!globalThis.__baasix_hooksManagerInitialized) {
       if (doc?.user_Id) userIds.add(doc.user_Id);
       if (prev?.user_Id) userIds.add(prev.user_Id);
 
+      // Row id for the pinned-assignment cache key (auth:userrole:${userId}:ur:${rowId}).
+      // Covers create/update (doc.id) and delete (only prev.id available).
+      const rowId = doc?.id || prev?.id;
+
       for (const userId of userIds) {
         const tenantId = doc?.tenant_Id || prev?.tenant_Id;
-        await invalidateUserRoleCache(userId, tenantId);
+        await invalidateUserRoleCache(userId, tenantId, rowId);
       }
     } catch (error: any) {
       console.error('[HooksManager] Failed to invalidate user role cache:', error.message);

@@ -67,13 +67,20 @@ export async function invalidateAuthCache(roleId?: string): Promise<void> {
 /**
  * Invalidate cached user-role assignment for a specific user
  * Called when baasix_UserRole is created, updated, or deleted
+ * @param rowId - id of the mutated baasix_UserRole row, if known. Also invalidates
+ *   the pinned-assignment cache key (`auth:userrole:${userId}:ur:${rowId}`) used by
+ *   authMiddleware for tokens carrying a userRole_Id.
  */
-export async function invalidateUserRoleCache(userId: string, tenantId?: string): Promise<void> {
+export async function invalidateUserRoleCache(userId: string, tenantId?: string, rowId?: string): Promise<void> {
   try {
     const cache = getCache();
     const tenantKey = tenantId ?? 'global';
     const cacheKey = `auth:userrole:${userId}:${tenantKey}`;
     await cache.delete(cacheKey);
+    if (rowId) {
+      const pinnedCacheKey = `auth:userrole:${userId}:ur:${rowId}`;
+      await cache.delete(pinnedCacheKey);
+    }
   } catch (error) {
     console.error(`[Common] Failed to invalidate user role cache:`, error);
   }
