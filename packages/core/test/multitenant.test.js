@@ -783,6 +783,8 @@ describe("Multi-tenant Tests", () => {
                 expect(t.userRole_Id).toBeDefined();
                 expect(t.role?.id).toBeDefined();
                 expect(t.role?.name).toBeDefined();
+                expect(typeof t.name).toBe("string");
+                expect(t.id).toBeDefined();
             }
         });
     });

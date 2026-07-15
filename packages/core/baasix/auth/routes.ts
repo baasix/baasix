@@ -1355,6 +1355,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
             const { id: _id, user_Id: _u, role_Id: _r, tenant_Id: _t, role: _role, user: _user,
                     createdAt: _c, updatedAt: _up, ...customFields } = ur as any;
             tenants.push({
+              ...customFields,
               id: tenant.id,
               name: tenant.name,
               userRole_Id: ur.id,
@@ -1362,7 +1363,6 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
                 id: ur.role.id,
                 name: ur.role.name,
               },
-              ...customFields,
             });
           }
         }
