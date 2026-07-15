@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.85
+
+### Patch Changes
+
+- More blocks and customisation added to app builder
+
 ## 0.1.84
 
 ### Patch Changes
