@@ -1301,6 +1301,8 @@ $CURRENT_USER → current authenticated user's ID
 $CURRENT_USER.fieldName → any field on current user (e.g., $CURRENT_USER.tenant_Id)
 $CURRENT_ROLE → current role ID
 $CURRENT_ROLE.fieldName → any field on current role
+$CURRENT_USERROLE → active role-assignment (baasix_UserRole) row ID
+$CURRENT_USERROLE.fieldName → any field on the assignment row (custom columns like team_Id; relations like team.name)
 $NOW → current ISO timestamp
 $NOW+DAYS_7 → 7 days from now, $NOW-DAYS_7 → 7 days ago
 Pattern: $NOW[+/-](YEARS|MONTHS|WEEKS|DAYS|HOURS|MINUTES|SECONDS)_N
@@ -1666,6 +1668,7 @@ DYNAMIC VARIABLES in conditions:
 $CURRENT_USER → current user's ID
 $CURRENT_USER.fieldName → any field on the user (e.g., $CURRENT_USER.tenant_Id, $CURRENT_USER.department_Id)
 $CURRENT_ROLE → current role ID
+$CURRENT_USERROLE → active role-assignment (baasix_UserRole) row ID
 $NOW, $NOW+DAYS_7, $NOW-MONTHS_1 → timestamp math
 
 --- RELCONDITIONS (row-level security on RELATED tables) ---
@@ -1867,6 +1870,7 @@ DYNAMIC VARIABLES in conditions and defaultValues:
 $CURRENT_USER → current user's ID
 $CURRENT_USER.fieldName → any field on the user (e.g. $CURRENT_USER.department_Id)
 $CURRENT_ROLE → current role ID
+$CURRENT_USERROLE → active role-assignment (baasix_UserRole) row ID
 $CURRENT_TENANT → current tenant ID
 $NOW, $NOW+DAYS_7, $NOW-MONTHS_1 → timestamp math
 
