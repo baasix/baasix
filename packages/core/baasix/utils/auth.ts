@@ -11,7 +11,7 @@ import { APIError } from "./errorHandler.js";
 import { getSqlClient } from "./db.js";
 import { db } from "./db.js";
 import { getCache } from "./cache.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { schemaManager } from "./schemaManager.js";
 import { permissionService } from '../services/PermissionService.js';
 import { validateSecurityPostureAtStartup } from './securityPosture.js';
@@ -166,7 +166,8 @@ export function verifyJWT(token: string): any {
  */
 export async function getUserRolesPermissionsAndTenant(
   userId: string | number,
-  tenantId: string | number | null = null
+  tenantId: string | number | null = null,
+  userRoleId: string | number | null = null
 ): Promise<{
   role: {
     id: string | number;
@@ -176,34 +177,39 @@ export async function getUserRolesPermissionsAndTenant(
   };
   permissions: any;
   tenant?: any;
+  userRole?: any;
 }> {
   try {
     const sql = getSqlClient();
 
     // First, get the user's role assignment
-    let userRoles;
-    if (tenantId) {
+    let userRoles: any[] = [];
+    if (userRoleId) {
       userRoles = await sql`
-        SELECT
-          ur.id as "userRoleId",
-          ur."user_Id",
-          ur."role_Id",
-          ur."tenant_Id"
+        SELECT ur.*
         FROM "baasix_UserRole" ur
-        WHERE ur."user_Id" = ${userId} AND ur."tenant_Id" = ${tenantId}
+        WHERE ur.id = ${userRoleId} AND ur."user_Id" = ${userId}
         LIMIT 1
       `;
-    } else {
-      userRoles = await sql`
-        SELECT
-          ur.id as "userRoleId",
-          ur."user_Id",
-          ur."role_Id",
-          ur."tenant_Id"
-        FROM "baasix_UserRole" ur
-        WHERE ur."user_Id" = ${userId}
-        LIMIT 1
-      `;
+    }
+    if (userRoles.length === 0) {
+      if (tenantId) {
+        userRoles = await sql`
+          SELECT ur.*
+          FROM "baasix_UserRole" ur
+          WHERE ur."user_Id" = ${userId} AND ur."tenant_Id" = ${tenantId}
+          ORDER BY ur."createdAt" ASC
+          LIMIT 1
+        `;
+      } else {
+        userRoles = await sql`
+          SELECT ur.*
+          FROM "baasix_UserRole" ur
+          WHERE ur."user_Id" = ${userId}
+          ORDER BY ur."createdAt" ASC
+          LIMIT 1
+        `;
+      }
     }
 
     if (userRoles.length === 0) {
@@ -281,6 +287,7 @@ export async function getUserRolesPermissionsAndTenant(
       },
       permissions: permissionsObj,
       tenant,
+      userRole,
     };
   } catch (error: any) {
     throw new Error(`Error fetching user info: ${error.message}`);
@@ -398,36 +405,51 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
 
     const { user } = sessionResult;
 
-    // Get user's role assignment — cached with short TTL to avoid DB hit on every request
+    // Get user's role assignment — cached, invalidated by baasix_UserRole hook
     const cache = getCache();
     const tenantKey = payload.tenant_Id ?? 'global';
-    const userRoleCacheKey = `auth:userrole:${user.id}:${tenantKey}`;
+    const pinnedUserRoleId = payload.userRole_Id ?? null;
+    const userRoleCacheKey = pinnedUserRoleId
+      ? `auth:userrole:${user.id}:ur:${pinnedUserRoleId}`
+      : `auth:userrole:${user.id}:${tenantKey}`;
     let userRole = await cache.get(userRoleCacheKey);
 
     if (!userRole) {
       const userRoleTable = schemaManager.getTable("baasix_UserRole");
-      let userRoles;
-      if (payload.tenant_Id !== undefined && payload.tenant_Id !== null) {
+      let userRoles: any[] | undefined;
+
+      // Pinned assignment (token carries userRole_Id) — must belong to this user
+      if (pinnedUserRoleId) {
         userRoles = await db
-          .select({
-            role_Id: userRoleTable.role_Id,
-            tenant_Id: userRoleTable.tenant_Id,
-          })
+          .select()
           .from(userRoleTable)
           .where(and(
-            eq(userRoleTable.user_Id, user.id),
-            eq(userRoleTable.tenant_Id, payload.tenant_Id)
+            eq(userRoleTable.id, pinnedUserRoleId),
+            eq(userRoleTable.user_Id, user.id)
           ))
           .limit(1);
-      } else {
-        userRoles = await db
-          .select({
-            role_Id: userRoleTable.role_Id,
-            tenant_Id: userRoleTable.tenant_Id,
-          })
-          .from(userRoleTable)
-          .where(eq(userRoleTable.user_Id, user.id))
-          .limit(1);
+      }
+
+      // Legacy tokens, or pinned row deleted mid-session: oldest assignment wins
+      if (!userRoles || userRoles.length === 0) {
+        if (payload.tenant_Id !== undefined && payload.tenant_Id !== null) {
+          userRoles = await db
+            .select()
+            .from(userRoleTable)
+            .where(and(
+              eq(userRoleTable.user_Id, user.id),
+              eq(userRoleTable.tenant_Id, payload.tenant_Id)
+            ))
+            .orderBy(asc(userRoleTable.createdAt))
+            .limit(1);
+        } else {
+          userRoles = await db
+            .select()
+            .from(userRoleTable)
+            .where(eq(userRoleTable.user_Id, user.id))
+            .orderBy(asc(userRoleTable.createdAt))
+            .limit(1);
+        }
       }
       userRole = userRoles?.[0] || null;
       if (userRole) {
@@ -468,6 +490,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
       } as any,
       role: role as any,
       tenant: tenantContext,
+      userRole: userRole || undefined,
       permissions: permissions || [],
       ipaddress: req.ip || req.connection?.remoteAddress,
     };

@@ -151,6 +151,8 @@ export interface JWTPayload {
   role: string;
   sessionToken: string;
   tenant_Id?: string | number | null;
+  /** Pinned baasix_UserRole row id (assignment switching). Absent on legacy tokens. */
+  userRole_Id?: string | null;
 }
 
 // ============================================================================

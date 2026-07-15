@@ -38,6 +38,7 @@ export interface UserInfo {
   role: any;
   permissions: any;
   tenant: any;
+  userRole?: any;
 }
 
 /**
@@ -46,6 +47,8 @@ export interface UserInfo {
 export interface SocketWithAuth extends Socket {
   userId?: string | number;
   userRole?: any;
+  /** Full baasix_UserRole row (the pinned assignment) — distinct from `userRole`, which holds the role object (id/name/isTenantSpecific). */
+  userRoleRow?: any;
   userPermissions?: any;
   userTenant?: any;
 }

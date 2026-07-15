@@ -320,11 +320,12 @@ class SocketService {
       }
 
       const decoded: any = jwt.verify(token as string, getJwtSecret(), { algorithms: [JWT_ALGORITHM] });
-      const { user, role, permissions, tenant } = await this.authenticateUser(decoded);
+      const { user, role, permissions, tenant, userRole } = await this.authenticateUser(decoded);
 
       // Attach user info to socket
       socket.userId = user.id;
       socket.userRole = role;
+      socket.userRoleRow = userRole;
       socket.userPermissions = permissions;
       socket.userTenant = tenant;
 
@@ -335,13 +336,14 @@ class SocketService {
   }
 
   async authenticateUser(decoded: any): Promise<UserInfo> {
-    const { role, permissions, tenant } = await getUserRolesPermissionsAndTenant(decoded.id, decoded.tenant_Id);
+    const { role, permissions, tenant, userRole } = await getUserRolesPermissionsAndTenant(decoded.id, decoded.tenant_Id, decoded.userRole_Id ?? null);
 
     return {
       user: { id: decoded.id },
       role,
       permissions,
       tenant,
+      userRole,
     };
   }
 
@@ -1183,6 +1185,7 @@ class SocketService {
         user: { id: sample.userId },
         role: sample.userRole,
         tenant: sample.userTenant?.id,
+        userRole: sample.userRoleRow,
       };
 
       // Fast path: role with NO read conditions and NO relConditions → allowed.
