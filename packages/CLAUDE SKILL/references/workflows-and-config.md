@@ -187,7 +187,8 @@ POST /permissions
 
 ### Permission Conditions
 - `conditions` use the same filter operator syntax as queries (`eq`, `ne`, `gt`, etc.)
-- Dynamic variables work in conditions: `$CURRENT_USER`, `$CURRENT_ROLE`, `$CURRENT_TENANT`
+- Dynamic variables work in conditions: `$CURRENT_USER`, `$CURRENT_ROLE`, `$CURRENT_USERROLE`, `$CURRENT_TENANT`
+- `$CURRENT_USERROLE` resolves to the active role-assignment (baasix_UserRole) row; `$CURRENT_USERROLE.field` reaches its custom columns or relations (e.g., `$CURRENT_USERROLE.team_id`, `$CURRENT_USERROLE.team.name`)
 - Relational field paths work: `{"author.department": {"eq": "$CURRENT_USER.department"}}`
 
 ### Permission relConditions

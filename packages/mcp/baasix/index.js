@@ -702,6 +702,8 @@ DYNAMIC VARIABLES:
 - $CURRENT_USER.field: User field (e.g., $CURRENT_USER.department)
 - $CURRENT_ROLE: Current role's ID
 - $CURRENT_ROLE.field: Role field
+- $CURRENT_USERROLE: Active role-assignment (baasix_UserRole) row ID
+- $CURRENT_USERROLE.field: Assignment row field, including custom columns (e.g., $CURRENT_USERROLE.team_id) or relations (e.g., $CURRENT_USERROLE.team.name)
 - $CURRENT_TENANT: Current tenant's ID
 - $CURRENT_TENANT.field: Tenant field (e.g., $CURRENT_TENANT.name)
 - $CURRENT_SETTINGS.field: Settings field, tenant-aware (e.g., $CURRENT_SETTINGS.currency)

@@ -605,9 +605,9 @@ function getSystemSchemas() {
         SwitchTenantRequest: {
             type: "object",
             properties: {
-                tenantId: { type: "string", format: "uuid", description: "Tenant ID to switch to" }
-            },
-            required: ["tenantId"]
+                userRole_Id: { type: "string", format: "uuid", description: "Role-assignment (baasix_UserRole) ID to switch to. Either userRole_Id or tenant_Id is required." },
+                tenant_Id: { type: "string", format: "uuid", description: "Tenant ID to switch to. Either userRole_Id or tenant_Id is required." }
+            }
         },
         MagicLinkRequest: {
             type: "object",
@@ -1058,7 +1058,7 @@ function createAuthEndpointOperation(endpoint: EndpointInfo): any {
             }
         };
     } else if (endpointPath === "/auth/switch-tenant" && methodLower === "post") {
-        operation.description = "Switch to different tenant";
+        operation.description = "Switch to a different tenant, or to a specific role assignment via userRole_Id";
         operation.requestBody = {
             required: true,
             content: {

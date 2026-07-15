@@ -335,6 +335,8 @@ Add `"cast": "type"` to any filter condition:
 | $CURRENT_USER.field | User's field (e.g., `$CURRENT_USER.department`) |
 | $CURRENT_ROLE | Current role's ID |
 | $CURRENT_ROLE.field | Role's field |
+| $CURRENT_USERROLE | Active role-assignment (baasix_UserRole) row ID |
+| $CURRENT_USERROLE.field | Any field on the assignment row, including custom columns (e.g., `$CURRENT_USERROLE.team_id`) or relations (e.g., `$CURRENT_USERROLE.team.name`) |
 | $CURRENT_TENANT | Current tenant ID |
 | $CURRENT_TENANT.field | Tenant's field |
 | $CURRENT_SETTINGS.field | Settings field (tenant-aware) |
