@@ -4,6 +4,8 @@
  * Resolves dynamic variables in filter objects:
  * - $CURRENT_USER.field -> actual user field value
  * - $CURRENT_ROLE.field -> actual role field value
+ * - $CURRENT_USERROLE -> active baasix_UserRole assignment row id
+ * - $CURRENT_USERROLE.field / $CURRENT_USERROLE.rel.field -> assignment fields (custom columns, relations)
  * - $CURRENT_TENANT -> current tenant ID
  * - $CURRENT_TENANT.field -> actual tenant field value
  * - $CURRENT_SETTINGS.field -> settings field (tenant-aware, merged with global)
@@ -86,7 +88,7 @@ function resolveNowVariable(variable: string): string {
 function collectVariables(obj: any, variablesToResolve: Record<string, Set<string>>): void {
   if (typeof obj === "string" && obj.startsWith("$")) {
     const [target, ...parts] = obj.slice(1).split(".");
-    if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
+    if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_USERROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
       const field = parts.length > 0 ? parts.join(".") : "id";
       variablesToResolve[target].add(field);
     } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -102,7 +104,7 @@ function collectVariables(obj: any, variablesToResolve: Record<string, Set<strin
     obj.forEach(item => {
       if (typeof item === "string" && item.startsWith("$")) {
         const [target, ...parts] = item.slice(1).split(".");
-        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
+        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_USERROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
           const field = parts.length > 0 ? parts.join(".") : "id";
           variablesToResolve[target].add(field);
         } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -123,7 +125,7 @@ function collectVariables(obj: any, variablesToResolve: Record<string, Set<strin
       // Check keys for variables
       if (key.startsWith("$")) {
         const [target, ...parts] = key.slice(1).split(".");
-        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
+        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_USERROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
           const field = parts.length > 0 ? parts.join(".") : "id";
           variablesToResolve[target].add(field);
         } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -150,6 +152,7 @@ async function resolveCollectedVariables(
   const resolved: Record<string, any> = {
     CURRENT_USER: {},
     CURRENT_ROLE: {},
+    CURRENT_USERROLE: {},
     CURRENT_TENANT: {},
     CURRENT_SETTINGS: {},
     NOW: {},
@@ -295,6 +298,40 @@ async function resolveCollectedVariables(
     }
   }
 
+  // Resolve CURRENT_USERROLE - the active baasix_UserRole assignment row
+  // (accountability.userRole, loaded in full by the auth middleware).
+  const accUserRole = (accountability as any)?.userRole;
+  if (variablesToResolve.CURRENT_USERROLE.size > 0 && accUserRole?.id) {
+    const fields = Array.from(variablesToResolve.CURRENT_USERROLE);
+
+    // Flat fields come straight off the in-memory row; dotted paths need a
+    // DB query with relational expansion (same pattern as CURRENT_ROLE).
+    const inMemory: Record<string, any> = { id: accUserRole.id };
+    const relationalFields: string[] = [];
+
+    for (const field of fields) {
+      if (field.includes('.')) {
+        relationalFields.push(field);
+      } else if (field in accUserRole) {
+        inMemory[field] = accUserRole[field];
+      }
+    }
+
+    resolved.CURRENT_USERROLE = inMemory;
+
+    if (relationalFields.length > 0) {
+      try {
+        const userRoleItemsService = new ItemsService("baasix_UserRole", { accountability: undefined });
+        const dbRow = await userRoleItemsService.readOne(accUserRole.id, {
+          fields: ['id', ...relationalFields],
+        });
+        resolved.CURRENT_USERROLE = { ...inMemory, ...(dbRow || {}) };
+      } catch (error: any) {
+        console.error(`Error resolving userRole data: ${error.message}`);
+      }
+    }
+  }
+
   return resolved;
 }
 
@@ -312,7 +349,7 @@ function getNestedValue(obj: any, path: string[]): any {
 function replaceVariables(obj: any, resolvedVariables: Record<string, any>): any {
   if (typeof obj === "string" && obj.startsWith("$")) {
     const [target, ...parts] = obj.slice(1).split(".");
-    if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
+    if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_USERROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
       const field = parts.length > 0 ? parts.join(".") : "id";
       const value = getNestedValue(resolvedVariables[target], field.split("."));
       return value;
@@ -333,7 +370,7 @@ function replaceVariables(obj: any, resolvedVariables: Record<string, any>): any
       let newKey = key;
       if (key.startsWith("$")) {
         const [target, ...parts] = key.slice(1).split(".");
-        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
+        if (target === "CURRENT_USER" || target === "CURRENT_ROLE" || target === "CURRENT_USERROLE" || target === "CURRENT_TENANT" || target === "CURRENT_SETTINGS") {
           // For key replacements, we typically want to keep the path structure
           newKey = parts.join(".");
         } else if (target === "NOW" || target.match(/^NOW([+-])(YEARS?|MONTHS?|WEEKS?|DAYS?|HOURS?|MINUTES?|SECONDS?)_(\d+)$/)) {
@@ -360,6 +397,7 @@ export async function resolveDynamicVariables(
   const variablesToResolve: Record<string, Set<string>> = {
     CURRENT_USER: new Set(),
     CURRENT_ROLE: new Set(),
+    CURRENT_USERROLE: new Set(),
     CURRENT_TENANT: new Set(),
     CURRENT_SETTINGS: new Set(),
     NOW: new Set(),
