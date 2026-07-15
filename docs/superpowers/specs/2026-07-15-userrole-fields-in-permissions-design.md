@@ -1,4 +1,4 @@
-# UserRole Fields in Permissions (`$CURRENT_USER.role.*`) — Design
+# UserRole Fields in Permissions (`$CURRENT_USERROLE`) — Design
 
 **Date:** 2026-07-15
 **Status:** Approved pending user review
@@ -15,17 +15,25 @@ column), the system cannot distinguish them: both the middleware and
 `(user_Id, tenant_Id)`.
 
 **Goal:** permission `conditions`, `relConditions`, and `defaultValues` can
-reference custom UserRole fields via `$CURRENT_USER.role.<field>`, and the user
-can switch between assignments (rows), with the switched-to row's values
-applied — e.g., team-scoped reads and auto-stamped `team_Id` on create.
+reference the active UserRole row via `$CURRENT_USERROLE.<field>` (including
+relational paths like `$CURRENT_USERROLE.team.name`), and the user can switch
+between assignments (rows), with the switched-to row's values applied — e.g.,
+team-scoped reads and auto-stamped `team_Id` on create.
 
 ## Decisions made during brainstorming
 
-- Syntax: **`$CURRENT_USER.role.team_id`** (user's choice) — no new
-  `$CURRENT_USERROLE` variable.
-- **Option A** implementation: `accountability.user.role` stays the role *name
-  string* (back-compat); the resolver special-cases `role.*` paths. The full
-  active UserRole row travels separately as `accountability.userRole`.
+- Syntax: **`$CURRENT_USERROLE.<field>`** — a new sibling of
+  `$CURRENT_USER` / `$CURRENT_ROLE` / `$CURRENT_TENANT` / `$CURRENT_SETTINGS`,
+  mapping 1:1 to the active `baasix_UserRole` row. Chosen over merging into
+  `$CURRENT_USER.role.*` (would need bare-vs-dotted special-casing and
+  role/assignment collision-precedence rules) and over `$CURRENT_TENANT`
+  (teams are assignment-level, not tenant-level: two users in one tenant — or
+  one user with two assignments in one tenant — differ by team).
+- Relational paths supported: `$CURRENT_USERROLE.team.name`,
+  `$CURRENT_USERROLE.team.manager_Id`, `$CURRENT_USERROLE.role.name`, etc.,
+  via the same relational-fallback pattern `$CURRENT_ROLE` uses.
+- `$CURRENT_USER.role` keeps its existing meaning (role **name** string);
+  nothing about `$CURRENT_USER` changes.
 - **Repurpose `/auth/switch-tenant`** to also accept `userRole_Id` (it is not
   used in production); no new endpoint.
 - Token must pin the exact **UserRole row ID** (`userRole_Id`), because the
@@ -33,15 +41,13 @@ applied — e.g., team-scoped reads and auto-stamped `team_Id` on create.
 
 ## Current behavior (verified in code)
 
-- `$CURRENT_USER.role` (bare) already resolves to the role **name** — the
-  middleware sets `user.role = role.name` (`utils/auth.ts` authMiddleware) and
-  the resolver's in-memory fast path serves flat fields from
-  `accountability.user`.
-- `$CURRENT_USER.role.x` resolves to `null` today — dotted fields go to the DB
-  branch against `baasix_User`, which has no `role` relation.
+- `$CURRENT_USER.role` (bare) resolves to the role **name** — the middleware
+  sets `user.role = role.name` (`utils/auth.ts` authMiddleware) and the
+  resolver's in-memory fast path serves flat fields from
+  `accountability.user`. This stays as-is.
 - All three permission payloads (`conditions`, `relConditions`,
   `defaultValues`) flow through `resolveDynamicVariables(obj, accountability)`
-  (`PermissionService.ts`, `ItemsService.ts`), so a single resolver change
+  (`PermissionService.ts`, `ItemsService.ts`), so a single resolver addition
   covers filters and default values.
 - Middleware caches the assignment under `auth:userrole:<userId>:<tenantKey>`
   (hybrid cache, invalidated by the `baasix_UserRole` hook) and selects only
@@ -94,38 +100,39 @@ one of `userRole_Id` / `tenant_Id` required.
 - Same treatment in every other place accountability is constructed with a
   role lookup (SocketService realtime auth; verified at implementation time).
 
-### 4. Dynamic variable resolver
+### 4. Dynamic variable resolver — `$CURRENT_USERROLE`
 
-In `resolveCollectedVariables`, for `CURRENT_USER` fields starting with
-`role.`:
+Add `CURRENT_USERROLE` as a fourth resolvable target in
+`collectVariables` / `resolveCollectedVariables` / `replaceVariables`
+(mirrors the existing `CURRENT_ROLE` block):
 
-- Build the merged role object once per resolution:
-  `{ ...roleRow, ...assignmentFields }` where `roleRow` is the cached
-  `baasix_Role` row (PermissionService hybrid cache, DB fallback) and
-  `assignmentFields` is `accountability.userRole` minus the join-table
-  plumbing columns `id`, `user_Id`, `role_Id`, `createdAt`, `updatedAt`
-  (custom fields and `tenant_Id` are kept; assignment wins on name collision).
-- Store it as `resolved.CURRENT_USER.role` **only when a `role.*` path was
-  requested**. When the bare field `role` is requested, it resolves to the
-  name string exactly as today (special-cased in `replaceVariables` if both
-  forms appear in one filter).
-- Deeper relational paths (`role.team.name` where `team` is a BelongsTo alias
-  on `baasix_UserRole`): if the second path segment is not a flat key of the
-  merged object, fall back to
-  `ItemsService("baasix_UserRole").readOne(userRole.id, { fields: [rest] })`
-  and graft the result under `resolved.CURRENT_USER.role`.
-- No accountability → behavior unchanged (early return already exists).
+- Bare `$CURRENT_USERROLE` → the row `id`.
+- **Flat fields** (`team_Id`, `tenant_Id`, any custom column): served
+  in-memory from `accountability.userRole` — no DB query.
+- **Relational paths** (`team.name`, `team.manager_Id`, `role.name`,
+  `tenant.name`): resolved via
+  `ItemsService("baasix_UserRole").readOne(userRole.id, { fields: [...] })`
+  with accountability bypassed (same pattern as `$CURRENT_ROLE`'s relational
+  branch), expanding BelongsTo aliases defined on `baasix_UserRole` (`role`,
+  `tenant`, `user` are built-in; `team` etc. come with the user's custom FK
+  fields). Cached per-request via the existing user-resolve request cache
+  pattern where applicable.
+- No `accountability.userRole` (public access, no assignment) → fields resolve
+  to `null`, consistent with existing resolver semantics.
 - `MCPService`'s dynamic-variable documentation strings updated to document
-  `$CURRENT_USER.role.<field>`.
+  `$CURRENT_USERROLE` (flat + relational examples).
 
 With this in place, permissions like
 
 ```json
 // condition: team-scoped reads
-{ "team_Id": "$CURRENT_USER.role.team_Id" }
+{ "team_Id": "$CURRENT_USERROLE.team_Id" }
+
+// condition: manager of my team
+{ "manager_Id": "$CURRENT_USERROLE.team.manager_Id" }
 
 // defaultValues: auto-stamp on create
-{ "team_Id": "$CURRENT_USER.role.team_Id" }
+{ "team_Id": "$CURRENT_USERROLE.team_Id" }
 ```
 
 apply per active assignment, and switching assignments (new token) changes the
@@ -150,8 +157,7 @@ switchable "contexts" and calls `/auth/switch-tenant` with the chosen
 - `userRole_Id` not found or belonging to another user → 403 on switch.
 - Deleted assignment with a live token → middleware falls back to legacy
   lookup; if no assignment remains, existing "no role" path applies.
-- Resolver: missing `accountability.userRole` (e.g., older cached accountability
-  or public role) → `role.*` resolves from role fields only; unknown field →
+- Resolver: missing `accountability.userRole` → `null` values; unknown field →
   `null` (consistent with existing resolver semantics).
 
 ## Caching
@@ -159,18 +165,19 @@ switchable "contexts" and calls `/auth/switch-tenant` with the chosen
 - New middleware cache key variant `auth:userrole:<userId>:ur:<userRoleId>`;
   both variants invalidated by the existing `baasix_UserRole` hook.
 - Full-row caching replaces the 2-column projection; row sizes are small.
-- Resolver does no extra DB work in the common case (merged object built from
-  in-memory accountability + role cache).
+- Resolver does no extra DB work for flat fields (in-memory from
+  accountability); relational paths cost one cached query, as with
+  `$CURRENT_ROLE`.
 
 ## Testing
 
-- Resolver unit tests: bare `role` → name string; `role.name` / `role.id` →
-  role fields; `role.<custom>` → assignment field; collision precedence;
-  missing field → null; no-accountability early return.
+- Resolver unit tests: bare `$CURRENT_USERROLE` → row id; flat custom field;
+  relational `team.name` / `team.manager_Id`; missing field → null; no
+  assignment → null; `$CURRENT_USER.role` string semantics unchanged.
 - Integration: two UserRole rows, same (user, tenant, role), different
   `team_Id`; switch via `userRole_Id`; verify (a) reads are team-filtered by a
   condition, (b) creates auto-stamp `team_Id` via defaultValues, (c) switching
-  flips both; legacy `tenant_Id`-only switch still works; foreign
-  `userRole_Id` → 403; deleted row falls back gracefully.
-- Regression: existing auth/permission suites (bare `$CURRENT_USER.role`
-  string semantics unchanged).
+  flips both, (d) relational condition `team.manager_Id` resolves; legacy
+  `tenant_Id`-only switch still works; foreign `userRole_Id` → 403; deleted
+  row falls back gracefully.
+- Regression: existing auth/permission suites.
