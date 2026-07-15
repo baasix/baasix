@@ -680,6 +680,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
           sessionType = existingSession.session.type;
         }
       }
+      const preservedUserRoleId = decodedToken?.userRole_Id ?? null;
 
       // Validate current session
       const sessionResult = await auth.validateSession(token);
@@ -710,6 +711,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         role,
         session,
         tenant,
+        userRoleId: preservedUserRoleId,
       });
 
       // Set token in response based on authMode
@@ -1349,83 +1351,93 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   app.post(`${basePath}/switch-tenant`, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const isMultiTenant = options.multiTenant?.enabled || options.env?.get("MULTI_TENANT") === "true";
-      
-      if (!isMultiTenant) {
-        return res.status(400).json({ message: "Multi-tenant mode is not enabled" });
-      }
-      
       if (!req.accountability?.user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
-      
-      const { tenant_Id, authType, authMode = "jwt" } = req.body;
-      
-      if (!tenant_Id) {
-        return res.status(400).json({ message: "Tenant ID is required" });
+
+      const { userRole_Id, tenant_Id, authType, authMode = "jwt" } = req.body;
+
+      if (!userRole_Id && !tenant_Id) {
+        return res.status(400).json({ message: "userRole_Id or tenant_Id is required" });
       }
-      
-      // Get user role for the specified tenant
-      const userRoles = await auth.adapter.findUserRolesByUserId(req.accountability.user.id, tenant_Id);
-      
-      if (!userRoles || userRoles.length === 0) {
-        return res.status(403).json({ message: "Access denied for specified tenant" });
+
+      let userRole: any = null;
+
+      if (userRole_Id) {
+        // Assignment switching — works regardless of multi-tenant mode.
+        // Row must exist AND belong to the authenticated user.
+        const userRoles = await auth.adapter.findUserRolesByUserId(req.accountability.user.id);
+        userRole = (userRoles || []).find((ur: any) => String(ur.id) === String(userRole_Id)) || null;
+        if (!userRole) {
+          return res.status(403).json({ message: "Access denied for specified role assignment" });
+        }
+      } else {
+        // Legacy tenant switching.
+        const isMultiTenant = options.multiTenant?.enabled || options.env?.get("MULTI_TENANT") === "true";
+        if (!isMultiTenant) {
+          return res.status(400).json({ message: "Multi-tenant mode is not enabled" });
+        }
+
+        const userRoles = await auth.adapter.findUserRolesByUserId(req.accountability.user.id, tenant_Id);
+        if (!userRoles || userRoles.length === 0) {
+          return res.status(403).json({ message: "Access denied for specified tenant" });
+        }
+        userRole = userRoles[0];
+
+        if (!userRole.role?.isTenantSpecific) {
+          return res.status(400).json({ message: "Cannot switch tenant for non-tenant-specific role" });
+        }
       }
-      
-      const userRole = userRoles[0];
-      
-      if (!userRole.role?.isTenantSpecific) {
-        return res.status(400).json({ message: "Cannot switch tenant for non-tenant-specific role" });
-      }
-      
-      // Get updated role and permissions
-      const { role, permissions, tenant } = await auth.getUserRoleAndPermissions(
-        req.accountability.user.id,
-        tenant_Id
-      );
-      
-      if (!tenant) {
+
+      const role = userRole.role;
+      const tenant = userRole.tenant_Id ? await auth.adapter.findTenantById(userRole.tenant_Id) : null;
+      if (userRole.tenant_Id && !tenant) {
         return res.status(404).json({ message: "Tenant not found" });
       }
-      
+
       // Validate session limits if authType is specified
       if (authType && authType !== "default") {
         const { validateSessionLimits } = await import("../utils/auth.js");
         const validation = await validateSessionLimits(
           req.accountability.user as any,
           authType,
-          tenant.id,
+          tenant?.id ?? null,
           role
         );
-        
+
         if (!validation.isValid) {
           return res.status(403).json({ message: validation.error });
         }
       }
-      
+
       // Create new session
       const ipAddress = req.ip || (req.connection as any)?.remoteAddress || null;
       const userAgent = req.headers["user-agent"] || null;
 
       const session = await auth.sessionService.createSession({
         user: req.accountability.user as any,
-        tenantId: tenant.id,
+        tenantId: tenant?.id ?? null,
         ipAddress,
         userAgent,
         type: authType || "default",
       });
-      
-      // Generate new token
+
+      // Generate new token pinned to the exact assignment row
       const token = auth.tokenService.generateUserToken({
         user: req.accountability.user as any,
         role,
         session,
         tenant,
+        userRoleId: userRole.id,
       });
-      
+
       // Set token in response based on authMode
       const tokenResponse = setTokenInResponse(res, token, authMode, options.env);
-      
+
+      // Permissions for the resolved role (kept for parity with the legacy
+      // tenant-switch response, which also returned this).
+      const permissions = role?.id ? await auth.adapter.findPermissionsByRoleId(role.id) : undefined;
+
       res.json({
         ...tokenResponse,
         user: {
@@ -1436,7 +1448,8 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         },
         role,
         permissions,
-        tenant,
+        tenant: tenant ?? null,
+        userRole_Id: userRole.id,
       });
     } catch (error) {
       next(error);

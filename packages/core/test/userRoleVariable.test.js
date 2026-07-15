@@ -179,3 +179,116 @@ describe("$CURRENT_USERROLE resolution (unpinned token -> oldest assignment)", (
         expect(teamIds).toEqual([teamAlphaId]);
     });
 });
+
+describe("assignment switching via /auth/switch-tenant { userRole_Id }", () => {
+    let switchedToken;
+
+    test("switch to assignment B returns a pinned token", async () => {
+        const res = await request(app)
+            .post("/auth/switch-tenant")
+            .set("Authorization", `Bearer ${userToken}`)
+            .send({ userRole_Id: assignmentB });
+        expect(res.status).toBe(200);
+        expect(res.body.token).toBeDefined();
+        expect(res.body.userRole_Id).toBe(assignmentB);
+        switchedToken = res.body.token;
+    });
+
+    test("switched token stamps and reads Team Beta", async () => {
+        const create = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${switchedToken}`)
+            .send({ title: "Beta task 1" });
+        expect(create.status).toBe(201);
+
+        const created = await request(app)
+            .get(`/items/tasks/${create.body.data.id}`)
+            .set(admin());
+        expect(created.body.data.team_Id).toBe(teamBetaId);
+        expect(created.body.data.teamName).toBe("Team Beta");
+
+        const list = await request(app)
+            .get("/items/tasks")
+            .set("Authorization", `Bearer ${switchedToken}`);
+        const teamIds = [...new Set(list.body.data.map((t) => t.team_Id))];
+        expect(teamIds).toEqual([teamBetaId]);
+    });
+
+    test("original unpinned token still resolves oldest assignment (Team Alpha)", async () => {
+        const list = await request(app)
+            .get("/items/tasks")
+            .set("Authorization", `Bearer ${userToken}`);
+        const teamIds = [...new Set(list.body.data.map((t) => t.team_Id))];
+        expect(teamIds).toEqual([teamAlphaId]);
+    });
+
+    test("refresh preserves the pinned assignment", async () => {
+        const refresh = await request(app)
+            .post("/auth/refresh")
+            .set("Authorization", `Bearer ${switchedToken}`)
+            .send({});
+        expect(refresh.status).toBe(200);
+        const refreshedToken = refresh.body.token;
+        expect(refreshedToken).toBeDefined();
+
+        const create = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${refreshedToken}`)
+            .send({ title: "Beta task after refresh" });
+        expect(create.status).toBe(201);
+
+        const created = await request(app)
+            .get(`/items/tasks/${create.body.data.id}`)
+            .set(admin());
+        expect(created.body.data.team_Id).toBe(teamBetaId);
+    });
+
+    test("deleted pinned assignment falls back to oldest assignment", async () => {
+        // Third assignment -> switch to it -> delete it -> token still works,
+        // resolving the OLDEST remaining assignment (Team Alpha).
+        // NOTE (test-setup deviation, see beforeAll comment above): the FK column
+        // on baasix_UserRole is `team_id` (lowercase d), not `team_Id`.
+        const createdC = await request(app).post("/items/baasix_UserRole").set(admin()).send({
+            user_Id: testUserId,
+            role_Id: roleId,
+            team_id: teamBetaId,
+        });
+        const assignmentC = createdC.body.data.id;
+
+        const sw = await request(app)
+            .post("/auth/switch-tenant")
+            .set("Authorization", `Bearer ${userToken}`)
+            .send({ userRole_Id: assignmentC });
+        expect(sw.status).toBe(200);
+        const pinnedToken = sw.body.token;
+
+        await request(app).delete(`/items/baasix_UserRole/${assignmentC}`).set(admin());
+
+        const create = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${pinnedToken}`)
+            .send({ title: "task after assignment deletion" });
+        expect(create.status).toBe(201);
+
+        const created = await request(app)
+            .get(`/items/tasks/${create.body.data.id}`)
+            .set(admin());
+        expect(created.body.data.team_Id).toBe(teamAlphaId);
+    });
+
+    test("foreign/unknown userRole_Id is rejected with 403", async () => {
+        const res = await request(app)
+            .post("/auth/switch-tenant")
+            .set("Authorization", `Bearer ${userToken}`)
+            .send({ userRole_Id: "00000000-0000-4000-8000-000000000000" });
+        expect(res.status).toBe(403);
+    });
+
+    test("missing both userRole_Id and tenant_Id is a 400", async () => {
+        const res = await request(app)
+            .post("/auth/switch-tenant")
+            .set("Authorization", `Bearer ${userToken}`)
+            .send({});
+        expect(res.status).toBe(400);
+    });
+});

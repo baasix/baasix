@@ -238,6 +238,18 @@ export class ItemsService {
       keyParts.push(`user:${this.accountability.user.id}`);
     }
 
+    // Add the active baasix_UserRole assignment id. A single user can hold
+    // multiple assignments (assignment switching, task 4) that resolve
+    // $CURRENT_USERROLE-based permission conditions (e.g. team scoping) to
+    // different values via the SAME role_Id/user.id — without this, two
+    // requests from the same user pinned to different assignments would
+    // collide on an identical cache key despite having different effective
+    // WHERE clauses, serving one assignment's rows to the other's request.
+    const userRoleId = (this.accountability as any)?.userRole?.id;
+    if (userRoleId) {
+      keyParts.push(`userRole:${userRoleId}`);
+    }
+
     return keyParts.join('|');
   }
 

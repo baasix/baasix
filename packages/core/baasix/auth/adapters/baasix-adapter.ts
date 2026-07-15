@@ -394,8 +394,9 @@ export function createBaasixAdapter(): AuthAdapter {
       const result = await service.readByQuery({
         filter,
         fields: ["*", "role.*"],
+        sort: ["createdAt"],
       });
-      
+
       return result.data || [];
     },
 
