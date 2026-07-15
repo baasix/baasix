@@ -688,7 +688,27 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         return res.status(401).json({ message: "Invalid or expired token" });
       }
 
-      const { user, role, tenant } = sessionResult;
+      const { user } = sessionResult;
+      let { role, tenant } = sessionResult;
+
+      // getUserRoleAndPermissions (called inside validateSession) resolves the
+      // OLDEST assignment for the user/tenant, not necessarily the pinned one.
+      // When the incoming token carries userRole_Id, re-derive role/tenant from
+      // THAT exact assignment row so the refreshed session and new token claims
+      // stay consistent with the pin. If the pinned row no longer exists, fall
+      // back to sessionResult's role/tenant (existing behavior) instead of erroring.
+      if (preservedUserRoleId) {
+        const userRoles = await auth.adapter.findUserRolesByUserId(user.id);
+        const pinnedUserRole = (userRoles || []).find(
+          (ur: any) => String(ur.id) === String(preservedUserRoleId)
+        );
+        if (pinnedUserRole) {
+          role = pinnedUserRole.role;
+          tenant = pinnedUserRole.tenant_Id
+            ? await auth.adapter.findTenantById(pinnedUserRole.tenant_Id)
+            : null;
+        }
+      }
 
       // Create new session
       const ipAddress = req.ip || (req.connection as any)?.remoteAddress || null;

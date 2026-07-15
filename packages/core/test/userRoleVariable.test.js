@@ -182,6 +182,7 @@ describe("$CURRENT_USERROLE resolution (unpinned token -> oldest assignment)", (
 
 describe("assignment switching via /auth/switch-tenant { userRole_Id }", () => {
     let switchedToken;
+    let refreshedSwitchedToken;
 
     test("switch to assignment B returns a pinned token", async () => {
         const res = await request(app)
@@ -230,6 +231,7 @@ describe("assignment switching via /auth/switch-tenant { userRole_Id }", () => {
         expect(refresh.status).toBe(200);
         const refreshedToken = refresh.body.token;
         expect(refreshedToken).toBeDefined();
+        refreshedSwitchedToken = refreshedToken;
 
         const create = await request(app)
             .post("/items/tasks")
@@ -241,6 +243,13 @@ describe("assignment switching via /auth/switch-tenant { userRole_Id }", () => {
             .get(`/items/tasks/${create.body.data.id}`)
             .set(admin());
         expect(created.body.data.team_Id).toBe(teamBetaId);
+    });
+
+    test("refreshed token's userRole_Id claim still matches the pinned assignment", async () => {
+        const payload = JSON.parse(
+            Buffer.from(refreshedSwitchedToken.split(".")[1], "base64url").toString()
+        );
+        expect(payload.userRole_Id).toBe(assignmentB);
     });
 
     test("deleted pinned assignment falls back to oldest assignment", async () => {
