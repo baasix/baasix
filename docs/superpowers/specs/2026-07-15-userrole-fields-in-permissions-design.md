@@ -61,9 +61,16 @@ team-scoped reads and auto-stamped `team_Id` on create.
 - Add optional `userRole_Id` to the JWT payload (alongside existing
   `tenant_Id`, `sessionToken`).
 - Tokens without `userRole_Id` (all existing tokens) keep working via the
-  current `(user_Id, tenant_Id)` lookup — no forced re-login.
-- Login flow unchanged (picks first assignment as today, now with a
-  deterministic `ORDER BY "createdAt"`); clients that care switch afterwards.
+  current `(user_Id, tenant_Id)` lookup — no forced re-login, no behavior
+  change (today's tokens already resolve this way; the added
+  `ORDER BY "createdAt"` just makes "first entry" deterministic: the oldest
+  assignment acts as the primary one).
+- Login flow unchanged (picks first assignment as today, now deterministic);
+  clients that care switch afterwards.
+- **`/auth/refresh` preserves `userRole_Id`**: the refreshed session/token
+  carries the same `userRole_Id` as the incoming token (mirroring how refresh
+  already preserves the session `type`). Without this, a switched user would
+  silently revert to their first assignment on token refresh.
 
 ### 2. `/auth/switch-tenant` extended (role/assignment switching)
 
