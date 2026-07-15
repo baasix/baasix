@@ -44,6 +44,7 @@ export interface TokenService {
     role: Role;
     session: Session;
     tenant?: Tenant | null;
+    userRoleId?: string | null;
   }): string;
 }
 
@@ -81,7 +82,7 @@ export function createTokenService(config: TokenConfig): TokenService {
       }
     },
 
-    generateUserToken({ user, role, session, tenant }) {
+    generateUserToken({ user, role, session, tenant, userRoleId }) {
       const payload: Partial<JWTPayload> = {
         id: user.id,
         role_Id: role.id,
@@ -90,6 +91,10 @@ export function createTokenService(config: TokenConfig): TokenService {
 
       if (tenant) {
         payload.tenant_Id = tenant.id;
+      }
+
+      if (userRoleId) {
+        payload.userRole_Id = userRoleId;
       }
 
       return this.generateToken(payload);

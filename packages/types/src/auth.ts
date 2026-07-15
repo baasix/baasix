@@ -163,6 +163,8 @@ export interface JWTPayload {
 export interface Accountability {
   user?: { id: string | number; email?: string; isAdmin?: boolean; [key: string]: any };
   role?: { id: string | number; name?: string; isTenantSpecific?: boolean } | string | number;
+  /** Full active baasix_UserRole row (assignment) — custom columns included. */
+  userRole?: Record<string, any>;
   permissions?: any[];
   tenant?: string | number;
   ipaddress?: string;
