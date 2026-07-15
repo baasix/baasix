@@ -1349,13 +1349,20 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         if (ur.tenant_Id && ur.role?.isTenantSpecific) {
           const tenant = await auth.adapter.findTenantById(ur.tenant_Id);
           if (tenant) {
+            // Everything on the assignment row beyond the join-table plumbing
+            // is a user-defined custom column (e.g. team_Id) — expose it so
+            // clients can render an assignment switcher.
+            const { id: _id, user_Id: _u, role_Id: _r, tenant_Id: _t, role: _role, user: _user,
+                    createdAt: _c, updatedAt: _up, ...customFields } = ur as any;
             tenants.push({
               id: tenant.id,
               name: tenant.name,
+              userRole_Id: ur.id,
               role: {
                 id: ur.role.id,
                 name: ur.role.name,
               },
+              ...customFields,
             });
           }
         }

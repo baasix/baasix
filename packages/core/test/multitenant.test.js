@@ -771,6 +771,20 @@ describe("Multi-tenant Tests", () => {
             expect(switchResponse.status).toBe(403);
             expect(switchResponse.body.message).toContain("Access denied for specified tenant");
         });
+
+        test("GET /auth/tenants includes userRole_Id per entry", async () => {
+            const response = await request(app)
+                .get("/auth/tenants")
+                .set("Authorization", `Bearer ${tenant1UserToken}`);
+
+            expect(response.status).toBe(200);
+            expect(response.body.tenants.length).toBeGreaterThan(0);
+            for (const t of response.body.tenants) {
+                expect(t.userRole_Id).toBeDefined();
+                expect(t.role?.id).toBeDefined();
+                expect(t.role?.name).toBeDefined();
+            }
+        });
     });
 
     describe("Data Isolation Between Tenants", () => {
