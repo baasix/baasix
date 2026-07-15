@@ -453,7 +453,19 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
       }
       userRole = userRoles?.[0] || null;
       if (userRole) {
-        await cache.set(userRoleCacheKey, userRole); // Hybrid key: TTL ignored, invalidated by baasix_UserRole hook
+        // Only cache under the pinned key if the row returned IS the pinned row.
+        // If the pin was stale (row deleted) and the legacy fallback query
+        // resolved a DIFFERENT row, caching that row under the pinned key would
+        // orphan the entry: the baasix_UserRole mutation hook invalidates
+        // `ur:<mutatedRowId>` by the id of whatever row actually changed, and
+        // the dead pinned id never mutates again, so the entry would never be
+        // invalidated by later changes to (or deletion of) the fallback row.
+        // Cache it under the legacy key instead, which the hook does invalidate.
+        const resolvedCacheKey =
+          pinnedUserRoleId && String(userRole.id) === String(pinnedUserRoleId)
+            ? userRoleCacheKey
+            : `auth:userrole:${user.id}:${tenantKey}`;
+        await cache.set(resolvedCacheKey, userRole); // Hybrid key: TTL ignored, invalidated by baasix_UserRole hook
       }
     }
 

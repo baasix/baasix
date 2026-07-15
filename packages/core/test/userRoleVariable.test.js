@@ -285,6 +285,73 @@ describe("assignment switching via /auth/switch-tenant { userRole_Id }", () => {
         expect(created.body.data.team_Id).toBe(teamAlphaId);
     });
 
+    test("fallback assignment is not immortally cached under the dead pinned key", async () => {
+        // Fourth assignment -> switch to it -> delete it -> token falls back to
+        // assignment A (oldest remaining, Team Alpha). Regression coverage for a
+        // revocation-bypass bug: authMiddleware used to cache the FALLBACK row
+        // under the PINNED key (keyed by the now-dead assignment D id). Since the
+        // baasix_UserRole mutation hook only invalidates the pinned key for the
+        // id of the row that was actually mutated, and assignment D can never
+        // mutate again (it's deleted), that cache entry would live forever --
+        // later changes to assignment A (the row actually being served) would
+        // never invalidate it, and the pinned token would keep serving a stale
+        // copy of assignment A until process restart.
+        const createdD = await request(app).post("/items/baasix_UserRole").set(admin()).send({
+            user_Id: testUserId,
+            role_Id: roleId,
+            team_id: teamBetaId,
+        });
+        const assignmentD = createdD.body.data.id;
+
+        const sw = await request(app)
+            .post("/auth/switch-tenant")
+            .set("Authorization", `Bearer ${userToken}`)
+            .send({ userRole_Id: assignmentD });
+        expect(sw.status).toBe(200);
+        const pinnedToken = sw.body.token;
+
+        await request(app).delete(`/items/baasix_UserRole/${assignmentD}`).set(admin());
+
+        // Pinned assignment D is gone -> falls back to oldest assignment A (Team Alpha).
+        const create1 = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${pinnedToken}`)
+            .send({ title: "task after assignment D deletion" });
+        expect(create1.status).toBe(201);
+
+        const created1 = await request(app)
+            .get(`/items/tasks/${create1.body.data.id}`)
+            .set(admin());
+        expect(created1.body.data.team_Id).toBe(teamAlphaId);
+
+        // Now move assignment A itself to Team Beta. If the fallback row got
+        // wrongly cached under the dead pinned key (auth:userrole:*:ur:<assignmentD>),
+        // this mutation invalidates only the legacy key and assignment D's own
+        // (already-dead) pinned key -- NOT the poisoned entry -- so the pinned
+        // token would keep serving the stale, pre-move copy of assignment A.
+        await request(app)
+            .patch(`/items/baasix_UserRole/${assignmentA}`)
+            .set(admin())
+            .send({ team_id: teamBetaId });
+
+        const create2 = await request(app)
+            .post("/items/tasks")
+            .set("Authorization", `Bearer ${pinnedToken}`)
+            .send({ title: "task after assignment A moved to Team Beta" });
+        expect(create2.status).toBe(201);
+
+        const created2 = await request(app)
+            .get(`/items/tasks/${create2.body.data.id}`)
+            .set(admin());
+        expect(created2.body.data.team_Id).toBe(teamBetaId);
+
+        // Leave state clean for any later tests: move assignment A back to Team Alpha.
+        await request(app)
+            .patch(`/items/baasix_UserRole/${assignmentA}`)
+            .set(admin())
+            .send({ team_id: teamAlphaId });
+    });
+
     test("foreign/unknown userRole_Id is rejected with 403", async () => {
         const res = await request(app)
             .post("/auth/switch-tenant")
