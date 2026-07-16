@@ -1,5 +1,11 @@
 # @baasix/mcp
 
+## 0.2.3
+
+### Patch Changes
+
+- Added CURRENT_USERROLE dynamic variable
+
 ## 0.2.2
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @baasix/baasix
 
+## 0.1.86
+
+### Patch Changes
+
+- Added CURRENT_USERROLE dynamic variable
+- Updated dependencies
+  - @baasix/types@1.0.11
+
 ## 0.1.85
 
 ### Patch Changes
