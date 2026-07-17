@@ -72,6 +72,7 @@ export class PermissionService {
           description: role.description,
           isTenantSpecific: role.isTenantSpecific,
           canInviteRoleIds: role.canInviteRoleIds,
+          app_access: (role as any).app_access,
         };
         rolesById[String(role.id)] = roleData;
         rolesByName[role.name] = roleData;

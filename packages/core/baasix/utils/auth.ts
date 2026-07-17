@@ -103,7 +103,7 @@ export async function getRolesAndPermissions(roleId: string | number): Promise<{
     // Role not in hybrid cache (e.g., freshly created) — query DB directly
     const sqlClient = getSqlClient();
     const roles: any[] = await sqlClient`
-      SELECT id, name, description, "isTenantSpecific"
+      SELECT id, name, description, "isTenantSpecific", "app_access"
       FROM "baasix_Role"
       WHERE id = ${roleId}
       LIMIT 1
@@ -140,6 +140,7 @@ export async function getRolesAndPermissions(roleId: string | number): Promise<{
     name: role.name,
     description: role.description,
     isTenantSpecific: role.isTenantSpecific,
+    app_access: (role as any).app_access,
     permissions: permissionsObj,
   };
 
@@ -479,6 +480,7 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
         id: roleData.id,
         name: roleData.name,
         isTenantSpecific: roleData.isTenantSpecific,
+        app_access: (roleData as any).app_access,
       };
       permissions = Object.values(roleData.permissions);
     }

@@ -9,6 +9,7 @@ import type { AuthOptions } from "./types.js";
 import { createAuth } from "./core.js";
 import { getCache } from "../utils/cache.js";
 import { isAdmin, getPublicRole } from "../utils/auth.js";
+import fieldUtils from "../utils/fieldUtils.js";
 import { rateLimit } from "express-rate-limit";
 import crypto from "crypto";
 import { createPasskeyService } from "./plugins/passkey/service.js";
@@ -630,9 +631,11 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       
       // Update last access
       await auth.updateUser(user.id, { lastAccess: new Date() });
-      
+
       res.json({
-        user,
+        // Never return hidden columns (password hash, 2FA secrets) — the raw
+        // adapter row contains them.
+        user: fieldUtils.stripHiddenFields("baasix_User", user as any),
         role: req.accountability.role,
         permissions: req.accountability.permissions,
         tenant: req.accountability.tenant,

@@ -110,6 +110,7 @@ export interface Role {
   description?: string | null;
   isTenantSpecific: boolean;
   canInviteRoleIds?: string[] | null;
+  app_access?: boolean | null;
 }
 
 export interface Permission {

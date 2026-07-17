@@ -19,6 +19,17 @@ describe("Role app_access", () => {
         expect(login.body.role.app_access).toBe(true);
     });
 
+    test("/auth/me reports app_access on the session role", async () => {
+        const login = await adminLogin();
+        const me = await request(app)
+            .get("/auth/me")
+            .set("Authorization", `Bearer ${login.body.token}`);
+        expect(me.status).toBe(200);
+        expect(me.body.role.app_access).toBe(true);
+        // hidden columns must never leave the server
+        expect(me.body.user.password).toBeUndefined();
+    });
+
     test("newly created roles default to app_access=false", async () => {
         const login = await adminLogin();
         const token = login.body.token;
