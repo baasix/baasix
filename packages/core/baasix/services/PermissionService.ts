@@ -19,6 +19,7 @@ export interface Role {
   description?: string;
   isTenantSpecific?: boolean;
   canInviteRoleIds?: string[];
+  app_access?: boolean | null;
 }
 
 /**

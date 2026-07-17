@@ -1,5 +1,11 @@
 # @baasix/types
 
+## 1.0.12
+
+### Patch Changes
+
+- Fixed ENUM case mismatch and admin app redirection.
+
 ## 1.0.11
 
 ### Patch Changes
