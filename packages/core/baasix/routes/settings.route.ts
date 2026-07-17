@@ -4,9 +4,13 @@ import { APIError } from "../utils/errorHandler.js";
 import { adminOnly } from "../utils/auth.js";
 
 const registerEndpoint = (app: Express) => {
-  // Get project information (public)
+  // Get project information (public). Browsers (Accept prefers text/html)
+  // are redirected to the bundled admin app; API clients get JSON.
   app.get("/", async (req, res, next) => {
     try {
+      if (req.accepts(["json", "html"]) === "html") {
+        return res.redirect(302, "/admin");
+      }
       const tenantId = req.query.tenant_id as string;
       const projectInfo = await settingsService.getProjectInfo(tenantId);
       res.json(projectInfo);
