@@ -46,10 +46,13 @@ Set `app_access = true` on the `administrator` role at startup (idempotent),
 so the Roles Management UI reflects reality. The client's name-based check
 never depends on this; it is cosmetic consistency only.
 
-### No endpoint changes
+### Endpoint change: `/auth/tenants` role projection
 
-Login, 2FA, magic-link, OAuth, and switch-tenant responses already return the
-full role record, so `app_access` flows to clients automatically.
+Login, 2FA, magic-link, OAuth, passkey, and switch-tenant responses already
+return the full role record, so `app_access` flows to clients automatically.
+The one exception is `GET /auth/tenants` (the assignment-switcher listing),
+which projects the role down to `{ id, name }` — add `app_access` to that
+projection so the switcher can filter.
 
 ## Part 2 — Admin app (app repo)
 
@@ -69,7 +72,7 @@ export function roleHasAppAccess(role: SessionRole | null | undefined): boolean 
 Fail-open cases exist so an app newer than its server never locks everyone
 out; once the server has the column, `false` blocks.
 
-### Enforcement points (all five)
+### Enforcement points (all six)
 
 Rejection message everywhere: **"Your role does not have access to the admin app."**
 
@@ -80,8 +83,12 @@ Rejection message everywhere: **"Your role does not have access to the admin app
 3. **Register** (same file): identical check.
 4. **OAuth callback page** (`src/app/(public)/auth/callback/page.tsx`) and
    **magic-link page** (`src/app/(public)/auth/magiclink/[token]/magiclink-client.tsx`):
-   check before `storeAuthSession`; on block, redirect to `/login` with the message.
-5. **`check()`** (auth-provider): after the token check, run
+   check before `storeAuthSession`; on block, show the message (these pages
+   already render an error state with a back-to-login link).
+5. **Passkey sign-in** (`src/components/auth-page/index.tsx`
+   `handlePasskeyAuth`): check before `storeAuthSession`; on block, surface
+   the message via the existing passkey error state.
+6. **`check()`** (auth-provider): after the token check, run
    `roleHasAppAccess(getStoredRole())`; on block, `clearAuthSession()` and
    return unauthenticated with `redirectTo: "/login"`. Covers sessions that
    existed before an admin revoked a role's access.
@@ -96,8 +103,11 @@ message.
 
 ### Roles Management UI
 
-`src/components/settings/RolesManagement.tsx`: an "App access" toggle per role
-writing the `app_access` field; rendered on and disabled for `administrator`.
+`src/components/settings/RolesManagement.tsx` is a schema-driven
+`DataBrowserInner` over `baasix_Role`, so the new field appears in the edit
+form automatically. Add: `app_access` to `defaultVisibleColumns` with a
+Yes/No badge renderer (same as `isTenantSpecific`), and disable the field in
+the edit form for the `administrator` role via `getDisabledFields`.
 
 ## Security note
 
@@ -113,10 +123,12 @@ end-user apps share the same `/auth/login`.
 - Heal: `administrator` role has `app_access = true` after startup.
 - Login response: `role.app_access` present.
 
-**App:** no jest harness — typecheck/build must pass, then Playwright manual
-verification: blocked role cannot log in (message shown); enabling the toggle
-lets it in; revoking while logged in kicks the session on next `check`;
-switcher hides blocked assignments; administrator unaffected throughout.
+**App:** vitest unit test for `roleHasAppAccess` (pure function) covering
+legacy-null, administrator-name, missing-field fail-open, true, and false
+cases; `npm run build` must pass; then Playwright manual verification:
+blocked role cannot log in (message shown); enabling the toggle lets it in;
+revoking while logged in kicks the session on next `check`; switcher hides
+blocked assignments; administrator unaffected throughout.
 
 ## Out of scope
 
