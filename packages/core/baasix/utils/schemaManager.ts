@@ -1889,6 +1889,13 @@ export class SchemaManager {
 
     // Seed built-in ACL entries on every startup (idempotent)
     await this.seedSystemACLs();
+
+    // administrator always has admin-app access; the client gate checks the
+    // role NAME, so this only keeps the Roles Management UI truthful.
+    await sql`
+      UPDATE "baasix_Role" SET "app_access" = true
+      WHERE name = 'administrator' AND "app_access" IS DISTINCT FROM true
+    `;
   }
 
   /**

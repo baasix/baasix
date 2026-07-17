@@ -45,6 +45,13 @@ export const systemSchemas = {
                         SystemGenerated: "true",
                         description: "Array of role IDs this role can invite",
                     },
+                    app_access: {
+                        type: "Boolean",
+                        allowNull: false,
+                        defaultValue: false,
+                        SystemGenerated: "true",
+                        description: "Whether users with this role may log into the admin app",
+                    },
                     permissions: {
                         relType: "HasMany",
                         target: "baasix_Permission",

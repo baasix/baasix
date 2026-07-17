@@ -1362,6 +1362,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
               role: {
                 id: ur.role.id,
                 name: ur.role.name,
+                app_access: (ur.role as any).app_access ?? null,
               },
             });
           }
