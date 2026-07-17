@@ -46,13 +46,26 @@ Set `app_access = true` on the `administrator` role at startup (idempotent),
 so the Roles Management UI reflects reality. The client's name-based check
 never depends on this; it is cosmetic consistency only.
 
-### Endpoint change: `/auth/tenants` role projection
+### Endpoint changes
 
 Login, 2FA, magic-link, OAuth, passkey, and switch-tenant responses already
 return the full role record, so `app_access` flows to clients automatically.
-The one exception is `GET /auth/tenants` (the assignment-switcher listing),
-which projects the role down to `{ id, name }` — add `app_access` to that
-projection so the switcher can filter.
+Two projections needed the field added:
+
+- `GET /auth/tenants` (assignment-switcher listing) projected the role down
+  to `{ id, name }` — now includes `app_access` so the switcher can filter.
+- The session accountability role (`req.accountability.role`, returned by
+  `GET /auth/me`) projected to `{ id, name, isTenantSpecific }` — now
+  includes `app_access` so the app can revalidate a live session. Both role
+  caches feeding it (`PermissionService.loadRoles` and the infinite-TTL
+  `auth:role:<id>:permissions` entry in `getRolesAndPermissions`) carry the
+  field. Note: pre-existing infinite-TTL Redis entries keep the old shape
+  until the role is next edited — role edits invalidate them, and a shape
+  without the key fails open client-side, so this is safe.
+
+While wiring `/auth/me`: the endpoint returned the raw user row including
+the argon2 password hash and 2FA secrets. Fixed — the user object is now
+passed through `fieldUtils.stripHiddenFields` (regression-tested).
 
 ## Part 2 — Admin app (app repo)
 
@@ -90,8 +103,17 @@ Rejection message everywhere: **"Your role does not have access to the admin app
    the message via the existing passkey error state.
 6. **`check()`** (auth-provider): after the token check, run
    `roleHasAppAccess(getStoredRole())`; on block, `clearAuthSession()` and
-   return unauthenticated with `redirectTo: "/login"`. Covers sessions that
-   existed before an admin revoked a role's access.
+   return unauthenticated with `redirectTo: "/login"`. Since the stored role
+   goes stale, `check()` also fires a throttled (60s) fire-and-forget fetch
+   of `GET /auth/me`; when the fresh role carries the `app_access` key it is
+   re-stored, and a failing role clears the session and redirects to
+   `/login`. Revoking a role's access therefore ends live sessions within
+   about a minute. A response without the key (older server) neither blocks
+   nor overwrites the richer stored role.
+
+Additionally, because the app configures no Refine notificationProvider,
+auth mutation failures were invisible. Login, 2FA, and register mutate calls
+now surface failures (including the denial message) via sonner toasts.
 
 ### Sidebar switcher
 
