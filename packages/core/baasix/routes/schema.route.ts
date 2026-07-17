@@ -260,6 +260,19 @@ const registerEndpoint = (app: Express, context?: any) => {
             processedSchema.fields = {};
         }
 
+        // Normalize enum fields — clients (SDK typings, MCP examples) have
+        // historically sent "Enum"/"enum" casing and values wrapped as
+        // { values: [...] }; canonical is type "ENUM" with a plain array,
+        // which case-sensitive consumers and the enum editors expect
+        for (const fieldDef of Object.values(processedSchema.fields) as any[]) {
+            if (fieldDef && typeof fieldDef.type === "string" && fieldDef.type.toLowerCase() === "enum") {
+                fieldDef.type = "ENUM";
+                if (fieldDef.values && !Array.isArray(fieldDef.values) && Array.isArray(fieldDef.values.values)) {
+                    fieldDef.values = fieldDef.values.values;
+                }
+            }
+        }
+
         // Handle usertrack flag
         if (processedSchema.usertrack === true) {
             const usertrack = {

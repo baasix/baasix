@@ -120,7 +120,10 @@ export class SchemaManager {
       
       // Step 1: Ensure baasix_SchemaDefinition table exists
       await this.ensureSchemaDefinitionTable();
-      
+
+      // Step 1.5: Heal non-canonical enum type casing ("Enum"/"enum") in stored definitions
+      await this.normalizeEnumTypeCasing();
+
       // Step 2: Ensure system schemas are in the table
       const needSyncing = await this.ensureSystemSchemas();
       
@@ -544,6 +547,46 @@ export class SchemaManager {
    * Normalize legacy Sequelize schemas - add default values for timestamp fields
    * and update DB column defaults if missing
    */
+  /**
+   * One-shot idempotent repair for enum fields written by older SDK typings
+   * and MCP clients: rewrites type "Enum"/"enum" to the canonical "ENUM" and
+   * unwraps values stored as { values: [...] } to a plain array. Case-sensitive
+   * consumers (OpenAPI generation, admin app field/inline editors, filter
+   * builders) only recognize the canonical shape.
+   */
+  private async normalizeEnumTypeCasing(): Promise<void> {
+    const sql = getSqlClient();
+    try {
+      const result = await sql`
+        UPDATE "baasix_SchemaDefinition" s
+        SET schema = jsonb_set(s.schema, '{fields}', (
+          SELECT jsonb_object_agg(
+            f.key,
+            CASE
+              WHEN lower(f.value->>'type') = 'enum' AND jsonb_typeof(f.value->'values'->'values') = 'array'
+                THEN jsonb_set(jsonb_set(f.value, '{type}', '"ENUM"'), '{values}', f.value->'values'->'values')
+              WHEN lower(f.value->>'type') = 'enum' AND f.value->>'type' <> 'ENUM'
+                THEN jsonb_set(f.value, '{type}', '"ENUM"')
+              ELSE f.value
+            END
+          )
+          FROM jsonb_each(s.schema->'fields') f
+        ))
+        WHERE jsonb_typeof(s.schema->'fields') = 'object'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_each(s.schema->'fields') f
+            WHERE lower(f.value->>'type') = 'enum'
+              AND (f.value->>'type' <> 'ENUM' OR jsonb_typeof(f.value->'values'->'values') = 'array')
+          )
+      `;
+      if (result.count > 0) {
+        console.log(`Normalized enum field definitions in ${result.count} schema definition(s)`);
+      }
+    } catch (error: any) {
+      console.warn('Enum field normalization skipped:', error.message);
+    }
+  }
+
   private async normalizeLegacySchema(collectionName: string, schema: any): Promise<any> {
     const sql = getSqlClient();
     const db = getDatabase();

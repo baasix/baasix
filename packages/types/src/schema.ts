@@ -33,6 +33,8 @@ export type FieldType =
   | "Point"
   | "LineString"
   | "Polygon"
+  | "ENUM"
+  /** @deprecated Use "ENUM" — the server normalizes casing, but "ENUM" is canonical */
   | "Enum";
 
 /**

@@ -969,7 +969,7 @@ EXAMPLE — Add a nullable "bio" text column:
 { collection: "users", fieldName: "bio", field: { type: "Text", allowNull: true } }
 
 EXAMPLE — Add a "status" enum with default:
-{ collection: "orders", fieldName: "status", field: { type: "Enum", allowNull: false, defaultValue: "pending", values: { values: ["pending","processing","shipped","delivered"] } } }`,
+{ collection: "orders", fieldName: "status", field: { type: "ENUM", allowNull: false, defaultValue: "pending", values: { values: ["pending","processing","shipped","delivered"] } } }`,
     {
       collection: z.string().describe("Name of the collection/table to add the field to"),
       fieldName: z.string().describe("Column name to create. Must be a valid PostgreSQL identifier (letters, numbers, underscores; cannot start with a number). Max 63 chars."),

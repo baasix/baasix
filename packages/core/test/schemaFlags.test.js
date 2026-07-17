@@ -427,4 +427,74 @@ describe("Schema Flag Tests", () => {
 
         expect(getDeletedResponse.status).toBe(403);
     });
+
+    test("Enum field type casing is normalized to ENUM on create and field endpoints", async () => {
+        // Create schema using the non-canonical "Enum" casing (as sent by SDK/MCP clients)
+        const schemaWithEnum = {
+            ...testSchema,
+            fields: {
+                ...testSchema.fields,
+                status: { type: "Enum", allowNull: true, values: ["active", "inactive"] },
+            },
+        };
+
+        const response = await request(app).post("/schemas").set("Authorization", `Bearer ${adminToken}`).send({
+            collectionName: "FlagTestModel",
+            schema: schemaWithEnum,
+        });
+
+        expect(response.status).toBe(201);
+
+        const getResponse = await request(app)
+            .get("/schemas/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`);
+
+        expect(getResponse.status).toBe(200);
+        expect(getResponse.body.data.schema.fields.status.type).toBe("ENUM");
+
+        // Add a field with lowercase "enum" via the field endpoint
+        const addFieldResponse = await request(app)
+            .post("/schemas/FlagTestModel/fields")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                fieldName: "priority",
+                field: { type: "enum", allowNull: true, values: ["low", "high"] },
+            });
+
+        expect(addFieldResponse.status).toBe(201);
+
+        const getResponse2 = await request(app)
+            .get("/schemas/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`);
+
+        expect(getResponse2.body.data.schema.fields.priority.type).toBe("ENUM");
+        // Existing field keeps canonical casing
+        expect(getResponse2.body.data.schema.fields.status.type).toBe("ENUM");
+    });
+
+    test("Wrapped enum values { values: [...] } are normalized to a plain array", async () => {
+        // MCP clients historically sent values wrapped in an object
+        const schemaWithWrappedEnum = {
+            ...testSchema,
+            fields: {
+                ...testSchema.fields,
+                status: { type: "Enum", allowNull: true, values: { values: ["pending", "done"] } },
+            },
+        };
+
+        const response = await request(app).post("/schemas").set("Authorization", `Bearer ${adminToken}`).send({
+            collectionName: "FlagTestModel",
+            schema: schemaWithWrappedEnum,
+        });
+
+        expect(response.status).toBe(201);
+
+        const getResponse = await request(app)
+            .get("/schemas/FlagTestModel")
+            .set("Authorization", `Bearer ${adminToken}`);
+
+        expect(getResponse.status).toBe(200);
+        expect(getResponse.body.data.schema.fields.status.type).toBe("ENUM");
+        expect(getResponse.body.data.schema.fields.status.values).toEqual(["pending", "done"]);
+    });
 });
