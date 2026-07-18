@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.88
+
+### Patch Changes
+
+- Fixed email verification flow with resend API and cooldown time.
+
 ## 0.1.87
 
 ### Patch Changes

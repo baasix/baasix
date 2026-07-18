@@ -101,6 +101,9 @@ function getSystemEndpoints(): EndpointInfo[] {
         { path: "/auth/me", method: "GET", type: "system", category: "authentication", description: "Get current user info" },
         { path: "/auth/magiclink", method: "POST", type: "system", category: "authentication", description: "Send magic link" },
         { path: "/auth/magiclink/{token}", method: "GET", type: "system", category: "authentication", description: "Login with magic link" },
+        { path: "/auth/email/verify", method: "POST", type: "system", category: "authentication", description: "Request verification email (authenticated)" },
+        { path: "/auth/email/verify/resend", method: "POST", type: "system", category: "authentication", description: "Resend verification email" },
+        { path: "/auth/email/verify/{token}", method: "GET", type: "system", category: "authentication", description: "Verify email with token" },
     ] : [];
 
     const multiTenantEndpoints = env.get("OPENAPI_INCLUDE_MULTI_TENANT") === "true" ? [
@@ -618,6 +621,21 @@ function getSystemSchemas() {
             },
             required: ["email"]
         },
+        EmailVerifyRequest: {
+            type: "object",
+            properties: {
+                link: { type: "string", description: "Allow-listed app base URL; the email links to {link}/auth/verify-email/{token}" }
+            },
+            required: ["link"]
+        },
+        EmailVerifyResendRequest: {
+            type: "object",
+            properties: {
+                email: { type: "string", format: "email", description: "Account email — required for unauthenticated calls, ignored when authenticated (session user is used)" },
+                link: { type: "string", description: "Allow-listed app base URL; the email links to {link}/auth/verify-email/{token}" }
+            },
+            required: ["link"]
+        },
         // System Models
         baasix_SchemaDefinition: {
             type: "object",
@@ -1074,6 +1092,26 @@ function createAuthEndpointOperation(endpoint: EndpointInfo): any {
             content: {
                 "application/json": {
                     schema: { $ref: "#/components/schemas/MagicLinkRequest" }
+                }
+            }
+        };
+    } else if (endpointPath === "/auth/email/verify/resend" && methodLower === "post") {
+        operation.description = "Resend the verification email. Unauthenticated calls require `email` and always return the same generic response (anti-enumeration); authenticated calls use the session user's address and get specific responses (already-verified, 429 on cooldown).";
+        operation.requestBody = {
+            required: true,
+            content: {
+                "application/json": {
+                    schema: { $ref: "#/components/schemas/EmailVerifyResendRequest" }
+                }
+            }
+        };
+    } else if (endpointPath === "/auth/email/verify" && methodLower === "post") {
+        operation.description = "Request a verification email for the authenticated user (legacy alias of /auth/email/verify/resend)";
+        operation.requestBody = {
+            required: true,
+            content: {
+                "application/json": {
+                    schema: { $ref: "#/components/schemas/EmailVerifyRequest" }
                 }
             }
         };

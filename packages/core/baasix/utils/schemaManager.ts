@@ -1930,10 +1930,12 @@ export class SchemaManager {
         // Hash the admin password
         const hashedPassword = await argon2.hash('admin@123');
 
-        // Create default admin user
+        // Create default admin user. Seeded as emailVerified — it's operator-created,
+        // and REQUIRE_EMAIL_VERIFICATION=true would otherwise lock the admin out of
+        // a fresh install (no mail sender configured yet to verify with).
         const adminUserId = await sql`
-          INSERT INTO "baasix_User" (id, email, "firstName", "lastName", password)
-          VALUES (gen_random_uuid(), 'admin@baasix.com', 'Baasix', 'Admin', ${hashedPassword})
+          INSERT INTO "baasix_User" (id, email, "firstName", "lastName", password, "emailVerified")
+          VALUES (gen_random_uuid(), 'admin@baasix.com', 'Baasix', 'Admin', ${hashedPassword}, true)
           ON CONFLICT (email) DO NOTHING
           RETURNING id
         `;

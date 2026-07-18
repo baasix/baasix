@@ -191,6 +191,50 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     });
   }
   
+  // Sends the emailVerification mail to a user. The verify-link base is the
+  // caller-provided link when allow-listed, else the first allowed app URL —
+  // register can't require a link since older clients don't send one.
+  // A per-email cooldown (EMAIL_VERIFICATION_RESEND_COOLDOWN seconds, 0 disables)
+  // caps how often mail actually goes out — the IP-keyed authLimiter alone can't
+  // stop a distributed caller from flooding one inbox. Set only after a
+  // successful send so a mail failure doesn't lock the user out of retrying.
+  async function sendVerificationEmail(user: { email: string; firstName?: string | null }, link?: string): Promise<"sent" | "cooldown" | "skipped"> {
+    if (!options.mailService) return "skipped";
+
+    let base: string | null = link && (await isValidAppUrl(link)) ? link : null;
+    if (!base) {
+      base = (await getAllowedAppUrls())[0] || null;
+    }
+    if (!base) {
+      console.warn("Cannot send verification email: no allow-listed app URL (set AUTH_APP_URL or pass a valid link)");
+      return "skipped";
+    }
+
+    const cooldownSeconds = parseInt(options.env?.get("EMAIL_VERIFICATION_RESEND_COOLDOWN") || "60");
+    const cooldownKey = `emailverify:cooldown:${user.email.toLowerCase()}`;
+    if (cooldownSeconds > 0 && (await cache.get(cooldownKey))) {
+      return "cooldown";
+    }
+
+    const { token } = await auth.createEmailVerification(user.email);
+    const verifyUrl = `${base}/auth/verify-email/${token}`;
+
+    await options.mailService.sendMail({
+      to: user.email,
+      subject: "Verify Your Email",
+      templateName: "emailVerification",
+      context: {
+        verifyUrl,
+        name: user.firstName || user.email,
+      },
+    });
+
+    if (cooldownSeconds > 0) {
+      await cache.set(cooldownKey, true, cooldownSeconds);
+    }
+    return "sent";
+  }
+
   // Helper to store OAuth state
   async function storeOAuthState(state: string, data: { codeVerifier: string; redirectURI: string; authMode?: string; appRedirectUrl?: string }) {
     await cache.set(`${OAUTH_STATE_PREFIX}${state}`, data, OAUTH_STATE_TTL);
@@ -239,7 +283,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         return res.status(403).json({ message: "Public registration is disabled", code: "REGISTRATION_DISABLED" });
       }
 
-      const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, authMode = "jwt", ...customFields } = req.body;
+      const { email, password, firstName, lastName, phone, tenant, roleName, inviteToken, authMode = "jwt", link, ...customFields } = req.body;
 
       if (!email || !password || !firstName) {
         return res.status(400).json({ message: "Email, password, and firstName are required" });
@@ -264,6 +308,15 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       
       // Check if email verification is required
       if (result.requiresEmailVerification) {
+        // Auto-send the verification email — without a session the user couldn't
+        // request it themselves. A mail failure must not fail registration; the
+        // user can still use POST /email/verify/resend.
+        try {
+          await sendVerificationEmail(result.user, link);
+        } catch (mailError) {
+          console.error("Failed to send verification email on register:", mailError);
+        }
+
         // Don't send token - user needs to verify email first
         return res.json({
           message: "User registered successfully. Please verify your email to login.",
@@ -1255,31 +1308,65 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       if (user.emailVerified) {
         return res.json({ message: "Email already verified" });
       }
-      
-      // Create verification token
-      const { token, expiresAt } = await auth.createEmailVerification(user.email);
-      
-      // Send email
-      if (options.mailService) {
-        const verifyUrl = `${link}/auth/verify-email/${token}`;
-        
-        await options.mailService.sendMail({
-          to: user.email,
-          subject: "Verify Your Email",
-          templateName: "emailVerification",
-          context: {
-            verifyUrl,
-            name: user.firstName || user.email,
-          },
-        });
+
+      const status = await sendVerificationEmail(user, link);
+      if (status === "cooldown") {
+        return res.status(429).json({ message: "A verification email was sent recently. Please wait before requesting another." });
       }
-      
+
       res.json({ message: "Verification email sent" });
     } catch (error) {
       next(error);
     }
   });
-  
+
+  // Resend — the single entry point for requesting a verification email in either
+  // auth state (POST /email/verify above is the legacy authenticated alias).
+  // Anonymous callers (the REQUIRE_EMAIL_VERIFICATION case: no session until
+  // verified) must pass `email` and always get the same generic response, like
+  // the magiclink endpoint (anti-enumeration). Authenticated callers are
+  // identified by their session — body `email` is ignored — so responses can be
+  // specific ("already verified", 429 on cooldown).
+  app.post(`${basePath}/email/verify/resend`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email, link } = req.body;
+
+      if (!(await isValidAppUrl(link))) {
+        return res.status(400).json({ message: "Invalid link" });
+      }
+
+      if (req.accountability?.user) {
+        const user = await auth.getUserById(req.accountability.user.id);
+        if (!user || !user.email) {
+          return res.status(400).json({ message: "User not found or no email set" });
+        }
+        if (user.emailVerified) {
+          return res.json({ message: "Email already verified" });
+        }
+        const status = await sendVerificationEmail(user, link);
+        if (status === "cooldown") {
+          return res.status(429).json({ message: "A verification email was sent recently. Please wait before requesting another." });
+        }
+        return res.json({ message: "Verification email sent" });
+      }
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const user = await auth.getUserByEmail(email);
+      if (user && user.email && !user.emailVerified) {
+        // Cooldown is swallowed here on purpose — a distinct response would
+        // confirm the account exists.
+        await sendVerificationEmail(user, link);
+      }
+
+      res.json({ message: "If an account exists for this email, a verification email has been sent." });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get(`${basePath}/email/verify/:token`, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { token } = req.params;
