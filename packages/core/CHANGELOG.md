@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.90
+
+### Patch Changes
+
+- Added bypassHooks option in itemservices, which can be used to infinit hook calls in some scenarios.
+
 ## 0.1.89
 
 ### Patch Changes

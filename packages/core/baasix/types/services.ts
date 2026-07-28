@@ -43,6 +43,15 @@ export interface OperationOptions {
   bypassPermissions?: boolean;
   transaction?: Transaction;
   force?: boolean; // Force hard delete even if paranoid mode is enabled
+  /**
+   * Skip lifecycle hooks (both before and *.after) for this operation.
+   *
+   * Primary use: a hook that writes back to its own collection would otherwise
+   * re-trigger itself. Only suppresses hooks for THIS call — nested operations
+   * on other collections still fire theirs, and permissions are unaffected
+   * (use bypassPermissions for that).
+   */
+  bypassHooks?: boolean;
 }
 
 

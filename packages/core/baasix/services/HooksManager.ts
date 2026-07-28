@@ -92,14 +92,27 @@ export class HooksManager {
   }
 
   /**
-   * Execute hooks for a collection and action
+   * Execute hooks for a collection and action.
+   *
+   * When `bypass` is true no hook runs and the context is returned untouched —
+   * callers can treat the call as a no-op rather than branching around it. This
+   * is how ItemsService implements the `bypassHooks` operation option, whose
+   * main purpose is letting a hook write to its own collection without
+   * re-triggering itself (infinite recursion).
    */
   async executeHooks(
     collection: string,
     event: string,
     accountability: any,
-    context: HookContext
+    context: HookContext,
+    bypass: boolean = false
   ): Promise<HookContext> {
+    // Return the context unchanged so callers reading back `hookData.data` /
+    // `hookData.query` still get exactly what they passed in.
+    if (bypass) {
+      return { ...context };
+    }
+
     const hooks = this.getHooks(collection, event);
     let modifiedData = { ...context };
 

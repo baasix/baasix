@@ -1551,7 +1551,7 @@ export class ItemsService {
     query: QueryOptions = {},
     bypassPermissions: boolean = false,
     transaction?: Transaction,
-    options: { includeHidden?: boolean } = {}
+    options: { includeHidden?: boolean; bypassHooks?: boolean } = {}
   ): Promise<ReadResult> {
     const dbClient = transaction || db;
     // includeHidden lets trusted SYSTEM callers (e.g. the auth adapter verifying a
@@ -1563,7 +1563,8 @@ export class ItemsService {
       this.collection,
       'items.read',
       this.accountability,
-      { query, transaction }
+      { query, transaction },
+      options.bypassHooks
     );
 
     const modifiedQuery = hookData.query as QueryOptions;
@@ -1826,7 +1827,8 @@ export class ItemsService {
         this.collection,
         'items.read.after',
         this.accountability,
-        { query: modifiedQuery, result: { data: sanitizedRecords, totalCount }, transaction }
+        { query: modifiedQuery, result: { data: sanitizedRecords, totalCount }, transaction },
+        options.bypassHooks
       );
 
       return hookData.result;
@@ -2165,7 +2167,7 @@ export class ItemsService {
     query: QueryOptions = {},
     bypassPermissions: boolean = false,
     transaction?: Transaction,
-    options: { includeHidden?: boolean } = {}
+    options: { includeHidden?: boolean; bypassHooks?: boolean } = {}
   ): Promise<any> {
     const dbClient = transaction || db;
     const includeHidden = options.includeHidden === true;
@@ -2180,7 +2182,8 @@ export class ItemsService {
       this.collection,
       'items.read.one',
       this.accountability,
-      { id: parsedId, query, transaction }
+      { id: parsedId, query, transaction },
+      options.bypassHooks
     );
 
     try {
@@ -2264,7 +2267,8 @@ export class ItemsService {
         this.collection,
         'items.read.one.after',
         this.accountability,
-        { id: parsedId, query, document: strippedDocument, transaction }
+        { id: parsedId, query, document: strippedDocument, transaction },
+        options.bypassHooks
       );
 
       return hookData.document;
@@ -2309,7 +2313,8 @@ export class ItemsService {
         this.collection,
         'items.create.after',
         this.accountability,
-        { data: result.modifiedData, document: result.document, transaction: options.transaction }
+        { data: result.modifiedData, document: result.document, transaction: options.transaction },
+        options.bypassHooks
       );
 
       // Invalidate cache for this collection and all related tables
@@ -2363,7 +2368,8 @@ export class ItemsService {
       this.collection,
       'items.create',
       this.accountability,
-      { data, transaction: options.transaction }
+      { data, transaction: options.transaction },
+      options.bypassHooks
     );
 
     let modifiedData = hookData.data;
@@ -2604,7 +2610,8 @@ export class ItemsService {
           this.collection,
           'items.create.after',
           this.accountability,
-          { data: result.modifiedData, document: result.document, transaction: options.transaction }
+          { data: result.modifiedData, document: result.document, transaction: options.transaction },
+          options.bypassHooks
         );
       }
 
@@ -2661,7 +2668,8 @@ export class ItemsService {
       this.collection,
       'items.update',
       this.accountability,
-      { id: parsedId, data, transaction: options.transaction }
+      { id: parsedId, data, transaction: options.transaction },
+      options.bypassHooks
     );
 
     let modifiedData = hookData.data;
@@ -2960,7 +2968,8 @@ export class ItemsService {
             document: result.finalDocument,
             previousDocument: result.previousDocument,
             transaction: options.transaction
-          }
+          },
+          options.bypassHooks
         );
       }
 
@@ -3025,7 +3034,8 @@ export class ItemsService {
           document: result.finalDocument,
           previousDocument: result.previousDocument,
           transaction: options.transaction
-        }
+        },
+        options.bypassHooks
       );
 
       // Invalidate cache for this collection and all related tables
@@ -3079,7 +3089,8 @@ export class ItemsService {
       this.collection,
       'items.delete',
       this.accountability,
-      { id: parsedId, transaction }
+      { id: parsedId, transaction },
+      options.bypassHooks
     );
 
     const isAdmin = await this.isAdministrator();
@@ -3254,7 +3265,8 @@ export class ItemsService {
           this.collection,
           'items.delete.after',
           this.accountability,
-          { id: result.parsedId, document: result.document, transaction: options.transaction }
+          { id: result.parsedId, document: result.document, transaction: options.transaction },
+          options.bypassHooks
         );
       }
 
@@ -3311,7 +3323,8 @@ export class ItemsService {
         this.collection,
         'items.delete.after',
         this.accountability,
-        { id: result.parsedId, document: result.document, transaction: options.transaction }
+        { id: result.parsedId, document: result.document, transaction: options.transaction },
+        options.bypassHooks
       );
 
       // Invalidate cache for this collection
