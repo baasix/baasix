@@ -46,7 +46,7 @@ Every \`filter\` value anywhere in a config uses the items-API filter DSL, shape
 filter block (and this doc's block configs) stick to the core comparison set — \`eq, ne, icontains\`
 (case-insensitive text contains), \`gt, gte, lt, lte, in\`, plus \`isNull\`/\`isNotNull\` for matching or
 excluding empty values; the full items-API/permission-condition operator set (\`like, iLike,
-between, arraycontains, jsonbContains, dwithin\`, and the other JSONB/geo/vector operators) is also
+between, arraycontains, arrayoverlap, jsonbContains, dwithin\`, and the other JSONB/geo/vector operators) is also
 accepted server-side wherever a \`filter\` value is read directly by ItemsService, plus dynamic
 variables \`$CURRENT_USER\`, \`$CURRENT_TENANT\`, \`$NOW±DAYS_N\`. Combine several conditions with an \`"AND"\` or \`"OR"\` array of these same rules — the
 keys must be UPPERCASE (lowercase \`"and"\`/\`"or"\` is ignored).

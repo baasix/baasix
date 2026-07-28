@@ -58,21 +58,25 @@ const get = (qs) =>
   request(app).get(`/items/inj_products${qs}`).set("Authorization", `Bearer ${adminToken}`);
 
 describe("A1 — identifier injection is rejected/neutralized", () => {
-  test("relation-path filter key with quote-breakout does not 500 / does not inject", async () => {
+  test("relation-path filter key with quote-breakout is rejected, does not 500 / does not inject", async () => {
     const filter = encodeURIComponent(
       JSON.stringify({ 'x.y"=1) OR (SELECT 1=1) OR "z': { eq: 1 } })
     );
     const res = await get(`?filter=${filter}`);
-    // Must not 500 (no SQL error leaked); the unsafe key is dropped → normal result set.
-    expect(res.status).toBe(200);
-    // The OR-injection must NOT have widened the result beyond the real rows.
-    expect(res.body.data.length).toBeLessThanOrEqual(3);
+    // The unsafe key no longer resolves to a column, so the request is rejected
+    // outright rather than silently dropping the condition. Either way the
+    // injection must not execute: no SQL error leaked, no widened result set.
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).not.toMatch(/syntax error/i);
+    expect(res.body.data ?? []).toHaveLength(0);
   });
 
-  test("unknown dotted column is dropped, not interpolated raw", async () => {
+  test("unknown dotted column is rejected, not interpolated raw", async () => {
     const filter = encodeURIComponent(JSON.stringify({ "nonexistent.col": { eq: "x" } }));
     const res = await get(`?filter=${filter}`);
-    expect(res.status).toBe(200);
+    // Previously dropped (returning every row); now fails closed.
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).not.toMatch(/syntax error/i);
   });
 
   test("malicious sort field is rejected, never interpolated", async () => {

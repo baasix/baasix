@@ -1159,3 +1159,203 @@ describe("Deep Relational Array Operator Tests", () => {
         
     });
 });
+describe("Array Overlap Operator Tests", () => {
+    describe("String Array Overlap", () => {
+        test("should find items sharing at least one element", async () => {
+            // "javascript" is on Blog Post 1 and Blog Post 3; "django" only on Blog Post 2.
+            // Overlap returns the union of the two: all three posts.
+            const response = await request(app)
+                .get(`/items/${stringArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "tags": { "arrayoverlap": ["javascript", "django"] }
+                    })
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBe(3);
+        });
+
+        test("should accept a single non-array value", async () => {
+            const response = await request(app)
+                .get(`/items/${stringArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "tags": { "arrayoverlap": "python" }
+                    })
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBe(1);
+            expect(response.body.data[0].name).toBe("Blog Post 2");
+        });
+
+        // Negative control: overlap must not degrade into "match everything".
+        test("should return no rows when nothing overlaps", async () => {
+            const response = await request(app)
+                .get(`/items/${stringArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "tags": { "arrayoverlap": ["cobol", "fortran"] }
+                    })
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBe(0);
+        });
+
+        test("should differ from arraycontains for multi-value input", async () => {
+            // contains (@>) requires BOTH elements on the same row -> no match.
+            // overlap (&&) requires EITHER -> all three rows.
+            const containsRes = await request(app)
+                .get(`/items/${stringArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "tags": { "arraycontains": ["javascript", "django"] }
+                    })
+                });
+
+            const overlapRes = await request(app)
+                .get(`/items/${stringArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "tags": { "arrayoverlap": ["javascript", "django"] }
+                    })
+                });
+
+            expect(containsRes.status).toBe(200);
+            expect(overlapRes.status).toBe(200);
+            expect(containsRes.body.data.length).toBe(0);
+            expect(overlapRes.body.data.length).toBe(3);
+        });
+    });
+
+    describe("Typed Array Overlap", () => {
+        test("should overlap integer arrays", async () => {
+            // 2019 -> Student 2 only; 2023 -> Student 3 only.
+            const response = await request(app)
+                .get(`/items/${integerArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "years": { "arrayoverlap": [2019, 2023] }
+                    })
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBe(2);
+        });
+
+        test("should overlap UUID arrays", async () => {
+            const response = await request(app)
+                .get(`/items/${uuidArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "userIds": { "arrayoverlap": ["550e8400-e29b-41d4-a716-446655440001"] }
+                    })
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBe(1);
+            expect(response.body.data[0].name).toBe("Entity 1");
+        });
+
+        test("should overlap boolean arrays", async () => {
+            const response = await request(app)
+                .get(`/items/${booleanArrayCollection}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "flags": { "arrayoverlap": [true] }
+                    })
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("Relational Array Overlap", () => {
+        test("should filter across a relation path", async () => {
+            const response = await request(app)
+                .get("/items/projects")
+                .set("Authorization", `Bearer ${adminToken}`)
+                .query({
+                    filter: JSON.stringify({
+                        "employee.department.focuses": { "arrayoverlap": ["web-development", "nothing-matches-this"] }
+                    }),
+                    fields: ["*", "employee.*", "employee.department.*"]
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.data.length).toBe(1);
+            expect(response.body.data[0].employee.department.focuses).toContain("web-development");
+        });
+    });
+});
+
+// These guard the fail-closed behaviour. Before this, an unrecognised operator
+// or a misspelled field was dropped from the WHERE clause, so a typo in a
+// permission condition silently returned every row instead of erroring.
+describe("Filter Fail-Closed Tests", () => {
+    test("should reject an unknown operator instead of returning all rows", async () => {
+        const response = await request(app)
+            .get(`/items/${stringArrayCollection}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({
+                filter: JSON.stringify({
+                    "tags": { "totallyNotAnOperator": "zzz" }
+                })
+            });
+
+        expect(response.status).toBe(400);
+        expect(JSON.stringify(response.body)).toMatch(/totallyNotAnOperator/);
+    });
+
+    test("should reject a misspelled field instead of returning all rows", async () => {
+        const response = await request(app)
+            .get(`/items/${stringArrayCollection}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({
+                filter: JSON.stringify({
+                    "tagz": { "arraycontains": "javascript" }
+                })
+            });
+
+        expect(response.status).toBe(400);
+        expect(JSON.stringify(response.body)).toMatch(/tagz/);
+    });
+
+    test("should reject an unresolvable relation path", async () => {
+        const response = await request(app)
+            .get("/items/projects")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({
+                filter: JSON.stringify({
+                    "employee.nosuchrelation.name": { "eq": "x" }
+                })
+            });
+
+        expect(response.status).toBe(400);
+    });
+
+    test("should still apply valid filters normally", async () => {
+        const response = await request(app)
+            .get(`/items/${stringArrayCollection}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({
+                filter: JSON.stringify({
+                    "tags": { "arraycontains": "javascript" }
+                })
+            });
+
+        expect(response.status).toBe(200);
+        expect(response.body.data.length).toBe(2);
+    });
+});

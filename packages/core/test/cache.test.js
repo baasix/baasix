@@ -380,7 +380,7 @@ describe("Cache Service - Comprehensive API-Only Tests", () => {
       // Query posts with user filter via API
       const queryResponse = await request(app)
         .get("/items/cache_test_posts")
-        .query({ filter: JSON.stringify({ userId: { _eq: userId } }) })
+        .query({ filter: JSON.stringify({ userId: { eq: userId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(queryResponse.status).toBe(200);
@@ -394,7 +394,7 @@ describe("Cache Service - Comprehensive API-Only Tests", () => {
       // List posts for this user before delete
       const beforeResponse = await request(app)
         .get("/items/cache_test_posts")
-        .query({ filter: JSON.stringify({ userId: { _eq: userId } }) })
+        .query({ filter: JSON.stringify({ userId: { eq: userId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       const postCountBefore = beforeResponse.body.data.length;
@@ -403,7 +403,7 @@ describe("Cache Service - Comprehensive API-Only Tests", () => {
       // Note: Depending on cascade settings, we test the query still works
       const afterResponse = await request(app)
         .get("/items/cache_test_posts")
-        .query({ filter: JSON.stringify({ userId: { _eq: userId } }) })
+        .query({ filter: JSON.stringify({ userId: { eq: userId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(afterResponse.status).toBe(200);

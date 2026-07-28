@@ -21,6 +21,7 @@
 17. [Aggregation](#aggregation)
 18. [relConditions](#relconditions)
 19. [Full-Text Search](#full-text-search)
+20. [Filter Validation (Fail-Closed)](#filter-validation-fail-closed)
 
 ---
 
@@ -125,8 +126,19 @@ fields: ["*", "-password", "-secretKey"] // Exclude fields
 
 | Operator | PostgreSQL | Description | Example |
 |----------|------------|-------------|---------|
-| arraycontains | @> | Array contains all | `{"tags": {"arraycontains": ["js", "api"]}}` |
+| arraycontains | @> | Array contains **all** listed values | `{"tags": {"arraycontains": ["js", "api"]}}` |
 | arraycontained | <@ | Array contained by | `{"perms": {"arraycontained": ["read", "write", "admin"]}}` |
+| arrayoverlap | && | Array shares **any** listed value | `{"tags": {"arrayoverlap": ["js", "api"]}}` |
+
+`arraycontains` vs `arrayoverlap` is the all-vs-any distinction, and it is the usual
+source of surprise: with `["js", "api"]`, `arraycontains` matches only rows carrying
+both tags, while `arrayoverlap` matches rows carrying either. For "does this user's
+set of X intersect this row's set of X" — the common permission-condition shape —
+`arrayoverlap` is the operator you want.
+
+Element types are derived from the field's declared `Array_*` type (`Array_String`,
+`Array_UUID`, `Array_Integer`, ...), so the comparison is cast correctly. There is no
+separate `elementType` property on field definitions.
 
 ---
 
@@ -497,3 +509,32 @@ GET /items/products?search=laptop&filter={"category.slug":"electronics","inStock
 // Arrays in relations
 {"author.skills": {"arraycontains": ["javascript"]}}
 ```
+
+---
+
+## Filter Validation (Fail-Closed)
+
+Invalid filters are **rejected with a 400**, not silently ignored. This matters most in
+permission conditions, where a dropped condition would widen access instead of narrowing it.
+
+Rejected:
+
+```javascript
+// Unknown operator -> 400
+{"tags": {"totallyNotAnOperator": "x"}}
+
+// Misspelled field -> 400
+{"tagz": {"arraycontains": "javascript"}}
+
+// Unresolvable relation path -> 400
+{"employee.nosuchrelation.name": {"eq": "x"}}
+```
+
+**There are no underscore-prefixed operators.** `_eq`, `_ne`, `_in` are Directus syntax and
+are not valid in Baasix — use `eq`, `ne`, `in`. Before this validation existed such filters
+were discarded and the query returned **every row**, so a typo could look like a working
+query while silently matching everything.
+
+When writing a permission condition, always negative-control it: confirm a subject that
+should *not* match returns zero rows. A positive-only test cannot distinguish "the
+condition works" from "the condition was dropped."

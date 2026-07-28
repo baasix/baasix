@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.91
+
+### Patch Changes
+
+- Added arrayoverlap operator.
+
 ## 0.1.90
 
 ### Patch Changes

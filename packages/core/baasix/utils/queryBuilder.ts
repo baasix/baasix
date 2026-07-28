@@ -44,8 +44,11 @@ import {
   applyOperator,
   OperatorContext,
   FilterValue,
-  OPERATOR_MAP
+  OPERATOR_MAP,
+  ARRAY_OPERATORS,
+  getArrayElementType
 } from './filterOperators.js';
+import { APIError } from './errorHandler.js';
 import {
   resolveRelationPath,
   isRelationPath,
@@ -152,10 +155,15 @@ function processFieldCondition(
       ctx.joins.push(...resolved.joins);
     }
 
-    // If we couldn't resolve the column, skip this condition
+    // Fail closed on an unresolvable relation path. Skipping the condition
+    // would drop it from the WHERE clause and widen the result set — in a
+    // permission condition that silently grants access to every row.
     if (!resolved.column && !resolved.columnPath) {
-      console.warn(`[queryBuilder] Could not resolve relation path: ${cleanFieldName}`);
-      return null;
+      throw new APIError(
+        `Could not resolve relation path "${cleanFieldName}" in filter.`,
+        400,
+        { field: cleanFieldName }
+      );
     }
 
     // Use the resolved column from aliased table
@@ -208,13 +216,20 @@ function processFieldCondition(
   const column = getColumn(fieldName, ctx);
 
   if (!column) {
-    // Only warn if we have a schema to check against
+    // Fail closed when we have a schema to check against: a misspelled field
+    // would otherwise drop the condition and widen the result set, which in a
+    // permission condition silently grants access to every row.
     if (ctx.schema) {
       const availableColumns = Object.keys(ctx.schema).filter(k => !k.startsWith('_'));
-      console.warn(`Column not found for field: ${fieldName}. Available columns: ${availableColumns.slice(0, 10).join(', ')}${availableColumns.length > 10 ? '...' : ''}`);
-    } else {
-      console.warn(`Column not found for field: ${fieldName} (no schema provided)`);
+      throw new APIError(
+        `Column not found for field "${fieldName}" in filter.`,
+        400,
+        { field: fieldName, availableColumns: availableColumns.slice(0, 20) }
+      );
     }
+    // No schema to validate against — cannot distinguish a typo from a field
+    // this context legitimately cannot see, so preserve the existing behaviour.
+    console.warn(`Column not found for field: ${fieldName} (no schema provided)`);
     return null;
   }
 
@@ -247,14 +262,14 @@ function processFieldCondition(
       schemaTable: ctx.table
     };
     
-    // Get element type for array operators if available
+    // Get element type for array operators if available. Derived from the
+    // field's declared Array_* type — there is no separate `elementType`
+    // property on field definitions, so reading one always yielded undefined
+    // and silently cast every array comparison to text[].
     let elementType: string | undefined;
-    if ((operatorName === 'arraycontains' || operatorName === 'arraycontained') && ctx.schemaDefinition) {
-      // Try to extract array element type from schema definition
+    if (ARRAY_OPERATORS.has(operatorName) && ctx.schemaDefinition) {
       const fieldDef = ctx.schemaDefinition?.fields?.[fieldName];
-      if (fieldDef?.elementType) {
-        elementType = fieldDef.elementType;
-      }
+      elementType = getArrayElementType(fieldDef?.type);
     }
     
     const condition = applyOperator(operatorName, operatorCtx, operatorValue as FilterValue, castType, elementType);

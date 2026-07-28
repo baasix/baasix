@@ -458,16 +458,20 @@ describe("Complex Filter Tests", () => {
             expect(icontainsNames).toEqual(iLikeRes.body.data.map((e) => e.firstName).sort());
         });
 
-        test("unknown operator still warns and drops the condition (rows unfiltered)", async () => {
+        // Previously this dropped the condition and returned every row, so a typo in
+        // a permission condition silently granted access to the whole collection.
+        // Unknown operators now fail closed with a 400.
+        test("unknown operator rejects the request instead of dropping the condition", async () => {
             const all = await request(app).get("/items/employees").set("Authorization", `Bearer ${adminToken}`);
             const response = await request(app)
                 .get("/items/employees")
                 .set("Authorization", `Bearer ${adminToken}`)
                 .query({ filter: JSON.stringify({ firstName: { totallyBogusOp: "x" } }) });
 
-            expect(response.status).toBe(200);
             expect(all.status).toBe(200);
-            expect(response.body.data).toHaveLength(all.body.data.length);
+            expect(all.body.data.length).toBeGreaterThan(0); // the rows it would have leaked
+            expect(response.status).toBe(400);
+            expect(JSON.stringify(response.body)).toMatch(/totallyBogusOp/);
         });
     });
 });

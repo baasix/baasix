@@ -10,7 +10,7 @@
  * - Collection operators (in, notIn)
  * - Range operators (between, notBetween)
  * - Null checks (isNull, isNotNull)
- * - Array operators (arraycontains, arraycontained)
+ * - Array operators (arraycontains, arraycontained, arrayoverlap)
  * - JSONB operators (jsonbContains, jsonbHasKey, jsonbPathExists, etc.)
  * - Geo/spatial operators (within, contains, intersects, dwithin)
  * - Column-to-column comparisons with $COL() syntax
@@ -33,9 +33,25 @@ import {
 } from 'drizzle-orm';
 import { PgColumn } from 'drizzle-orm/pg-core';
 import type { ColumnReference, FilterValue, OperatorContext } from '../types/index.js';
+import { APIError } from './errorHandler.js';
 
 // Re-export types for backward compatibility
 export type { ColumnReference, FilterValue, OperatorContext };
+
+/**
+ * Raised when a filter references an operator that is not in OPERATOR_MAP.
+ * Surfaces as a 400 rather than being swallowed — see applyOperator.
+ */
+export class UnknownOperatorError extends APIError {
+  constructor(operatorName: string, fieldName?: string) {
+    super(
+      `Unknown filter operator "${operatorName}"${fieldName ? ` on field "${fieldName}"` : ''}.`,
+      400,
+      { operator: operatorName, field: fieldName }
+    );
+    this.name = 'UnknownOperatorError';
+  }
+}
 
 /**
  * Valid PostgreSQL cast types to prevent SQL injection
@@ -785,6 +801,46 @@ export function arrayContainedOperator(
   return sql.raw(`${columnSQL} <@ ${formattedArrayDirect}`);
 }
 
+/**
+ * Operator: Array Overlap (&&)
+ * True when the column and the supplied array share at least one element.
+ * Example: { verticals: { arrayoverlap: ['medical', 'dental'] } }
+ * PostgreSQL: verticals && ARRAY['medical', 'dental']
+ */
+export function arrayOverlapOperator(
+  ctx: OperatorContext,
+  value: any | any[],
+  elementType: string = 'text'
+): SQL {
+  const preparedValues = Array.isArray(value) ? value : [value];
+  const formattedArray = formatArrayForPostgreSQL(preparedValues, elementType);
+
+  // Use buildColumnSQL for proper relation path handling (same pattern as other operators)
+  if (ctx.tableName) {
+    // For relational paths or when we have a table alias
+    const columnSQL = buildColumnSQLString(ctx.fieldName);
+
+    // For string types, cast to text[]
+    if (['string', 'text', 'varchar'].includes(elementType)) {
+      return sql.raw(`${columnSQL}::text[] && ${formattedArray}`);
+    }
+
+    return sql.raw(`${columnSQL} && ${formattedArray}`);
+  }
+
+  // Direct field without relation
+  const formattedArrayDirect = formatArrayForPostgreSQL(value, elementType);
+
+  // For string types, cast to text[]
+  if (['string', 'text', 'varchar'].includes(elementType)) {
+    const columnSQL = buildColumnSQLString(ctx.fieldName);
+    return sql.raw(`${columnSQL}::text[] && ${formattedArrayDirect}`);
+  }
+
+  const columnSQL = buildColumnSQLString(ctx.fieldName);
+  return sql.raw(`${columnSQL} && ${formattedArrayDirect}`);
+}
+
 // ============================================================================
 // JSONB OPERATORS
 // PostgreSQL provides powerful JSONB operators for querying JSON data.
@@ -1422,7 +1478,8 @@ export const OPERATOR_MAP = {
   // Array operators
   arraycontains: arrayContainsOperator,
   arraycontained: arrayContainedOperator,
-  
+  arrayoverlap: arrayOverlapOperator,
+
   // JSONB operators
   jsonbContains: jsonbContainsOperator,
   jsonbContainedBy: jsonbContainedByOperator,
@@ -1464,6 +1521,41 @@ export const OPERATOR_MAP = {
 export type OperatorName = keyof typeof OPERATOR_MAP;
 
 /**
+ * Operators whose third argument is an array element type rather than a cast type.
+ * Anything added to OPERATOR_MAP that compares against a PostgreSQL array literal
+ * must be listed here, or applyOperator will pass it the cast type by mistake.
+ */
+export const ARRAY_OPERATORS: ReadonlySet<string> = new Set([
+  'arraycontains',
+  'arraycontained',
+  'arrayoverlap',
+]);
+
+/**
+ * Maps a schema field type (Array_String, Array_UUID, ...) to the element type
+ * understood by formatArrayForPostgreSQL. Returns undefined for non-array fields,
+ * letting the array operators fall back to their 'text' default.
+ */
+const ARRAY_FIELD_ELEMENT_TYPES: Record<string, string> = {
+  Array_String: 'text',
+  Array_Integer: 'integer',
+  Array_Double: 'double precision',
+  Array_Decimal: 'decimal',
+  Array_DateTime: 'date',
+  Array_DateTime_NO_TZ: 'date',
+  Array_Date: 'dateonly',
+  Array_Time: 'time',
+  Array_Time_NO_TZ: 'time',
+  Array_UUID: 'uuid',
+  Array_Boolean: 'boolean',
+};
+
+export function getArrayElementType(fieldType?: string): string | undefined {
+  if (!fieldType) return undefined;
+  return ARRAY_FIELD_ELEMENT_TYPES[fieldType];
+}
+
+/**
  * Apply an operator to a column with a value
  */
 export function applyOperator(
@@ -1474,14 +1566,16 @@ export function applyOperator(
   elementType?: string
 ): SQL | null {
   const operator = OPERATOR_MAP[operatorName as OperatorName];
-  
+
   if (!operator) {
-    console.warn(`Unknown operator: ${operatorName}`);
-    return null;
+    // Fail closed. Returning null here would drop the condition from the WHERE
+    // clause entirely, which widens the result set instead of narrowing it —
+    // in a permission condition a typo would silently grant access to everything.
+    throw new UnknownOperatorError(operatorName, ctx.fieldName);
   }
-  
+
   // Special handling for array operators
-  if (operatorName === 'arraycontains' || operatorName === 'arraycontained') {
+  if (ARRAY_OPERATORS.has(operatorName)) {
     return operator(ctx, value, elementType);
   }
   

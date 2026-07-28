@@ -398,7 +398,7 @@ describe("Cache Behavior - API-Only Tests", () => {
       // Query posts by user
       const queryResponse1 = await request(app)
         .get("/items/test_posts")
-        .query({ filter: JSON.stringify({ userId: { _eq: userId } }) })
+        .query({ filter: JSON.stringify({ userId: { eq: userId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(queryResponse1.status).toBe(200);
@@ -418,7 +418,7 @@ describe("Cache Behavior - API-Only Tests", () => {
       // Query again (should reflect the update)
       const queryResponse2 = await request(app)
         .get("/items/test_posts")
-        .query({ filter: JSON.stringify({ userId: { _eq: userId } }) })
+        .query({ filter: JSON.stringify({ userId: { eq: userId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(queryResponse2.status).toBe(200);
@@ -463,7 +463,7 @@ describe("Cache Behavior - API-Only Tests", () => {
       const queryResponse = await request(app)
         .get("/items/test_posts")
         .query({
-          filter: JSON.stringify({ userId: { _eq: userId } }),
+          filter: JSON.stringify({ userId: { eq: userId } }),
           sort: JSON.stringify(["title"])
         })
         .set("Authorization", `Bearer ${adminToken}`);

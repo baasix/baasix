@@ -83,7 +83,7 @@ describe("Settings & Tenant White Labelling - Complete Suite", () => {
         const rolesResp = await request(app)
             .get("/items/baasix_Role")
             .set("Authorization", `Bearer ${defaultAdminToken}`)
-            .query({ filter: JSON.stringify({ name: { _in: ["administrator", "user"] } }) });
+            .query({ filter: JSON.stringify({ name: { in: ["administrator", "user"] } }) });
 
         const adminRole = rolesResp.body.data.find(r => r.name === "administrator");
         const userRole = rolesResp.body.data.find(r => r.name === "user");
@@ -149,7 +149,7 @@ describe("Settings & Tenant White Labelling - Complete Suite", () => {
             const settingsResp = await request(app)
                 .get("/items/baasix_Settings")
                 .set("Authorization", `Bearer ${adminToken}`)
-                .query({ filter: JSON.stringify({ tenant_Id: { _eq: tenantId } }) });
+                .query({ filter: JSON.stringify({ tenant_Id: { eq: tenantId } }) });
 
             if (settingsResp.body.data && settingsResp.body.data.length > 0) {
                 for (const setting of settingsResp.body.data) {

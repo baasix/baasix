@@ -196,7 +196,7 @@ describe("Cache with Relations - API-Only Tests", () => {
       // Query articles by author via API
       const queryResponse = await request(app)
         .get("/items/rel_articles")
-        .query({ filter: JSON.stringify({ authorId: { _eq: authorId } }) })
+        .query({ filter: JSON.stringify({ authorId: { eq: authorId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(queryResponse.status).toBe(200);
@@ -229,7 +229,7 @@ describe("Cache with Relations - API-Only Tests", () => {
       // Query all articles by author via API
       const queryResponse = await request(app)
         .get("/items/rel_articles")
-        .query({ filter: JSON.stringify({ authorId: { _eq: authorId } }) })
+        .query({ filter: JSON.stringify({ authorId: { eq: authorId } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(queryResponse.status).toBe(200);
@@ -380,7 +380,7 @@ describe("Cache with Relations - API-Only Tests", () => {
       // Filter by authorId via API
       const filterResponse = await request(app)
         .get("/items/rel_articles")
-        .query({ filter: JSON.stringify({ authorId: { _ne: null } }) })
+        .query({ filter: JSON.stringify({ authorId: { ne: null } }) })
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(filterResponse.status).toBe(200);

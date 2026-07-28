@@ -1286,7 +1286,7 @@ String: like, notLike, iLike, notILike, startsWith, endsWith, nstartsWith, nends
 Null check: isNull (true/false), isNotNull (true/false)
 List: in, notIn, between, notBetween
 Misc: not, is
-Array (PostgreSQL arrays): arraycontains, arraycontained
+Array (PostgreSQL arrays): arraycontains, arraycontained, arrayoverlap
 JSONB: jsonbContains, jsonbContainedBy, jsonbHasKey, jsonbHasAnyKeys, jsonbHasAllKeys, jsonbPathExists, jsonbPathMatch, jsonbNotContains, jsonbKeyEquals, jsonbKeyNotEquals, jsonbKeyGt, jsonbKeyGte, jsonbKeyLt, jsonbKeyLte, jsonbKeyIn, jsonbKeyNotIn, jsonbKeyLike, jsonbKeyIsNull, jsonbKeyIsNotNull, jsonbArrayLength, jsonbTypeOf, jsonbDeepValue
 Geospatial: dwithin, intersects, nIntersects, within, containsGEO
 Logical (combine conditions): AND, OR
@@ -1347,7 +1347,8 @@ Supports same operators and dynamic variables as filter.
 {"email": {"startsWith": "admin"}}  →  prefix match
 {"deletedAt": {"isNull": true}}  →  null check
 {"category": {"in": ["books", "electronics"]}}  →  list membership
-{"tags": {"arraycontains": ["featured"]}}  →  PostgreSQL array contains
+{"tags": {"arraycontains": ["featured"]}}  →  PostgreSQL array contains (ALL listed values)
+{"tags": {"arrayoverlap": ["featured", "new"]}}  →  PostgreSQL array overlap (ANY listed value)
 {"metadata": {"jsonbHasKey": "color"}}  →  JSONB key exists
 {"age": {"between": [18, 65]}}  →  between range
 {"userId": {"eq": "$CURRENT_USER"}}  →  current user's records
