@@ -692,6 +692,10 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         role: req.accountability.role,
         permissions: req.accountability.permissions,
         tenant: req.accountability.tenant,
+        // Active baasix_UserRole assignment. Already resolved by the auth
+        // middleware; returning it saves clients a round-trip for the
+        // department/verticals/id an assignment switcher needs.
+        userRole: req.accountability.userRole || null,
       });
     } catch (error) {
       next(error);

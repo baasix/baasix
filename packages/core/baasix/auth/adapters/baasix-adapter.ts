@@ -394,7 +394,10 @@ export function createBaasixAdapter(): AuthAdapter {
       const result = await service.readByQuery({
         filter,
         fields: ["*", "role.*"],
-        sort: ["createdAt"],
+        // Explicit priority first (ASC puts NULL sort last in Postgres, so
+        // rows without a priority keep their legacy createdAt order);
+        // createdAt only breaks ties.
+        sort: ["sort", "createdAt"],
       });
 
       return result.data || [];

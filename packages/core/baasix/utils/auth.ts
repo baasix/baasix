@@ -194,12 +194,15 @@ export async function getUserRolesPermissionsAndTenant(
       `;
     }
     if (userRoles.length === 0) {
+      // Same priority ordering as the middleware fallback below: explicit
+      // sort first (NULLS LAST), createdAt only as a tie-breaker. These two
+      // paths must agree or /me and the request accountability diverge.
       if (tenantId) {
         userRoles = await sql`
           SELECT ur.*
           FROM "baasix_UserRole" ur
           WHERE ur."user_Id" = ${userId} AND ur."tenant_Id" = ${tenantId}
-          ORDER BY ur."createdAt" ASC
+          ORDER BY ur."sort" ASC NULLS LAST, ur."createdAt" ASC
           LIMIT 1
         `;
       } else {
@@ -207,7 +210,7 @@ export async function getUserRolesPermissionsAndTenant(
           SELECT ur.*
           FROM "baasix_UserRole" ur
           WHERE ur."user_Id" = ${userId}
-          ORDER BY ur."createdAt" ASC
+          ORDER BY ur."sort" ASC NULLS LAST, ur."createdAt" ASC
           LIMIT 1
         `;
       }
@@ -431,7 +434,8 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
           .limit(1);
       }
 
-      // Legacy tokens, or pinned row deleted mid-session: oldest assignment wins
+      // Legacy tokens, or pinned row deleted mid-session: highest-priority
+      // assignment wins (NULL sort last, then oldest — see baasix_UserRole.sort)
       if (!userRoles || userRoles.length === 0) {
         if (payload.tenant_Id !== undefined && payload.tenant_Id !== null) {
           userRoles = await db
@@ -441,14 +445,14 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
               eq(userRoleTable.user_Id, user.id),
               eq(userRoleTable.tenant_Id, payload.tenant_Id)
             ))
-            .orderBy(asc(userRoleTable.createdAt))
+            .orderBy(asc(userRoleTable.sort), asc(userRoleTable.createdAt))
             .limit(1);
         } else {
           userRoles = await db
             .select()
             .from(userRoleTable)
             .where(eq(userRoleTable.user_Id, user.id))
-            .orderBy(asc(userRoleTable.createdAt))
+            .orderBy(asc(userRoleTable.sort), asc(userRoleTable.createdAt))
             .limit(1);
         }
       }

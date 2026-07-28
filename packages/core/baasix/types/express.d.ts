@@ -18,6 +18,8 @@ declare global {
           [key: string]: any;
         };
         role?: string;
+        /** Full active baasix_UserRole row (assignment) — custom columns included. */
+        userRole?: Record<string, any>;
         tenant?: string;
         permissions?: any[];
         ipaddress?: string;

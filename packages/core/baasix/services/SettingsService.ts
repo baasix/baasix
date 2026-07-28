@@ -363,6 +363,7 @@ class SettingsService {
     // Localization
     "timezone", "language", "date_format", "currency",
     "createdAt", "updatedAt",
+    "modules", "metadata",
   ]);
 
   /**

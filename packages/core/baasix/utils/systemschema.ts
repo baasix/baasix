@@ -175,6 +175,11 @@ export const systemSchemas = {
                     user_Id: { type: "UUID", allowNull: false, SystemGenerated: "true" },
                     role_Id: { type: "UUID", allowNull: false, SystemGenerated: "true" },
                     tenant_Id: { type: "UUID", allowNull: true, SystemGenerated: "true" },
+                    // Priority of this assignment when a user holds several.
+                    // Lower wins. NULL (the default for pre-existing rows) sorts
+                    // LAST in Postgres ASC, so legacy installs keep their old
+                    // createdAt ordering until a priority is set explicitly.
+                    sort: { type: "Integer", allowNull: true, SystemGenerated: "true" },
                     user: {
                         relType: "BelongsTo",
                         target: "baasix_User",
