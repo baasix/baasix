@@ -35,6 +35,45 @@ export function isSafeFieldPath(fieldPath: string): boolean {
   return fieldPath.split('.').every(isSafeIdentifier);
 }
 
+/** Postgres truncates identifiers past this length (NAMEDATALEN - 1). */
+const MAX_IDENTIFIER_LENGTH = 63;
+
+/**
+ * djb2 — small, stable, non-cryptographic string hash. Only used to keep long
+ * join aliases unique after truncation, never for security.
+ */
+function djb2(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * Build a join alias that is unique per RELATION PATH, not per position.
+ *
+ * The previous format (`${target}_${relation}_${joinCount}`) was position-scoped,
+ * so sibling paths that reach the same table at the same depth collided:
+ * `course.organisation` and `faculty.organisation` both produced
+ * `organisation_organisation_1`. Callers deduplicate joins by alias, so the
+ * second path's join was dropped and its condition silently evaluated against
+ * the FIRST path's joined table — wrong permission results, no error.
+ *
+ * Chaining the parent alias makes the alias reflect the full path
+ * (`course__organisation` vs `faculty__organisation`). Deep paths can exceed
+ * Postgres's 63-char identifier limit, where silent truncation would reintroduce
+ * collisions, so anything longer is truncated with a hash of the full alias
+ * appended to keep it unique and deterministic.
+ */
+export function makePathAlias(parentAlias: string, relationName: string): string {
+  const full = `${parentAlias}__${relationName}`;
+  if (full.length <= MAX_IDENTIFIER_LENGTH) return full;
+
+  const suffix = `_${djb2(full)}`;
+  return full.slice(0, MAX_IDENTIFIER_LENGTH - suffix.length) + suffix;
+}
+
 /** A resolution result that the caller will skip (no column, no raw path). */
 const UNRESOLVED: Omit<ResolvedPath, 'finalTable' | 'finalAlias'> = {
   column: null,
@@ -59,8 +98,7 @@ export function resolveRelationPath(
   basePath: string,
   baseTable: any,
   baseTableName: string,
-  baseAlias?: string,
-  forPermissionCheck?: boolean
+  baseAlias?: string
 ): ResolvedPath {
   // Parse the path into segments
   const segments = basePath.split('.');
@@ -96,8 +134,7 @@ export function resolveRelationPath(
     baseTable,
     baseTableName,
     baseAlias || baseTableName,
-    [],
-    forPermissionCheck
+    []
   );
 }
 
@@ -109,8 +146,7 @@ function resolveSegments(
   currentTable: any,
   currentTableName: string,
   currentAlias: string,
-  accumulatedJoins: JoinDefinition[],
-  forPermissionCheck?: boolean
+  accumulatedJoins: JoinDefinition[]
 ): ResolvedPath {
   // Base case: only one segment left — require the column to actually exist so a
   // crafted name can never be emitted as raw SQL.
@@ -155,8 +191,9 @@ function resolveSegments(
     return { ...UNRESOLVED, finalTable: currentTable, finalAlias: currentAlias };
   }
 
-  // Create a unique alias for the joined table
-  const targetAlias = `${targetTableName}_${relationName}_${accumulatedJoins.length}`;
+  // Path-scoped alias — see makePathAlias. Must NOT be position-scoped, or
+  // sibling paths through the same table collide and joins get deduped away.
+  const targetAlias = makePathAlias(currentAlias, relationName);
 
   // Create aliased table for Drizzle query builder
   const aliasedTargetTable = aliasedTable(targetTable, targetAlias);
@@ -215,9 +252,18 @@ function resolveSegments(
     alias: targetAlias,
     condition: joinCondition,
     conditionSQL: conditionSQL,
-    // Use INNER JOIN for permission checks to ensure related records exist
-    // Use LEFT JOIN otherwise to allow optional relations
-    type: forPermissionCheck ? 'inner' : 'left'
+    // ALWAYS a LEFT JOIN. Permission checks once requested INNER joins (via a
+    // `forPermissionCheck` flag), but that eliminated rows before the WHERE/OR
+    // was evaluated, so a condition like
+    //   OR [ course.organisation.x, faculty.organisation.x, organisation.x ]
+    // could never match a row missing an optional relation. Fixed in v0.1.33
+    // (3b71a9a), which dropped the flag at both call sites and pinned the query
+    // builders to leftJoin. The now-unused flag was removed entirely afterwards.
+    //
+    // Consequence to keep in mind when writing permission conditions: with LEFT
+    // joins a missing relation yields NULL, so positive predicates (eq/in) are
+    // false for that branch, while negative ones (ne/notIn/isNull) MATCH.
+    type: 'left'
   };
 
   const newJoins = [...accumulatedJoins, newJoin];
@@ -228,8 +274,7 @@ function resolveSegments(
     aliasedTargetTable, // Pass the aliased table for proper column references
     targetTableName,
     targetAlias,
-    newJoins,
-    forPermissionCheck
+    newJoins
   );
 }
 

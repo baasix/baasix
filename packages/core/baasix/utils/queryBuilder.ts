@@ -144,9 +144,7 @@ function processFieldCondition(
     const resolved = resolveRelationPath(
       cleanFieldName,
       ctx.table,
-      ctx.tableName,
-      undefined,
-      ctx.forPermissionCheck
+      ctx.tableName
     );
 
     // Add the joins to the context

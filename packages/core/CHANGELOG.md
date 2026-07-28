@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.89
+
+### Patch Changes
+
+- Fixes for missing metadata from settings and minor alias issues in query builder
+
 ## 0.1.88
 
 ### Patch Changes

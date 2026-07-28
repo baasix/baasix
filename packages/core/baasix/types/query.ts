@@ -28,7 +28,6 @@ export interface QueryContext {
   schema?: Record<string, PgColumn>;
   schemaDefinition?: any; // From SchemaManager
   joins?: JoinDefinition[]; // Array to accumulate joins for relation paths
-  forPermissionCheck?: boolean; // If true, use INNER JOINs for relation filters to enforce existence
 }
 
 /**
