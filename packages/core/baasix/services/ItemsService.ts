@@ -484,15 +484,51 @@ export class ItemsService {
   }
 
   /**
+   * Restrict the direct (non-relation) column projection to the fields the
+   * role is actually granted.
+   *
+   * Counterpart to filterIncludesByAllowedFields, which only ever covered
+   * relations — direct columns went into the SQL projection verbatim, so a
+   * grant of ["id","name"] still SELECTed every column in the table.
+   *
+   * allowedFields arrives pre-expanded from PermissionService ("*" is already
+   * resolved to concrete column names), so this is a plain intersection.
+   * Dotted entries are relation grants and are ignored here.
+   *
+   * @param directFields - Expanded direct fields destined for the projection
+   * @param allowedFields - Expanded allowed fields from permissions
+   * @returns The permitted subset, preserving the caller's field order
+   */
+  private filterDirectFieldsByAllowedFields(
+    directFields: string[],
+    allowedFields: string[] | null
+  ): string[] {
+    if (!allowedFields) {
+      return directFields;
+    }
+
+    // Global deep wildcard — everything at any depth is allowed.
+    if (allowedFields.includes('**')) {
+      return directFields;
+    }
+
+    const allowedDirect = new Set(
+      allowedFields.filter(field => !field.includes('.'))
+    );
+
+    return directFields.filter(field => allowedDirect.has(field));
+  }
+
+  /**
    * Filter relational field attributes based on permission allowed fields
-   * 
+   *
    * When a user has permission to access only specific relational fields like:
    *   - members.id
    *   - members.fullName
-   * 
+   *
    * And they request "members.*", this method ensures only the allowed fields
    * are included in the query, not all fields from the related table.
-   * 
+   *
    * @param processedIncludes - The expanded includes from expandFieldsWithIncludes
    * @param allowedFields - The allowed fields from permissions (e.g., ['id', 'name', 'members.id', 'members.fullName'])
    * @param parentPath - The current path prefix for nested relations
@@ -620,6 +656,7 @@ export class ItemsService {
     filterJoins: any[];
     userRequestedFields: string[];
     userRequestedIncludes: ProcessedInclude[];
+    permAllowedFields: string[] | null;
   }> {
     const { isAdmin, action, bypassPermissions, idFilter } = options;
 
@@ -682,10 +719,19 @@ export class ItemsService {
     const fields = query.fields || ['*'];
 
     // Expand fields with includes
-    const { directFields, includes: processedIncludes } = expandFieldsWithIncludes(
+    let { directFields, includes: processedIncludes } = expandFieldsWithIncludes(
       fields,
       this.collection
     );
+
+    // Apply field-level permission filtering for direct columns.
+    // Must happen before the primary key is auto-added below so the PK stays in
+    // the SQL projection (loadHasManyRelations needs it) even when the role was
+    // not granted it — sanitizeAutoAddedFields then strips it from the response
+    // because expandedDirectFields is filtered too.
+    if (!bypassPermissions && !isAdmin && permAllowedFields) {
+      directFields = this.filterDirectFieldsByAllowedFields(directFields, permAllowedFields);
+    }
 
     // Copy expanded directFields before adding primary key (for sanitization later)
     const expandedDirectFields = [...directFields];
@@ -910,7 +956,8 @@ export class ItemsService {
       offset,
       filterJoins,
       userRequestedFields: expandedDirectFields,
-      userRequestedIncludes: processedIncludes
+      userRequestedIncludes: processedIncludes,
+      permAllowedFields
     };
   }
 
@@ -1209,7 +1256,8 @@ export class ItemsService {
     bypassPermissions: boolean,
     filterJoins: any[] = [],
     transaction?: Transaction,
-    includeHidden: boolean = false
+    includeHidden: boolean = false,
+    permAllowedFields: string[] | null = null
   ): Promise<ReadResult> {
     const dbClient = transaction || db;
     console.log('[ItemsService] Using Drizzle query builder for HasMany sorting/filtering');
@@ -1367,7 +1415,14 @@ export class ItemsService {
     // STEP 2: Get full records for these IDs with original includes
     // Build select columns for full query
     const fields = query.fields || ['*'];
-    const { directFields } = expandFieldsWithIncludes(fields, this.collection);
+    let { directFields } = expandFieldsWithIncludes(fields, this.collection);
+
+    // Same direct-column permission filtering as the single-query path — this
+    // second projection is built independently and would otherwise leak every
+    // column for HasMany-sorted/filtered reads.
+    if (!bypassPermissions && !isAdmin && permAllowedFields) {
+      directFields = this.filterDirectFieldsByAllowedFields(directFields, permAllowedFields);
+    }
 
     // Ensure primary key is always included in directFields
     // This is needed for the record ordering map below (r[this.primaryKey])
@@ -1588,7 +1643,8 @@ export class ItemsService {
         offset,
         filterJoins = [],
         userRequestedFields = [],
-        userRequestedIncludes = []
+        userRequestedIncludes = [],
+        permAllowedFields = null
       } = await this.buildQuery(modifiedQuery, {
         isAdmin,
         action: 'read',
@@ -1635,7 +1691,8 @@ export class ItemsService {
           bypassPermissions,
           filterJoins,
           transaction,
-          includeHidden
+          includeHidden,
+          permAllowedFields
         );
       }
 

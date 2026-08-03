@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.93
+
+### Patch Changes
+
+- Added fix for direct fields not respecting permissions
+
 ## 0.1.92
 
 ### Patch Changes

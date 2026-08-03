@@ -241,6 +241,118 @@ describe("Relational Field Permission Filtering", () => {
     });
 });
 
+/**
+ * Direct (non-relation) column permission filtering.
+ *
+ * The role's grant is ["id", "name", "members.id", "members.firstName"] — the
+ * top-level half of that grant is "id" and "name" only. Every test above
+ * asserts inside `team.members`, so the direct columns of `team` itself were
+ * never checked and the SQL projection returned every column in the table
+ * (deletedAt, tenant_Id, userCreated_Id, ...).
+ */
+describe("Direct field permission filtering", () => {
+
+    test("Should not return ungranted direct columns when requesting wildcard (*)", async () => {
+        const response = await request(app)
+            .get(`/items/test_team/${teamId}`)
+            .set("Authorization", `Bearer ${testUserToken}`)
+            .query({
+                fields: JSON.stringify(["*"])
+            });
+
+        expect(response.status).toBe(200);
+
+        const team = response.body.data;
+        // Granted
+        expect(team.id).toBeDefined();
+        expect(team.name).toBeDefined();
+
+        // Not granted — must not leak
+        expect(team.deletedAt).toBeUndefined();
+        expect(team.tenant_Id).toBeUndefined();
+        expect(team.userCreated_Id).toBeUndefined();
+        expect(team.userUpdated_Id).toBeUndefined();
+
+        // Nothing outside the grant at all
+        expect(Object.keys(team).sort()).toEqual(["id", "name"]);
+    });
+
+    test("Should not return an ungranted direct column when explicitly requested", async () => {
+        const response = await request(app)
+            .get(`/items/test_team/${teamId}`)
+            .set("Authorization", `Bearer ${testUserToken}`)
+            .query({
+                fields: JSON.stringify(["id", "name", "tenant_Id"])
+            });
+
+        expect(response.status).toBe(200);
+
+        const team = response.body.data;
+        expect(team.id).toBeDefined();
+        expect(team.name).toBeDefined();
+        expect(team.tenant_Id).toBeUndefined();
+    });
+
+    test("Should filter direct columns on list queries too", async () => {
+        const response = await request(app)
+            .get("/items/test_team")
+            .set("Authorization", `Bearer ${testUserToken}`)
+            .query({
+                fields: JSON.stringify(["*"])
+            });
+
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body.data)).toBe(true);
+        expect(response.body.data.length).toBeGreaterThan(0);
+
+        for (const team of response.body.data) {
+            expect(team.deletedAt).toBeUndefined();
+            expect(team.tenant_Id).toBeUndefined();
+            expect(Object.keys(team).sort()).toEqual(["id", "name"]);
+        }
+    });
+
+    test("Should filter direct columns when filtering by a HasMany relation", async () => {
+        // Exercises readWithHasManyHandling (the two-query DISTINCT ON path),
+        // which builds its own projection independently of the single-query
+        // path. A relational filter produces filterJoins, which routes here.
+        const response = await request(app)
+            .get("/items/test_team")
+            .set("Authorization", `Bearer ${testUserToken}`)
+            .query({
+                fields: JSON.stringify(["*", "members.firstName"]),
+                filter: JSON.stringify({ "members.firstName": { icontains: "J" } })
+            });
+
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body.data)).toBe(true);
+        expect(response.body.data.length).toBeGreaterThan(0);
+
+        for (const team of response.body.data) {
+            expect(team.id).toBeDefined();
+            expect(team.deletedAt).toBeUndefined();
+            expect(team.tenant_Id).toBeUndefined();
+            expect(team.userCreated_Id).toBeUndefined();
+        }
+    });
+
+    test("Admin should still get all direct columns", async () => {
+        const response = await request(app)
+            .get(`/items/test_team/${teamId}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .query({
+                fields: JSON.stringify(["*"])
+            });
+
+        expect(response.status).toBe(200);
+
+        const team = response.body.data;
+        expect(team.id).toBeDefined();
+        expect(team.name).toBeDefined();
+        expect(Object.keys(team).length).toBeGreaterThan(2);
+    });
+});
+
 afterAll(async () => {
     // Clean up
     if (app && app.server) {
