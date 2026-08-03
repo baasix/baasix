@@ -14,6 +14,26 @@ import type { PluginSchemaDefinition } from '../types/plugin.js';
 const systemSchemas = systemSchemaModule.schemas;
 
 /**
+ * PostgreSQL DDL type for each Array_* field type. Must stay in step with the
+ * customTypes.array* definitions in customTypes/arrays.ts — Drizzle's column
+ * mapper and the DDL that actually creates the column have to agree, or the
+ * table ends up with a type the query builder does not expect.
+ */
+const ARRAY_FIELD_PG_TYPES: Record<string, string> = {
+  Array_String: 'TEXT[]',
+  Array_Integer: 'INTEGER[]',
+  Array_Decimal: 'NUMERIC[]',
+  Array_Double: 'DOUBLE PRECISION[]',
+  Array_Boolean: 'BOOLEAN[]',
+  Array_UUID: 'UUID[]',
+  Array_DateTime: 'TIMESTAMPTZ[]',
+  Array_DateTime_NO_TZ: 'TIMESTAMP[]',
+  Array_Date: 'DATE[]',
+  Array_Time: 'TIMETZ[]',
+  Array_Time_NO_TZ: 'TIME[]',
+};
+
+/**
  * Internal association with additional properties used during schema processing.
  */
 interface InternalAssociation extends Omit<AssociationDefinition, 'target'> {
@@ -791,6 +811,32 @@ export class SchemaManager {
         // Column exists — sync NOT NULL constraint if it changed
         const existingCol = existingColumnMap.get(fieldName);
         if (existingCol) {
+          // --- Heal scalar columns that should be arrays ---
+          // buildColumnDefinition previously had no Array_* case, so these fields were
+          // created as scalar columns (usually text). Promote them in place; without
+          // this an existing collection stays broken even after the mapping is fixed.
+          // Deliberately narrow: only scalar -> array for declared Array_* fields.
+          if (ARRAY_FIELD_PG_TYPES[fs.type] && (existingCol as any).data_type !== 'ARRAY') {
+            const targetType = ARRAY_FIELD_PG_TYPES[fs.type];
+            try {
+              // USING wraps any existing scalar value into a 1-element array so data is
+              // preserved; NULLs stay NULL.
+              await sql.unsafe(
+                `ALTER TABLE "${collectionName}" ALTER COLUMN "${fieldName}" TYPE ${targetType} ` +
+                `USING CASE WHEN "${fieldName}" IS NULL THEN NULL ELSE ARRAY["${fieldName}"]::${targetType} END`
+              );
+              console.log(
+                `Promoted column ${collectionName}.${fieldName} from ${(existingCol as any).data_type} to ${targetType}`
+              );
+            } catch (error: any) {
+              console.error(
+                `Failed to promote column ${fieldName} in ${collectionName} to ${targetType}. ` +
+                `Existing values may not be castable; migrate this column manually.`,
+                error.message
+              );
+            }
+          }
+
           // --- Sync NOT NULL constraint ---
           const dbIsNullable = existingCol.is_nullable === 'YES';
           const schemaAllowNull = fs.allowNull !== false; // default is nullable (allowNull: true)
@@ -1758,6 +1804,16 @@ export class SchemaManager {
         break;
       case 'SparseVec':
         pgType = `sparsevec(${fieldSchema.values?.dimensions || 1536})`;
+        break;
+
+      // PostgreSQL array types. Sourced from ARRAY_FIELD_PG_TYPES so the DDL here
+      // and the scalar->array healing in syncTableColumns cannot drift apart.
+      // Without these, Array_* fell through to the default TEXT and silently
+      // created scalar text columns.
+      default:
+        if (ARRAY_FIELD_PG_TYPES[fieldSchema.type]) {
+          pgType = ARRAY_FIELD_PG_TYPES[fieldSchema.type];
+        }
         break;
     }
     

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.92
+
+### Patch Changes
+
+- Added fix where array_string column is created as text column
+
 ## 0.1.91
 
 ### Patch Changes
