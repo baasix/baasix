@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.1.94
+
+### Patch Changes
+
+- Fixed array default values issue
+
 ## 0.1.93
 
 ### Patch Changes

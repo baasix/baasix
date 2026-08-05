@@ -819,11 +819,22 @@ export class SchemaManager {
           if (ARRAY_FIELD_PG_TYPES[fs.type] && (existingCol as any).data_type !== 'ARRAY') {
             const targetType = ARRAY_FIELD_PG_TYPES[fs.type];
             try {
-              // USING wraps any existing scalar value into a 1-element array so data is
-              // preserved; NULLs stay NULL.
+              // USING wraps a genuine scalar value into a 1-element array so data is
+              // preserved; NULLs stay NULL. A value that is already a serialized array
+              // literal (e.g. written through the scalar column by an array-typed
+              // DEFAULT) must be parsed instead — wrapping it again would corrupt
+              // '{medical}' into {"{medical}"}. The regex is anchored so scalar text
+              // that merely contains braces is still wrapped, and the ::text hop is
+              // required because e.g. varchar has no direct cast to text[]. If a
+              // brace-wrapped value is not actually a parseable literal, the cast
+              // raises and the catch below reports it — never silently wrap instead.
               await sql.unsafe(
                 `ALTER TABLE "${collectionName}" ALTER COLUMN "${fieldName}" TYPE ${targetType} ` +
-                `USING CASE WHEN "${fieldName}" IS NULL THEN NULL ELSE ARRAY["${fieldName}"]::${targetType} END`
+                `USING CASE ` +
+                  `WHEN "${fieldName}" IS NULL THEN NULL ` +
+                  `WHEN "${fieldName}"::text ~ '^\\{.*\\}$' THEN "${fieldName}"::text::${targetType} ` +
+                  `ELSE ARRAY["${fieldName}"]::${targetType} ` +
+                `END`
               );
               console.log(
                 `Promoted column ${collectionName}.${fieldName} from ${(existingCol as any).data_type} to ${targetType}`
@@ -1851,7 +1862,15 @@ export class SchemaManager {
           case 'SQL':
             // Raw SQL default expression
             if (fieldSchema.defaultValue.value) {
-              parts.push(`DEFAULT ${fieldSchema.defaultValue.value}`);
+              if (this.isMismatchedArrayDefault(fieldSchema)) {
+                console.warn(
+                  `Ignoring array-typed DEFAULT ${fieldSchema.defaultValue.value} on non-array field ` +
+                  `${fieldName} (${fieldSchema.type}): a column with no default is recoverable, ` +
+                  `a column full of stringified arrays is not.`
+                );
+              } else {
+                parts.push(`DEFAULT ${fieldSchema.defaultValue.value}`);
+              }
             }
             break;
         }
@@ -1865,6 +1884,21 @@ export class SchemaManager {
     }
     
     return parts.join(' ');
+  }
+
+  /**
+   * True when a field that is NOT an Array_* type carries a SQL default that
+   * builds an array (ARRAY[...] constructor or a ...::type[] cast). Postgres
+   * accepts such a default on a scalar column via the implicit output cast and
+   * silently stores the array's literal text rendering ('{medical}') in every
+   * defaulted row — a schema/DDL mismatch that must be refused, not emitted.
+   */
+  private isMismatchedArrayDefault(fieldSchema: any): boolean {
+    if (ARRAY_FIELD_PG_TYPES[fieldSchema.type]) return false;
+    const expr = fieldSchema.defaultValue?.value;
+    if (typeof expr !== 'string') return false;
+    const trimmed = expr.trim();
+    return /^array\s*\[/i.test(trimmed) || /::\s*[a-z_][a-z0-9_. ]*\[\s*\]$/i.test(trimmed);
   }
 
   /**
@@ -1890,6 +1924,13 @@ export class SchemaManager {
         case 'NOW':
           return 'NOW()';
         case 'SQL':
+          if (this.isMismatchedArrayDefault(fieldSchema)) {
+            console.warn(
+              `Ignoring array-typed DEFAULT ${fieldSchema.defaultValue.value} on non-array field ` +
+              `of type ${fieldSchema.type}: it would store stringified arrays in a scalar column.`
+            );
+            return null;
+          }
           return fieldSchema.defaultValue.value || null;
       }
       return null;

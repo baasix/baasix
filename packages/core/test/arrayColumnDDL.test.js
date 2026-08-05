@@ -173,6 +173,174 @@ describe("Array_* field types create real PostgreSQL array columns", () => {
         expect(rows[0].labels).toEqual(["solo"]);
     });
 
+    test("promotion parses serialized array literals instead of double-wrapping them", async () => {
+        // Version-skew corruption: an older build created Array_* fields as scalar
+        // text, and an array-typed DEFAULT stored its literal rendering ('{medical}')
+        // in that scalar column. Promotion must parse such literals back into real
+        // arrays — blindly wrapping produces {"{medical}"}.
+        const litCollection = "arrayDDLLiteralTest";
+        const schema = {
+            name: "ArrayDDLLiteralTest",
+            fields: {
+                id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+                name: { type: "String", allowNull: false },
+                labels: { type: "Array_String", allowNull: true },
+                nums: { type: "Array_Integer", allowNull: true },
+            },
+        };
+        await request(app)
+            .post("/schemas")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ collectionName: litCollection, schema });
+
+        // Force both columns back to the broken scalar shape and seed every case.
+        await sql.unsafe(`ALTER TABLE "${litCollection}" ALTER COLUMN "labels" TYPE text USING "labels"[1]`);
+        await sql.unsafe(`ALTER TABLE "${litCollection}" ALTER COLUMN "nums" TYPE text USING "nums"[1]::text`);
+        await sql.unsafe(
+            `INSERT INTO "${litCollection}" ("name", "labels", "nums") VALUES ` +
+            `('literal', '{medical}', NULL), ` +
+            `('multi', '{medical,dental}', NULL), ` +
+            `('nulls', NULL, NULL), ` +
+            `('braces', 'not {an} array', NULL), ` +
+            `('scalar', 'medical', NULL), ` +
+            `('ints', NULL, '{1,2}')`
+        );
+
+        const resync = await request(app)
+            .patch(`/schemas/${litCollection}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ schema });
+        expect(resync.status).toBeLessThan(400);
+
+        expect((await getColumnInfo(litCollection, "labels")).data_type).toBe("ARRAY");
+        expect((await getColumnInfo(litCollection, "nums")).data_type).toBe("ARRAY");
+
+        const rows = await sql.unsafe(`SELECT "name", "labels", "nums" FROM "${litCollection}"`);
+        const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
+        // The failing case: '{medical}' must parse to ['medical'], not ['{medical}'].
+        expect(byName.literal.labels).toEqual(["medical"]);
+        expect(byName.multi.labels).toEqual(["medical", "dental"]);
+        expect(byName.nulls.labels).toBeNull();
+        // Not an anchored array literal — must be wrapped, not parsed.
+        expect(byName.braces.labels).toEqual(["not {an} array"]);
+        // Genuine scalar keeps the original wrap behavior.
+        expect(byName.scalar.labels).toEqual(["medical"]);
+        // Not text-specific: integer literals parse too.
+        expect(byName.ints.nums).toEqual([1, 2]);
+    });
+
+    test("round-trip: scalar column with array-typed SQL default heals to a real array value", async () => {
+        // The reporter's exact scenario. An old build created `verticals` as scalar
+        // text; its DEFAULT ARRAY['medical']::text[] was accepted via the implicit
+        // output cast, so rows taking the default stored the string '{medical}'.
+        // A schema resync on a new build must promote the column AND end up with
+        // {medical}, not {"{medical}"}.
+        const rtCollection = "arrayDDLRoundTripTest";
+        const schema = {
+            name: "ArrayDDLRoundTripTest",
+            fields: {
+                id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+                name: { type: "String", allowNull: false },
+                verticals: {
+                    type: "Array_String",
+                    allowNull: false,
+                    defaultValue: { type: "SQL", value: "ARRAY['medical']::text[]" },
+                },
+            },
+        };
+        await request(app)
+            .post("/schemas")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ collectionName: rtCollection, schema });
+
+        // Recreate the old-build state: scalar text column carrying the array default.
+        await sql.unsafe(`ALTER TABLE "${rtCollection}" ALTER COLUMN "verticals" DROP DEFAULT`);
+        await sql.unsafe(`ALTER TABLE "${rtCollection}" ALTER COLUMN "verticals" TYPE text USING "verticals"[1]`);
+        await sql.unsafe(`ALTER TABLE "${rtCollection}" ALTER COLUMN "verticals" SET DEFAULT ARRAY['medical']::text[]`);
+        // Row created without the field takes the default -> stores the literal string.
+        await sql.unsafe(`INSERT INTO "${rtCollection}" ("name") VALUES ('defaulted')`);
+        const before = await sql.unsafe(`SELECT "verticals" FROM "${rtCollection}"`);
+        expect(before[0].verticals).toBe("{medical}");
+
+        const resync = await request(app)
+            .patch(`/schemas/${rtCollection}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({ schema });
+        expect(resync.status).toBeLessThan(400);
+
+        const healed = await getColumnInfo(rtCollection, "verticals");
+        expect(healed.data_type).toBe("ARRAY");
+        const rows = await sql.unsafe(`SELECT "verticals" FROM "${rtCollection}"`);
+        expect(rows[0].verticals).toEqual(["medical"]);
+    });
+
+    test("omits an array-constructor default on a non-array field", async () => {
+        // Defense in depth: DEFAULT ARRAY[...] on a scalar column is accepted by
+        // Postgres via the output cast and silently stores a stringified array.
+        // Such a schema/DDL mismatch must drop the default instead of emitting it.
+        const guardCollection = "arrayDDLDefaultGuardTest";
+        const create = await request(app)
+            .post("/schemas")
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                collectionName: guardCollection,
+                schema: {
+                    name: "ArrayDDLDefaultGuardTest",
+                    fields: {
+                        id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+                        name: { type: "String", allowNull: false },
+                        bad: {
+                            type: "String",
+                            allowNull: true,
+                            defaultValue: { type: "SQL", value: "ARRAY['x']::text[]" },
+                        },
+                        ok: { type: "String", allowNull: true },
+                    },
+                },
+            });
+        expect(create.status).toBeLessThan(400);
+
+        // Creation path (buildColumnDefinition) must not emit the default.
+        const createdDefault = await sql`
+            SELECT column_default FROM information_schema.columns
+            WHERE table_name = ${guardCollection} AND column_name = 'bad'
+        `;
+        expect(createdDefault[0].column_default).toBeNull();
+
+        // Sync path (getDefaultExpression) must not apply it to an existing column.
+        const resync = await request(app)
+            .patch(`/schemas/${guardCollection}`)
+            .set("Authorization", `Bearer ${adminToken}`)
+            .send({
+                schema: {
+                    name: "ArrayDDLDefaultGuardTest",
+                    fields: {
+                        id: { type: "UUID", primaryKey: true, defaultValue: { type: "UUIDV4" } },
+                        name: { type: "String", allowNull: false },
+                        bad: {
+                            type: "String",
+                            allowNull: true,
+                            defaultValue: { type: "SQL", value: "ARRAY['x']::text[]" },
+                        },
+                        ok: {
+                            type: "String",
+                            allowNull: true,
+                            defaultValue: { type: "SQL", value: "ARRAY['y']::text[]" },
+                        },
+                    },
+                },
+            });
+        expect(resync.status).toBeLessThan(400);
+
+        const synced = await sql`
+            SELECT column_name, column_default FROM information_schema.columns
+            WHERE table_name = ${guardCollection} AND column_name IN ('bad', 'ok')
+        `;
+        for (const row of synced) {
+            expect(`${row.column_name}:${row.column_default}`).toBe(`${row.column_name}:null`);
+        }
+    });
+
     test("adds an array column to an existing collection", async () => {
         // Columns added during reconciliation take the same buildColumnDefinition path,
         // so ALTER TABLE ADD COLUMN must produce an array type too.
