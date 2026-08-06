@@ -2650,7 +2650,8 @@ export async function down(baasix) {
 | EMAIL_LOG_CLEANUP_ENABLED | No | false | Enable automatic email log cleanup |
 | EMAIL_LOG_RETENTION_DAYS | No | 30 | Email log retention in days |
 | COUNT_BY_DEFAULT | No | true | Compute `totalCount` on list reads (per-request `?count=` overrides) |
-| PROTECT_PRIVILEGE_FIELDS | No | true | Privilege fields (role_Id, tenant_Id, emailVerified, hidden fields) excluded from `fields:["*"]` — must be named explicitly (admins exempt). Tri-state: `true` (password denied to non-admins even if explicitly granted), `allow-password` (non-admin may set password when explicitly granted — delegated reset; still hashed), `false` (off) |
+| PROTECT_PRIVILEGE_FIELDS | No | true | Privilege fields (role_Id, tenant_Id, emailVerified, hidden fields) excluded from `fields:["*"]` — must be named explicitly (admins exempt). `true` \| `false`. (Deprecated: `allow-password` ≡ `true` + ALLOW_PASSWORD_WRITES=true) |
+| ALLOW_PASSWORD_WRITES | No | false | Let non-admin roles set `password` via the data API when explicitly granted (`fields:["*","password"]`) — delegated reset; still hashed. Default false = password never client-writable |
 | PROTECT_IS_PUBLIC_FIELD | No | false | Make baasix_File isPublic opt-in (not settable via broad `*` grant); default off = backward compatible |
 | EXPOSE_ERROR_DETAILS | No | (prod: false) | Include raw DB error text in responses; off in production (leaks schema / injection oracle) |
 | STORAGE_PATH_CONFINEMENT | No | true | Confine local-disk file ops within storage root (blocks path traversal) |

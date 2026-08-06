@@ -16,6 +16,7 @@
 import { SQL, sql, count } from 'drizzle-orm';
 import { PgColumn } from 'drizzle-orm/pg-core';
 import { isSafeFieldPath } from './relationPathResolver.js';
+import { TSVECTOR_INPUT_CHAR_CAP, pickSearchConfig } from './queryBuilder.js';
 
 /** Valid PostgreSQL date/time parts for EXTRACT — allowlist to block injection. */
 const VALID_DATE_PARTS = new Set([
@@ -536,8 +537,14 @@ export function applyFullTextSearch(
   const concatParts = columns.map(col => sql`coalesce(${col}::text, '')`);
   const concatFields = sql.join(concatParts, sql` || ' ' || `);
 
+  // Cap input to stay under to_tsvector's 1MB built-vector limit (see queryBuilder)
+  const cappedFields = sql`LEFT(${concatFields}, ${sql.raw(String(TSVECTOR_INPUT_CHAR_CAP))})`;
+
+  // 'english' normally; 'simple' when the query is stopwords-only (see queryBuilder)
+  const config = sql.raw(`'${pickSearchConfig(searchQuery)}'`);
+
   // Use sql<boolean> for the comparison result
-  return sql<boolean>`to_tsvector('english', ${concatFields}) @@ to_tsquery('english', ${escapedTsQuery})`;
+  return sql<boolean>`to_tsvector(${config}, ${cappedFields}) @@ to_tsquery(${config}, ${escapedTsQuery})`;
 }
 
 /**

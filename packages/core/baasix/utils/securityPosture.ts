@@ -59,8 +59,18 @@ const SECURITY_CHECKS: SecurityCheck[] = [
     key: "PROTECT_PRIVILEGE_FIELDS",
     category: "Access control",
     isLessSafe: () => (get("PROTECT_PRIVILEGE_FIELDS") || "true").toLowerCase() === "false",
-    message: "Privilege-field protection is OFF — a broad fields:[\"*\"] grant can set role_Id/tenant_Id/emailVerified/password (mass-assignment / privilege escalation).",
-    fix: "Set PROTECT_PRIVILEGE_FIELDS=true (or allow-password for delegated password resets).",
+    message: "Privilege-field protection is OFF — a broad fields:[\"*\"] grant can set role_Id/tenant_Id/emailVerified/hidden fields (mass-assignment / privilege escalation).",
+    fix: "Set PROTECT_PRIVILEGE_FIELDS=true. (Delegated password resets are a separate toggle: ALLOW_PASSWORD_WRITES=true.)",
+  },
+  {
+    key: "ALLOW_PASSWORD_WRITES",
+    category: "Access control",
+    // The deprecated PROTECT_PRIVILEGE_FIELDS=allow-password alias also enables it.
+    isLessSafe: () =>
+      (get("ALLOW_PASSWORD_WRITES") || "").toLowerCase() === "true" ||
+      (get("PROTECT_PRIVILEGE_FIELDS") || "").toLowerCase() === "allow-password",
+    message: "Non-admin roles may set `password` via the data API (delegated password reset; writes are still hashed). Verify only intended roles are granted the password field.",
+    fix: "Unset ALLOW_PASSWORD_WRITES (and remove the deprecated PROTECT_PRIVILEGE_FIELDS=allow-password) unless delegated password resets are intended.",
   },
   {
     key: "PROTECT_IS_PUBLIC_FIELD",

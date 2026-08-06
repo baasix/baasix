@@ -49,7 +49,7 @@ Severity reflects the owner clarifications. **Status** column: `✅ FIXED` = rem
 | ID | Sev (revised) | Status | Title |
 |----|-----|--------|-------|
 | **A1** | Critical | ✅ **FIXED** | SQL injection via relation-path / aggregation filter keys — identifier allowlist + JSONB numeric guard. Tests: `sqlInjection.test.js` |
-| **A4** | Critical | ✅ **FIXED** | Mass assignment — opt-in privilege-field model (`PROTECT_PRIVILEGE_FIELDS`); admins exempt; `password` via `allow-password`. Tests: `massAssignment.test.js` |
+| **A4** | Critical | ✅ **FIXED** | Mass assignment — opt-in privilege-field model (`PROTECT_PRIVILEGE_FIELDS`); admins exempt; `password` via `ALLOW_PASSWORD_WRITES`. Tests: `massAssignment.test.js` |
 | **A5** | Critical | ✅ **FIXED** | File path traversal — `resolveStorageKey` confinement at all local-disk sinks (`STORAGE_PATH_CONFINEMENT`). Tests: `storagePathConfinement.test.js` |
 | **A6** | Critical | ✅ **FIXED** | Stored XSS — serving-side safe headers (`ASSET_XSS_PROTECTION`/`ASSET_NOSNIFF`); html/svg/js forced to download. Tests: `uploadXss.test.js` |
 | **A21** | High | ✅ **FIXED** | **(Found this engagement)** Hidden-field read leak — `getHiddenFields` read the Drizzle table (no `hidden` flag) → password hashes/secrets leaked on read. Now reads schema definition; `includeHidden` opt-in for the auth layer. Tests: `hiddenFieldLeak.test.js` |
@@ -173,7 +173,7 @@ Severity reflects the owner clarifications. **Status** column: `✅ FIXED` = rem
 ### ✅ Fixed & verified this engagement (9 + the A12 partial)
 
 - **A1** (Critical) — SQLi: identifier allowlist (`isSafeFieldPath`) on relation paths / aggregate / groupBy / sort; unresolvable columns dropped; `EXTRACT` part allowlisted; JSONB numeric/boolean operands coerced (`toSqlNumber`/`toSqlBoolean`). No relax toggle by design. `test/sqlInjection.test.js`.
-- **A4** (Critical) — Mass assignment: opt-in privilege-field model. `"*"` no longer grants privilege fields; they must be named explicitly. Admins exempt; `password` hard-denied unless `PROTECT_PRIVILEGE_FIELDS=allow-password`. `test/massAssignment.test.js`.
+- **A4** (Critical) — Mass assignment: opt-in privilege-field model. `"*"` no longer grants privilege fields; they must be named explicitly. Admins exempt; `password` hard-denied unless `ALLOW_PASSWORD_WRITES=true` (deprecated alias: `PROTECT_PRIVILEGE_FIELDS=allow-password`). `test/massAssignment.test.js`.
 - **A5** (Critical) — Path traversal: `resolveStorageKey` confines all local-disk ops; rejects `..`/absolute/null-byte/sibling-prefix. `STORAGE_PATH_CONFINEMENT`. `test/storagePathConfinement.test.js`.
 - **A6** (Critical) — Upload XSS: `/assets/:id` forces html/svg/js/xml to download + `nosniff`. `ASSET_XSS_PROTECTION`/`ASSET_NOSNIFF`. `test/uploadXss.test.js`.
 - **A21** (High, found here) — Hidden-field read leak: `getHiddenFields` now reads the schema definition (password hashes/secrets were leaking on reads); `includeHidden` opt-in for the trusted auth layer. `test/hiddenFieldLeak.test.js`.
@@ -204,7 +204,7 @@ Each fix defaults to **secure** and (except SQLi) exposes an env toggle so a dep
 | ID | Fix | Env toggle (default = secure) | Tests |
 |----|-----|-------------------------------|-------|
 | A1 | SQL-injection identifier allowlist | *(none — always on by design)* | `sqlInjection.test.js` |
-| A4 | Privilege-field write protection (opt-in) | `PROTECT_PRIVILEGE_FIELDS` (`true` / `allow-password` / `false`) | `massAssignment.test.js` |
+| A4 | Privilege-field write protection (opt-in) | `PROTECT_PRIVILEGE_FIELDS` (`true` / `false`) + `ALLOW_PASSWORD_WRITES` (delegated password resets; deprecated alias: `PROTECT_PRIVILEGE_FIELDS=allow-password`) | `massAssignment.test.js` |
 | A5 | Storage path-traversal confinement | `STORAGE_PATH_CONFINEMENT` (null bytes always rejected) | `storagePathConfinement.test.js` |
 | A6 | Upload stored-XSS headers | `ASSET_XSS_PROTECTION`, `ASSET_NOSNIFF` | `uploadXss.test.js` |
 | A7 | JWT HS256 pinning + secret check | *(none — algorithm always pinned; secret strength warns, doesn't block)* | `jwtHardening.test.js` |

@@ -537,6 +537,50 @@ export function extractFieldNamesFromFilter(filter: FilterObject): string[] {
 }
 
 /**
+ * Max characters of concatenated row text fed to to_tsvector. PostgreSQL caps
+ * the BUILT tsvector at 1048575 bytes; with worst-case per-lexeme + position
+ * overhead, 150k input chars stays comfortably below it.
+ */
+export const TSVECTOR_INPUT_CHAR_CAP = 150000;
+
+/**
+ * PostgreSQL's snowball english stopword list (english.stop). The 'english'
+ * text-search config strips these from both the indexed text and the query,
+ * so a stopword-only search ("the") parses to an EMPTY tsquery and matches
+ * nothing. Mirrored here to detect that case client-side.
+ */
+const ENGLISH_STOPWORDS = new Set([
+  'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your',
+  'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she',
+  'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their',
+  'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that',
+  'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an',
+  'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of',
+  'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+  'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
+  'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then',
+  'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any',
+  'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no',
+  'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's',
+  't', 'can', 'will', 'just', 'don', 'should', 'now',
+]);
+
+/**
+ * Pick the text-search config for a search query: 'english' (stemming +
+ * stopword stripping) normally, but 'simple' when EVERY word is an english
+ * stopword — otherwise the query would be empty and match nothing. A single
+ * real word keeps 'english' (the stopwords are dropped from the query anyway).
+ */
+export function pickSearchConfig(searchQuery: string): 'english' | 'simple' {
+  const words = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length > 0 && words.every(w => ENGLISH_STOPWORDS.has(w))) {
+    return 'simple';
+  }
+  return 'english';
+}
+
+/**
  * Apply PostgreSQL full-text search to a query
  * Matches Sequelize implementation for compatibility
  *
@@ -557,22 +601,20 @@ export function applyFullTextSearch(
   let searchableFields = searchFields;
 
   if (!searchableFields || searchableFields.length === 0) {
-    // If searchFields not provided, use string fields
-    // This matches Sequelize behavior which uses STRING and UUID fields
+    // Default: every real column EXCEPT JSON/JSONB. Numeric/uuid/date columns
+    // are legitimately searchable as text (numeric ids), but JSON payloads
+    // (e.g. baasix_AuditLog.changes) make "search" match invisible internals
+    // and can blow past to_tsvector's 1MB limit on huge rows — they are
+    // opt-in via an explicit searchFields.
+    // (Drizzle columns report dataType 'string'|'number'|'json'|… — the old
+    // varchar/text substring check never matched anything, so every search
+    // silently fell back to ALL columns including JSON.)
     searchableFields = Object.keys(tableColumns).filter((field) => {
-      const column = tableColumns[field];
-      // Check if it's a text/string type column
-      // In Drizzle, we can check the dataType or columnType
-      const columnType = column.dataType || column.columnType || '';
-      return (
-        columnType.includes('varchar') ||
-        columnType.includes('text') ||
-        columnType.includes('char') ||
-        columnType.includes('uuid')
-      );
+      const dataType = tableColumns[field]?.dataType;
+      return typeof dataType === 'string' && dataType !== 'json';
     });
 
-    // If no string fields found, default to all fields
+    // If no columns matched (unexpected table shape), default to all fields
     if (searchableFields.length === 0) {
       searchableFields = Object.keys(tableColumns);
     }
@@ -584,8 +626,14 @@ export function applyFullTextSearch(
     sql`COALESCE(${sql.raw(`"${tableName}"."${field}"`)}::text, '')`
   );
 
-  // Build the concatenation using sql.join() 
+  // Build the concatenation using sql.join()
   const concatExpr = sql.join(concatParts, sql` || ' ' || `);
+
+  // Guard to_tsvector's hard 1048575-byte limit on the BUILT tsvector: cap the
+  // input text so even explicitly-searched huge columns (JSON blobs, long text)
+  // can never 500 the query. 150k chars leaves ample headroom for the vector's
+  // per-lexeme/position overhead in the worst case.
+  const cappedExpr = sql`LEFT(${concatExpr}, ${sql.raw(String(TSVECTOR_INPUT_CHAR_CAP))})`;
 
   // Prepare the full-text search query with proper escaping
   // Replace spaces with :* & to match partial words
@@ -594,14 +642,17 @@ export function applyFullTextSearch(
   // Escape single quotes to prevent SQL injection
   const escapedTsQuery = tsQuery.replace(/'/g, "''");
 
+  // 'english' normally; 'simple' when the query is stopwords-only (see pickSearchConfig)
+  const config = sql.raw(`'${pickSearchConfig(searchQuery)}'`);
+
   // Build the full-text search condition using parameterized values
-  const searchCondition = sql`to_tsvector('english', ${concatExpr}) @@ to_tsquery('english', ${escapedTsQuery})`;
+  const searchCondition = sql`to_tsvector(${config}, ${cappedExpr}) @@ to_tsquery(${config}, ${escapedTsQuery})`;
 
   let orderClause: SQL | undefined;
 
   // Apply sorting by relevance using ts_rank if sortByRelevance is true
   if (sortByRelevance) {
-    orderClause = sql`ts_rank(to_tsvector('english', ${concatExpr}), to_tsquery('english', ${escapedTsQuery})) DESC`;
+    orderClause = sql`ts_rank(to_tsvector(${config}, ${cappedExpr}), to_tsquery(${config}, ${escapedTsQuery})) DESC`;
   }
 
   return { searchCondition, orderClause };

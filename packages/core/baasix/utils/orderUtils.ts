@@ -16,6 +16,7 @@ import { SQL, sql, asc, desc, l2Distance, cosineDistance, innerProduct, l1Distan
 import { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 import type { SortDirection, SortObject, SortContext } from '../types/index.js';
 import { isSafeFieldPath } from './relationPathResolver.js';
+import { TSVECTOR_INPUT_CHAR_CAP, pickSearchConfig } from './queryBuilder.js';
 
 // Re-export types for backward compatibility
 export type { SortDirection, SortObject, SortContext };
@@ -186,12 +187,18 @@ export function applyFullTextSearchRanking(
   );
   const concatFields = sql.join(fieldParts, sql` || ' ' || `);
 
+  // Cap input to stay under to_tsvector's 1MB built-vector limit (see queryBuilder)
+  const cappedFields = sql`LEFT(${concatFields}, ${sql.raw(String(TSVECTOR_INPUT_CHAR_CAP))})`;
+
   // Prepare the full-text search query (escape single quotes)
   const tsQuery = searchQuery.trim().replace(/\s+/g, ":* & ") + ":*";
   const escapedTsQuery = tsQuery.replace(/'/g, "''");
 
+  // 'english' normally; 'simple' when the query is stopwords-only (see queryBuilder)
+  const config = sql.raw(`'${pickSearchConfig(searchQuery)}'`);
+
   // Build ts_rank expression using sql template
-  const rankSQL = sql`ts_rank(to_tsvector('english', ${concatFields}), to_tsquery('english', ${escapedTsQuery}))`;
+  const rankSQL = sql`ts_rank(to_tsvector(${config}, ${cappedFields}), to_tsquery(${config}, ${escapedTsQuery}))`;
 
   return desc(rankSQL);
 }

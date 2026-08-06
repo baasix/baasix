@@ -187,7 +187,7 @@ describe("A4 — mass assignment of privilege fields is denied for non-admins", 
   });
 });
 
-describe("PROTECT_PRIVILEGE_FIELDS=allow-password (delegated password reset)", () => {
+describe("ALLOW_PASSWORD_WRITES=true (delegated password reset)", () => {
   // A dedicated user + role so we don't disturb the default-mode tests above.
   let mgrToken;
   let subUserId;
@@ -237,16 +237,16 @@ describe("PROTECT_PRIVILEGE_FIELDS=allow-password (delegated password reset)", (
       .send({ email: "pwmgr@test.com", password: "mgrpw" });
     mgrToken = mgrLogin.body.token;
 
-    // Enable the delegated-password mode for this describe block
-    env.set("PROTECT_PRIVILEGE_FIELDS", "allow-password");
+    // Enable delegated password writes for this describe block
+    env.set("ALLOW_PASSWORD_WRITES", "true");
   });
 
   afterAll(() => {
     // Restore secure default so other suites/tests are unaffected
-    env.set("PROTECT_PRIVILEGE_FIELDS", "true");
+    env.set("ALLOW_PASSWORD_WRITES", "");
   });
 
-  test("explicitly-granted password CAN be set in allow-password mode, and is hashed (login works)", async () => {
+  test("explicitly-granted password CAN be set when ALLOW_PASSWORD_WRITES=true, and is hashed (login works)", async () => {
     const res = await request(app)
       .patch(`/items/baasix_User/${subUserId}`)
       .set("Authorization", `Bearer ${mgrToken}`)
@@ -262,7 +262,23 @@ describe("PROTECT_PRIVILEGE_FIELDS=allow-password (delegated password reset)", (
     expect(login.body.token).toBeTruthy();
   });
 
-  test("password is still NOT grantable via '*' alone in allow-password mode", async () => {
+  test("legacy PROTECT_PRIVILEGE_FIELDS=allow-password alias still enables delegated password writes", async () => {
+    // Deprecated alias: behaves as protection ON + ALLOW_PASSWORD_WRITES=true.
+    env.set("ALLOW_PASSWORD_WRITES", "");
+    env.set("PROTECT_PRIVILEGE_FIELDS", "allow-password");
+    try {
+      const res = await request(app)
+        .patch(`/items/baasix_User/${subUserId}`)
+        .set("Authorization", `Bearer ${mgrToken}`)
+        .send({ password: "reset-via-alias" });
+      expect(res.status).toBe(200);
+    } finally {
+      env.set("PROTECT_PRIVILEGE_FIELDS", "true");
+      env.set("ALLOW_PASSWORD_WRITES", "true");
+    }
+  });
+
+  test("password is still NOT grantable via '*' alone when ALLOW_PASSWORD_WRITES=true", async () => {
     // A role with only fields:["*"] (no explicit password) must still be denied.
     const roleRes = await request(app)
       .post("/items/baasix_Role")
@@ -293,6 +309,53 @@ describe("PROTECT_PRIVILEGE_FIELDS=allow-password (delegated password reset)", (
       .send({ password: "via-wildcard" });
 
     expect(res.status).toBe(403);
+  });
+});
+
+describe("PROTECT_PRIVILEGE_FIELDS=false — protection off, but password stays gated by ALLOW_PASSWORD_WRITES", () => {
+  beforeAll(() => {
+    env.set("PROTECT_PRIVILEGE_FIELDS", "false");
+    env.set("ALLOW_PASSWORD_WRITES", "");
+  });
+
+  afterAll(() => {
+    env.set("PROTECT_PRIVILEGE_FIELDS", "true");
+  });
+
+  test("privilege field (emailVerified) becomes writable via '*' when protection is off", async () => {
+    const res = await request(app)
+      .patch(`/items/baasix_User/${testUserId}`)
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ emailVerified: true });
+
+    expect(res.status).toBe(200);
+  });
+
+  test("password is still denied — even explicitly granted — while ALLOW_PASSWORD_WRITES is off", async () => {
+    // The massassign role's update permission explicitly lists password (granted
+    // in an earlier test) — ALLOW_PASSWORD_WRITES=false must still hard-deny it.
+    const res = await request(app)
+      .patch(`/items/baasix_User/${testUserId}`)
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ password: "still-locked" });
+
+    expect(res.status).toBe(403);
+  });
+
+  test("password becomes writable via '*' when protection is off AND ALLOW_PASSWORD_WRITES=true", async () => {
+    // Orthogonal semantics: protection off means no explicit-grant requirement,
+    // so enabling password writes makes it writable like any other field.
+    env.set("ALLOW_PASSWORD_WRITES", "true");
+    try {
+      const res = await request(app)
+        .patch(`/items/baasix_User/${testUserId}`)
+        .set("Authorization", `Bearer ${userToken}`)
+        .send({ password: "unlocked-both-off" });
+
+      expect(res.status).toBe(200);
+    } finally {
+      env.set("ALLOW_PASSWORD_WRITES", "");
+    }
   });
 });
 

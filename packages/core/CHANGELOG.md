@@ -1,5 +1,14 @@
 # @baasix/baasix
 
+## 0.1.95
+
+### Patch Changes
+
+- Fixed nested relations silently loading as null when the parent relation's attributes were explicitly limited: requesting e.g. fields=["userRoles.organisation_id","userRoles.role.*"] dropped role because the junction SELECT omitted role_Id — the FK the nested BelongsTo/HasOne loader resolves through. The separate-load projection now always includes the foreign keys required by nested includes (both at the HasMany level and one level deeper).
+- Search fixes: default full-text search now covers all non-JSON columns (the old string-type detection never matched, silently searching every column including JSONB); JSON/JSONB columns are opt-in via explicit searchFields. Capped to_tsvector input (150k chars) so oversized rows (e.g. baasix_AuditLog.changes) can no longer 500 with "string is too long for tsvector". Cache key now includes searchFields and sortByRelevance (previously different searches could share one cached result). Stopword-only searches (e.g. search=the) now work: they use the 'simple' text-search config (decided client-side against the english stopword list, single query); searches containing any real word keep 'english' stemming as before.
+- Fixed search related issues and HasMany relationships not populating when FK is not in select
+- Split the PROTECT_PRIVILEGE_FIELDS tri-state into two boolean env vars: PROTECT_PRIVILEGE_FIELDS (true|false — mass-assignment protection only) and ALLOW_PASSWORD_WRITES (default false — delegated non-admin password writes when explicitly granted; still hashed). The old value PROTECT_PRIVILEGE_FIELDS=allow-password keeps working as a deprecated alias (protection ON + password writes ON) and logs a one-time deprecation warning. New startup security-posture advisory when password writes are enabled.
+
 ## 0.1.94
 
 ### Patch Changes

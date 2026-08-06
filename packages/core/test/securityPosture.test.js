@@ -17,6 +17,7 @@ const TOGGLES = [
   "SECRET_KEY",
   "SCHEMAS_PUBLIC",
   "PROTECT_PRIVILEGE_FIELDS",
+  "ALLOW_PASSWORD_WRITES",
   "PROTECT_IS_PUBLIC_FIELD",
   "EXPOSE_ERROR_DETAILS",
   "STRICT_TENANT_ISOLATION",
@@ -38,6 +39,7 @@ function setAllSafe() {
   env.set("SECRET_KEY", SAFE_SECRET);
   env.set("SCHEMAS_PUBLIC", "false");
   env.set("PROTECT_PRIVILEGE_FIELDS", "true");
+  env.set("ALLOW_PASSWORD_WRITES", "false");
   env.set("PROTECT_IS_PUBLIC_FIELD", "true");
   env.set("EXPOSE_ERROR_DETAILS", "false");
   env.set("MULTI_TENANT", "false");
@@ -92,6 +94,18 @@ describe("security posture evaluator", () => {
     setAllSafe();
     env.set("STORAGE_PATH_CONFINEMENT", "false");
     expect(evaluateSecurityPosture()).toContain("STORAGE_PATH_CONFINEMENT");
+  });
+
+  test("ALLOW_PASSWORD_WRITES is flagged when enabled (including via the legacy alias)", () => {
+    setAllSafe();
+    env.set("ALLOW_PASSWORD_WRITES", "true");
+    expect(evaluateSecurityPosture()).toContain("ALLOW_PASSWORD_WRITES");
+
+    setAllSafe();
+    env.set("PROTECT_PRIVILEGE_FIELDS", "allow-password");
+    expect(evaluateSecurityPosture()).toContain("ALLOW_PASSWORD_WRITES");
+    // The alias keeps privilege-field protection ON — it must not be flagged.
+    expect(evaluateSecurityPosture()).not.toContain("PROTECT_PRIVILEGE_FIELDS");
   });
 
   test("strict tenant isolation only flagged when MULTI_TENANT is on", () => {

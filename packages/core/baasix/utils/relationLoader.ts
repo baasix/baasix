@@ -636,6 +636,12 @@ export async function loadHasManyRelations(
       selectColumns['id'] = targetTable['id'];
     }
 
+    // Also include the FKs the nested includes resolve through — the nested
+    // loader reads record[foreignKey] from THESE rows, so an explicitly
+    // limited attribute list (e.g. "userRoles.sort" + "userRoles.role.*")
+    // must not drop role_Id or the nested relation silently loads as null.
+    addNestedIncludeForeignKeys(selectColumns, include.nested, association.model, targetTable);
+
     // Execute query with specific columns or all columns
     const relatedRecords = await db
       .select(Object.keys(selectColumns).length > 0 ? selectColumns : undefined)
@@ -675,6 +681,37 @@ export async function loadHasManyRelations(
   }
 
   return mainRecords;
+}
+
+/**
+ * Ensure the parent row projection contains every foreign key its nested
+ * BelongsTo/HasOne includes are resolved through. loadNestedRelationsForHasMany
+ * reads record[association.foreignKey] from the loaded parent rows — if an
+ * explicit attribute selection omitted that column, the nested relation would
+ * silently resolve to null. No-op when selecting all columns (empty map).
+ */
+function addNestedIncludeForeignKeys(
+  selectColumns: Record<string, any>,
+  nested: ProcessedInclude[] | undefined,
+  sourceModel: string,
+  table: any
+): void {
+  if (!nested || nested.length === 0 || Object.keys(selectColumns).length === 0) {
+    return;
+  }
+  const associationsMap = relationBuilder.getAssociations(sourceModel);
+  if (!associationsMap) return;
+
+  for (const nestedInclude of nested) {
+    if (nestedInclude.relationType !== 'BelongsTo' && nestedInclude.relationType !== 'HasOne') {
+      continue;
+    }
+    const assoc = associationsMap[nestedInclude.relation];
+    const fk = assoc?.foreignKey;
+    if (fk && !selectColumns[fk] && table[fk]) {
+      selectColumns[fk] = table[fk];
+    }
+  }
 }
 
 /**
@@ -768,6 +805,10 @@ async function loadNestedRelationsForHasMany(
       if (!selectColumns['id'] && targetTable['id']) {
         selectColumns['id'] = targetTable['id'];
       }
+
+      // Include the FKs this include's own nested includes resolve through
+      // (same requirement as the HasMany select above, one level deeper).
+      addNestedIncludeForeignKeys(selectColumns, include.nested, association.model, targetTable);
 
       // Execute query with specific columns or all columns
       const relatedRecords = await db

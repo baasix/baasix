@@ -220,6 +220,10 @@ export class ItemsService {
       `offset:${query.offset || 0}`,
       `page:${query.page || 'none'}`,
       `search:${query.search || ''}`,
+      // searchFields/sortByRelevance change which rows match and their order —
+      // omitting them here served one search's cached result to a different one.
+      `searchFields:${JSON.stringify(query.searchFields || [])}`,
+      `sortByRelevance:${query.sortByRelevance ? 'on' : 'off'}`,
       `includes:${processedIncludes.map(i => i.relation).join(',')}`,
       `paranoid:${query.paranoid !== false}`,
       // The cached payload bundles records + totalCount, so the count mode must
@@ -1054,12 +1058,16 @@ export class ItemsService {
 
   /**
    * Fields that are NEVER client-writable via the data API, even when explicitly
-   * named in a permission. `password` must go through the auth flow (hashing,
-   * validation, session revocation), so a raw write here is always wrong.
+   * named in a permission. `password` normally belongs to the auth flow; setting
+   * ALLOW_PASSWORD_WRITES=true demotes it to the opt-in privilege tier instead
+   * (see applyFieldPermissions). Writes are still auto-hashed either way.
    */
   private static readonly NEVER_WRITABLE_FIELDS: ReadonlySet<string> = new Set([
     'password',
   ]);
+
+  /** One-time deprecation warning for PROTECT_PRIVILEGE_FIELDS=allow-password. */
+  private static warnedAllowPasswordAlias = false;
 
   /**
    * The opt-in privilege fields for this collection: the static list plus every
@@ -1126,25 +1134,39 @@ export class ItemsService {
     // permission's raw fields (not via "*"). This is checked before the regular
     // allow-list so a broad "*" grant can't be used for mass-assignment.
     //
-    // PROTECT_PRIVILEGE_FIELDS is a tri-state:
-    //   "true" (default) — full protection. `password` is hard-denied even when
-    //                      explicitly granted (admins can still set it — they skip
-    //                      this method entirely).
-    //   "allow-password" — protection ON, but `password` is demoted to the opt-in
-    //                      tier so a non-admin role can set it when EXPLICITLY
-    //                      granted (fields:["*","password"]) — e.g. a "user-manager"
-    //                      resetting subordinates' passwords. Still auto-hashed.
-    //   "false"          — protection OFF entirely ("*" grants everything). NOT recommended.
+    // Two ORTHOGONAL env toggles govern non-admin writes (admins skip this method):
+    //   PROTECT_PRIVILEGE_FIELDS (default "true")
+    //     true  — privilege fields are opt-in: writable only when explicitly named
+    //             in the permission's fields, never via "*".
+    //     false — protection OFF ("*" grants privilege fields too). NOT recommended.
+    //   ALLOW_PASSWORD_WRITES (default "false")
+    //     false — `password` is never client-writable via the data API, even when
+    //             explicitly granted. Credentials belong to the auth flow.
+    //     true  — `password` is treated like a privilege field (explicit grant
+    //             required while protection is on) — e.g. a "user-manager" role
+    //             resetting subordinates' passwords. Still auto-hashed on write.
+    //   Deprecated alias: PROTECT_PRIVILEGE_FIELDS=allow-password ≡ protection ON
+    //   + ALLOW_PASSWORD_WRITES=true.
     // (isPublic file-publishing protection is a SEPARATE flag, PROTECT_IS_PUBLIC_FIELD.)
     const protectMode = (env.get("PROTECT_PRIVILEGE_FIELDS") || "true").toLowerCase();
+    const legacyAllowPasswordAlias = protectMode === "allow-password";
+    if (legacyAllowPasswordAlias && !ItemsService.warnedAllowPasswordAlias) {
+      ItemsService.warnedAllowPasswordAlias = true;
+      console.warn(
+        "[DEPRECATED] PROTECT_PRIVILEGE_FIELDS=allow-password is deprecated. " +
+        "Set PROTECT_PRIVILEGE_FIELDS=true and ALLOW_PASSWORD_WRITES=true instead."
+      );
+    }
     const protectPrivilegeFields = protectMode !== "false";
-    const allowPasswordGrant = protectMode === "allow-password";
+    const allowPasswordWrites =
+      (env.get("ALLOW_PASSWORD_WRITES") || "").toLowerCase() === "true" ||
+      legacyAllowPasswordAlias;
 
     const neverWritable = new Set(ItemsService.NEVER_WRITABLE_FIELDS);
     const protectedWriteFields = protectPrivilegeFields
       ? await this.getProtectedWriteFields()
       : new Set<string>();
-    if (allowPasswordGrant) {
+    if (allowPasswordWrites) {
       neverWritable.delete('password');
       // Demote to opt-in: still excluded from "*", allowed only when named explicitly.
       protectedWriteFields.add('password');
