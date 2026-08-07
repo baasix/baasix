@@ -1,5 +1,12 @@
 # @baasix/mcp
 
+## 0.2.4
+
+### Patch Changes
+
+- Permission tools support checkConditions (RLS WITH CHECK): baasix_create_permission and baasix_update_permission accept and document the new field; conditions is documented as USING (read/update/delete only — rejected on create grants).
+- WITH CHECK enforcement for writes (create and update) added.
+
 ## 0.2.3
 
 ### Patch Changes

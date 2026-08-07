@@ -607,11 +607,51 @@ export class SchemaManager {
     }
   }
 
+  /**
+   * Inject an explicit typed FK field for every BelongsTo relation whose
+   * foreign key is not separately declared ("Style B" definitions). Without
+   * this, the DDL builder created the column but the Drizzle table object
+   * never got the property — inserts silently dropped the FK value and
+   * relation-path filters generated broken SQL. The dedicated relationships
+   * route always declared FKs explicitly; this makes hand-authored /schemas
+   * and imported definitions behave the same. Mutates `fields`; returns
+   * whether anything was added.
+   */
+  private injectBelongsToForeignKeyFields(fields: Record<string, any>): boolean {
+    if (!fields) return false;
+    const RELATION_TYPE_INDICATORS = ["M2O", "O2O", "O2M", "M2M"];
+    let changed = false;
+    for (const [fieldName, fs] of Object.entries<any>(fields)) {
+      if (fs?.relType !== 'BelongsTo') continue;
+      const foreignKey = fs.foreignKey || `${fieldName}_Id`;
+      // A relation whose FK is the field itself (typed relation field) needs no injection
+      if (foreignKey === fieldName) continue;
+      if (fields[foreignKey]) continue;
+      // Mirror the DDL builder's type fallback: a real column type on the
+      // relation field wins, otherwise UUID.
+      const fkType = (fs.type && !RELATION_TYPE_INDICATORS.includes(fs.type)) ? fs.type : 'UUID';
+      fields[foreignKey] = {
+        type: fkType,
+        allowNull: fs.allowNull !== false,
+        SystemGenerated: 'true',
+        description: `Foreign key for ${fieldName} relation`,
+      };
+      changed = true;
+    }
+    return changed;
+  }
+
   private async normalizeLegacySchema(collectionName: string, schema: any): Promise<any> {
     const sql = getSqlClient();
     const db = getDatabase();
     let schemaUpdated = false;
     const normalizedSchema = { ...schema, fields: { ...schema.fields } };
+
+    // Heal stored "Style B" definitions: BelongsTo relations without an
+    // explicitly declared FK field get one injected (and persisted below).
+    if (this.injectBelongsToForeignKeyFields(normalizedSchema.fields)) {
+      schemaUpdated = true;
+    }
 
     // Check timestamp fields if timestamps are enabled (default: true)
     if (schema.timestamps !== false) {
@@ -2405,6 +2445,26 @@ export class SchemaManager {
         }
       }
 
+      // Safety net for definitions not passed through updateModel/normalize
+      // (e.g. older stored "Style B" schemas loaded directly): the Drizzle
+      // object must expose every BelongsTo FK column the DDL builder creates,
+      // or inserts silently drop the FK and relation-path joins break.
+      const RELATION_TYPE_IND_FK = ["M2O", "O2O", "O2M", "M2M"];
+      for (const [fieldName, fs] of Object.entries<any>(fields)) {
+        if (fs?.relType !== 'BelongsTo') continue;
+        const foreignKey = fs.foreignKey || `${fieldName}_Id`;
+        if (foreignKey === fieldName || columns[foreignKey]) continue;
+        const fkType = (fs.type && !RELATION_TYPE_IND_FK.includes(fs.type)) ? fs.type : 'UUID';
+        try {
+          const fkColumn = mapJsonTypeToDrizzle(foreignKey, { type: fkType, allowNull: true }, collectionName);
+          if (fkColumn) {
+            columns[foreignKey] = fkColumn;
+          }
+        } catch (error) {
+          console.warn(`Failed to map FK column ${foreignKey} for ${collectionName}:`, error);
+        }
+      }
+
       // Add timestamps if enabled (default: true)
       const includeTimestamps = options?.timestamps !== false;
       if (includeTimestamps) {
@@ -2744,6 +2804,13 @@ export class SchemaManager {
   async updateModel(collectionName: string, schema: any, accountability?: any): Promise<void> {
     console.log(`Creating/updating model: ${collectionName}`);
     console.log(`[updateModel] Schema fields for ${collectionName}:`, Object.keys(schema.fields || {}));
+
+    // Normalize "Style B" relations (BelongsTo without a declared FK field) so
+    // the persisted definition always carries the FK as an explicit typed
+    // field — a no-op for the relationships route, which declares it already.
+    if (schema.fields) {
+      this.injectBelongsToForeignKeyFields(schema.fields);
+    }
 
     // Add tenant fields for non-system schemas in multi-tenant mode BEFORE saving to database
     const isSystemSchema = collectionName.startsWith('baasix_');

@@ -1792,8 +1792,16 @@ export class ItemsService {
       const cacheKey = this.generateCacheKey(modifiedQuery, processedIncludes, countMode);
       const involvedTables = this.getInvolvedTables(processedIncludes);
 
+      // Transactional reads must NOT touch the shared cache: they can see
+      // uncommitted rows, and storing such a result would poison the cache if
+      // the transaction later rolls back (e.g. a WITH CHECK rejection or a
+      // failing sibling item in createMany).
+      const runCached = transaction
+        ? <T>(_key: string, _tables: string[], fn: () => Promise<T>) => fn()
+        : this.executeWithCache.bind(this);
+
       // Execute main query with cache
-      const { records: finalRecords, totalCount } = await this.executeWithCache(
+      const { records: finalRecords, totalCount } = await runCached(
         cacheKey,
         involvedTables,
         async () => {
@@ -2420,10 +2428,68 @@ export class ItemsService {
   }
 
   /**
+   * WITH CHECK enforcement (Postgres RLS semantics): after the written row and
+   * its deferred relations exist — before commit — verify it satisfies the
+   * acting role's WITH CHECK filter by re-reading it with that filter applied,
+   * on the SAME transaction. If the row does not come back, throw 403 so the
+   * write rolls back. See the action-specific filter selection below; no-op
+   * when no applicable filter exists.
+   *
+   * The check read runs with bypassPermissions because the conditions being
+   * enforced are injected explicitly — letting the READ grant filter too would
+   * enforce the wrong action's scope and break roles that may write what they
+   * cannot read back. Tenant scoping still applies (buildQuery enforces it
+   * unconditionally), dynamic variables resolve inside buildQuery, and
+   * transactional reads bypass the shared cache.
+   */
+  private async verifyWriteConditions(
+    itemIds: (string | number)[] | string | number,
+    transaction: Transaction,
+    action: 'create' | 'update'
+  ): Promise<void> {
+    const ids = Array.isArray(itemIds) ? itemIds : [itemIds];
+    const roleId = this.getRoleId();
+    const { filter: permFilter } = await permissionService.getFullPermissionData(
+      roleId, this.collection, action, this.accountability
+    );
+    // USING vs WITH CHECK split (Postgres RLS semantics): `conditions` only
+    // ever filters EXISTING rows (read/update/delete). `checkConditions` is
+    // the WITH CHECK for both create and update — what the written row must
+    // satisfy. Re-checking `conditions` post-update would break legitimate
+    // state transitions (e.g. a "may edit drafts" grant submitting a draft),
+    // and on create `conditions` is rejected at authoring time.
+    const conditions = permFilter?.checkConditions;
+    if (!conditions || Object.keys(conditions).length === 0) return;
+
+    const visible = await this.readByQuery(
+      {
+        filter: {
+          AND: [
+            { [this.primaryKey]: { in: ids } },
+            conditions,
+          ],
+        },
+        fields: [this.primaryKey],
+        limit: ids.length,
+      },
+      true,
+      transaction,
+      { bypassHooks: true }
+    );
+
+    if ((visible?.data?.length ?? 0) !== ids.length) {
+      throw new APIError(
+        `${action === 'create' ? 'Created' : 'Updated'} ${this.collection} row violates your ${action} permission conditions`,
+        403
+      );
+    }
+  }
+
+  /**
    * Internal method to perform core create logic without after hooks
    * Used by both createOne and createMany to separate transactional data operations
    * from after hooks that may have side effects (emails, third-party calls)
-   * 
+   *
    * @param data - Item data to create
    * @param transaction - Transaction to use
    * @param options - Operation options
@@ -2442,12 +2508,15 @@ export class ItemsService {
     console.log(`[ItemsService.createOneCore] START - Collection: ${this.collection}`);
     console.log('[ItemsService.createOneCore] Input data:', JSON.stringify(data));
 
-    // Execute before-create hooks with transaction
+    // Execute before-create hooks with the WORKING transaction (not
+    // options.transaction, which is undefined when createOne/createMany created
+    // the transaction themselves). Hook DB writes that use context.transaction
+    // roll back atomically with the create — matching the delete path.
     let hookData = await hooksManager.executeHooks(
       this.collection,
       'items.create',
       this.accountability,
-      { data, transaction: options.transaction },
+      { data, transaction },
       options.bypassHooks
     );
 
@@ -2617,6 +2686,13 @@ export class ItemsService {
       }
     }
 
+    // WITH CHECK: the finished row (post-hooks, post-defaults, post-deferred
+    // relations) must satisfy the create grant's conditions — else 403 +
+    // rollback. Admin/bypass paths keep their existing semantics.
+    if (!options.bypassPermissions && !isAdmin) {
+      await this.verifyWriteConditions(itemId, transaction, 'create');
+    }
+
     return {
       itemId,
       document: item,
@@ -2742,12 +2818,13 @@ export class ItemsService {
   }> {
     const parsedId = this.parseId(id);
 
-    // Execute before-update hooks with transaction
+    // Execute before-update hooks with the WORKING transaction (not
+    // options.transaction — see the create/delete paths for rationale).
     let hookData = await hooksManager.executeHooks(
       this.collection,
       'items.update',
       this.accountability,
-      { id: parsedId, data, transaction: options.transaction },
+      { id: parsedId, data, transaction },
       options.bypassHooks
     );
 
@@ -2966,6 +3043,13 @@ export class ItemsService {
           relatedTables.push(...associationInfo.relatedCollections);
         }
       }
+    }
+
+    // WITH CHECK: when the update grant defines checkConditions, the row as it
+    // now stands (post-hooks, post-relations) must satisfy them — else 403 +
+    // rollback. Grants without checkConditions keep existing behavior.
+    if (!options.bypassPermissions && !isAdmin) {
+      await this.verifyWriteConditions(parsedId, transaction, 'update');
     }
 
     return {

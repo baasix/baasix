@@ -1,5 +1,15 @@
 # @baasix/sdk
 
+## 0.1.21
+
+### Patch Changes
+
+- WITH CHECK enforcement for writes (create and update) added.
+- Permission APIs support checkConditions (RLS WITH CHECK). permissions.create/update accept the new field via the shared CreatePermissionData type. createCrudPermissions reworked for the new server semantics: create grants take checkConditions (conditions is rejected by the API on create), update grants take both conditions (USING — which rows) and checkConditions (WITH CHECK — what they may become). Requires @baasix/types with Permission/PermissionData/CreatePermissionData.checkConditions.
+- Updated dependencies
+- Updated dependencies
+  - @baasix/types@1.0.13
+
 ## 0.1.20
 
 ### Patch Changes

@@ -219,6 +219,7 @@ interface CreatePermissionInput {
   action: "create" | "read" | "update" | "delete";
   fields?: string[];
   conditions?: Record<string, unknown>;
+  checkConditions?: Record<string, unknown>;
   defaultValues?: Record<string, unknown>;
   relConditions?: Record<string, unknown>;
   acl_Ids?: string[];
@@ -231,6 +232,7 @@ interface UpdatePermissionInput {
   action?: "create" | "read" | "update" | "delete";
   fields?: string[];
   conditions?: Record<string, unknown>;
+  checkConditions?: Record<string, unknown>;
   defaultValues?: Record<string, unknown>;
   relConditions?: Record<string, unknown>;
   acl_Ids?: string[];
@@ -1604,7 +1606,7 @@ Public files only: {"isPublic": {"eq": true}}`,
     "baasix_list_permissions",
     `List all access control permission rules with optional filtering.
 
-Each permission defines: role_Id (which role), collection (which table), action (create/read/update/delete), fields (which columns), conditions (row-level security), defaultValues (auto-set values), and relConditions (related table security).
+Each permission defines: role_Id (which role), collection (which table), action (create/read/update/delete), fields (which columns), conditions (row filter for read/update/delete — USING), checkConditions (what a written row must satisfy on create/update — WITH CHECK), defaultValues (auto-set values), and relConditions (related table security).
 
 Filter examples:
 All permissions for a role: {"role_Id": {"eq": "<role-uuid>"}}
@@ -1658,12 +1660,18 @@ Each action needs its own permission rule. A role with no permissions for a tabl
 ["name", "price", "status"] → allow access to ONLY these columns
 For read: controls which columns are returned. For create/update: controls which columns can be written.
 
---- CONDITIONS (row-level security / RLS) ---
-Uses the same filter operators as baasix_list_items. These conditions are enforced as security constraints — always ANDed with any user query, cannot be bypassed.
+--- CONDITIONS (row-level security / RLS "USING") ---
+Filters which EXISTING rows the grant covers — read/update/delete ONLY. NOT valid on create grants (400 — there are no rows to filter; use checkConditions). Uses the same filter operators as baasix_list_items. Always ANDed with any user query, cannot be bypassed.
 Only published: {"published": {"eq": true}}
 Only own records: {"author_Id": {"eq": "$CURRENT_USER"}}
 Only own tenant: {"tenant_Id": {"eq": "$CURRENT_USER.tenant_Id"}}
 Multiple conditions: {"AND": [{"status": {"in": ["active", "draft"]}}, {"author_Id": {"eq": "$CURRENT_USER"}}]}
+
+--- CHECKCONDITIONS (RLS "WITH CHECK" — create & update) ---
+What the WRITTEN row must satisfy after a create or update, before commit — otherwise 403 and the write rolls back. Same operators and dynamic variables as conditions. Leave unset for no post-write check.
+Users may only create rows they own: {"owner_Id": {"eq": "$CURRENT_USER"}}
+Update may not archive or reassign: {"owner_Id": {"eq": "$CURRENT_USER"}, "status": {"in": ["draft", "submitted"]}}
+On update, conditions decides WHICH rows may be edited; checkConditions decides what they may BECOME (e.g. conditions {"status": {"eq": "draft"}} + checkConditions {"status": {"in": ["draft", "submitted"]}} = "may edit drafts, may submit them, may not archive them").
 
 DYNAMIC VARIABLES in conditions:
 $CURRENT_USER → current user's ID
@@ -1696,23 +1704,28 @@ Allow users to create posts with auto-set author:
 role_Id: "<uuid>", collection: "posts", action: "create", fields: ["title", "content"], defaultValues: {"author_Id": "$CURRENT_USER", "status": "draft"}
 
 Allow users to only update their own posts, only title and content:
-role_Id: "<uuid>", collection: "posts", action: "update", fields: ["title", "content"], conditions: {"author_Id": {"eq": "$CURRENT_USER"}}`,
+role_Id: "<uuid>", collection: "posts", action: "update", fields: ["title", "content"], conditions: {"author_Id": {"eq": "$CURRENT_USER"}}
+
+Allow users to create only tasks assigned to themselves (WITH CHECK):
+role_Id: "<uuid>", collection: "tasks", action: "create", fields: ["*"], checkConditions: {"owner_Id": {"eq": "$CURRENT_USER"}}`,
     {
       role_Id: z.string().describe("Role UUID — get this from baasix_list_roles"),
       collection: z.string().describe("Table/collection name this permission applies to"),
       action: z.enum(["create", "read", "update", "delete"]).describe("The CRUD action to allow"),
       fields: z.array(z.string()).optional().describe("Allowed columns: [\"*\"] for all, or [\"name\", \"price\"] for specific. Omit for all."),
-      conditions: z.record(z.any()).optional().describe("Row-level security filter (same operators as filter in baasix_list_items). Always enforced."),
+      conditions: z.record(z.any()).optional().describe("USING row filter for read/update/delete (same operators as baasix_list_items filters). REJECTED on create grants — use checkConditions there."),
+      checkConditions: z.record(z.any()).optional().describe("WITH CHECK filter for create/update: the written row must satisfy this after the write or it fails 403 and rolls back. E.g. {\"owner_Id\": {\"eq\": \"$CURRENT_USER\"}}"),
       defaultValues: z.record(z.any()).optional().describe("Auto-injected values on create/update: {\"author_Id\": \"$CURRENT_USER\", \"status\": \"draft\"}"),
       relConditions: z.record(z.any()).optional().describe("Row-level security on related tables: {\"category\": {\"isPublic\": {\"eq\": true}}}"),
       acl_Ids: z.array(z.string()).optional().describe("Ordered ACL entry UUIDs (from baasix_list_acls). Replaces inline conditions/fields/etc.; multiple entries OR together (additive)."),
     },
     async (args: CreatePermissionInput, extra: ToolExtra): Promise<ToolResult> => {
-      const { role_Id, collection, action, fields, conditions, defaultValues, relConditions, acl_Ids } = args;
+      const { role_Id, collection, action, fields, conditions, checkConditions, defaultValues, relConditions, acl_Ids } = args;
       try {
         const data: Record<string, unknown> = { role_Id, collection, action };
         if (fields) data.fields = fields;
         if (conditions) data.conditions = conditions;
+        if (checkConditions) data.checkConditions = checkConditions;
         if (defaultValues) data.defaultValues = defaultValues;
         if (relConditions) data.relConditions = relConditions;
         if (acl_Ids) data.acl_Ids = acl_Ids;
@@ -1739,7 +1752,8 @@ To switch a permission to named ACLs, pass acl_Ids (and null out inline fields i
       collection: z.string().optional().describe("Change which table this permission applies to"),
       action: z.enum(["create", "read", "update", "delete"]).optional().describe("Change the CRUD action"),
       fields: z.array(z.string()).optional().describe("Change allowed columns: [\"*\"] for all, or specific column names"),
-      conditions: z.record(z.any()).optional().describe("Change row-level security conditions (same operators as filter)"),
+      conditions: z.record(z.any()).optional().describe("Change USING row filter (read/update/delete; rejected on create grants)"),
+      checkConditions: z.record(z.any()).optional().describe("Change WITH CHECK filter (create/update): what the written row must satisfy"),
       defaultValues: z.record(z.any()).optional().describe("Change auto-injected values on create/update"),
       relConditions: z.record(z.any()).optional().describe("Change row-level security on related tables"),
       acl_Ids: z.array(z.string()).optional().describe("Ordered ACL entry UUIDs. [] detaches all. Replaces inline values when non-empty."),

@@ -61,6 +61,12 @@ export interface OperationOptions {
 export interface PermissionFilter {
   conditions?: Record<string, any>;
   relConditions?: Record<string, any>;
+  /**
+   * WITH CHECK filter (RLS-style): what the written row must satisfy, enforced
+   * post-write pre-commit on BOTH create and update (null = no check).
+   * `conditions` never applies to creates.
+   */
+  checkConditions?: Record<string, any> | null;
 }
 
 /**

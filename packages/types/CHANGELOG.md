@@ -1,5 +1,12 @@
 # @baasix/types
 
+## 1.0.13
+
+### Patch Changes
+
+- WITH CHECK enforcement for writes (create and update) added.
+- Added checkConditions (RLS WITH CHECK write filter) to Permission, PermissionData, and CreatePermissionData.
+
 ## 1.0.12
 
 ### Patch Changes

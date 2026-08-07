@@ -83,10 +83,23 @@ const registerEndpoint = (app: Express) => {
   });
 
   // Create permission
+  // `conditions` filters EXISTING rows (read/update/delete). A create has no
+  // rows to filter — accepting conditions there would create a decorative,
+  // never-enforced grant. Write-scoping for creates lives in `checkConditions`.
+  const assertNoCreateConditions = (action: string | undefined, conditions: any) => {
+    if (action === "create" && conditions && Object.keys(conditions).length > 0) {
+      throw new APIError(
+        "`conditions` does not apply to create grants (there are no existing rows to filter). Use `checkConditions` to scope what may be created.",
+        400
+      );
+    }
+  };
+
   app.post("/permissions", adminOnly, async (req, res, next) => {
     try {
       const data = req.body;
 
+      assertNoCreateConditions(data.action, data.conditions);
       await validateAclIds(data, req.accountability);
 
       const itemsService = new ItemsService("baasix_Permission", {
@@ -127,6 +140,8 @@ const registerEndpoint = (app: Express) => {
 
       // Get old permission to check which collection and role to invalidate
       const oldPermission = await itemsService.readOne(id);
+
+      assertNoCreateConditions(data.action ?? oldPermission.action, data.conditions);
 
       await itemsService.updateOne(id, data);
 

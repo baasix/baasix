@@ -111,8 +111,20 @@ export class PermissionsModule {
    *   action: 'update',
    *   fields: ['title', 'content', 'status'],
    *   conditions: {
-   *     author_Id: { eq: '$CURRENT_USER' }
+   *     author_Id: { eq: '$CURRENT_USER' }      // USING: which rows may be updated
+   *   },
+   *   checkConditions: {
+   *     author_Id: { eq: '$CURRENT_USER' }      // WITH CHECK: what they may become
    *   }
+   * });
+   *
+   * // Create grants use checkConditions (conditions is rejected on create):
+   * await baasix.permissions.create({
+   *   role_Id: 'user-role-uuid',
+   *   collection: 'tasks',
+   *   action: 'create',
+   *   fields: ['*'],
+   *   checkConditions: { owner_Id: { eq: '$CURRENT_USER' } }
    * });
    * ```
    */
@@ -178,9 +190,9 @@ export class PermissionsModule {
    * @example
    * ```typescript
    * await baasix.permissions.createCrudPermissions('role-uuid', 'products', {
-   *   create: { fields: ['name', 'price', 'description'] },
+   *   create: { fields: ['name', 'price'], checkConditions: { owner_Id: { eq: '$CURRENT_USER' } } },
    *   read: { fields: ['*'] },
-   *   update: { fields: ['name', 'price', 'description'] },
+   *   update: { fields: ['name', 'price'], conditions: { owner_Id: { eq: '$CURRENT_USER' } } },
    *   delete: false
    * });
    * ```
@@ -189,9 +201,14 @@ export class PermissionsModule {
     roleId: string,
     collection: string,
     config: {
-      create?: { fields?: string[]; conditions?: Permission["conditions"] } | false;
+      /** Create grants scope writes via checkConditions — `conditions` is rejected by the API on create. */
+      create?: { fields?: string[]; checkConditions?: Permission["checkConditions"] } | false;
       read?: { fields?: string[]; conditions?: Permission["conditions"] } | false;
-      update?: { fields?: string[]; conditions?: Permission["conditions"] } | false;
+      update?: {
+        fields?: string[];
+        conditions?: Permission["conditions"];
+        checkConditions?: Permission["checkConditions"];
+      } | false;
       delete?: { conditions?: Permission["conditions"] } | false;
     }
   ): Promise<Permission[]> {
@@ -202,12 +219,21 @@ export class PermissionsModule {
       const actionConfig = config[action];
       if (actionConfig === false) continue;
 
+      const cfg = actionConfig as {
+        fields?: string[];
+        conditions?: Permission["conditions"];
+        checkConditions?: Permission["checkConditions"];
+      };
+
       const permission = await this.create({
         role_Id: roleId,
         collection,
         action,
-        fields: (actionConfig as { fields?: string[] })?.fields || ["*"],
-        conditions: (actionConfig as { conditions?: Permission["conditions"] })?.conditions,
+        fields: cfg?.fields || ["*"],
+        // `conditions` filters existing rows (USING) — never sent for create
+        conditions: action === "create" ? undefined : cfg?.conditions,
+        checkConditions:
+          action === "create" || action === "update" ? cfg?.checkConditions : undefined,
       });
 
       permissions.push(permission);

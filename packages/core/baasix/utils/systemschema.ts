@@ -98,6 +98,12 @@ export const systemSchemas = {
                     defaultValues: { type: "JSON", SystemGenerated: "true" },
                     conditions: { type: "JSON", SystemGenerated: "true" },
                     relConditions: { type: "JSON", SystemGenerated: "true" },
+                    checkConditions: {
+                        type: "JSON",
+                        SystemGenerated: "true",
+                        description:
+                            "WITH CHECK (RLS-style): the written row must satisfy this filter after create/update, before commit — 403 + rollback otherwise. null = no post-write check. `conditions` means USING (which existing rows may be read/updated/deleted) and never applies to create grants (rejected at authoring time).",
+                    },
                     acl_Ids: {
                         type: "JSON",
                         SystemGenerated: "true",

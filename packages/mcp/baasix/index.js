@@ -1434,7 +1434,18 @@ CONDITIONS vs RELCONDITIONS — these are DIFFERENT. Do not confuse them:
     {"reviews": {"approved": {"eq": true}}}      → only approved reviews in response
     {"orders": {"items": {"status": {"eq": "shipped"}}}}  → nested relation filter
 
+CHECKCONDITIONS (WITH CHECK — create & update):
+- checkConditions = what the WRITTEN row must satisfy AFTER a create/update,
+  before commit — otherwise 403 and the write rolls back (bulk batches atomic).
+  Same operators + dynamic variables as conditions. null = no post-write check.
+- conditions is NOT valid on create grants (400 — no rows to filter); use
+  checkConditions to scope creates: {"owner_Id": {"eq": "$CURRENT_USER"}}
+- On update they compose: conditions = WHICH rows may be edited,
+  checkConditions = what they may BECOME (e.g. conditions {"status": {"eq": "draft"}}
+  + checkConditions {"status": {"in": ["draft", "submitted"]}}).
+
 Rule of thumb: "which rows of THIS collection?" → conditions.
+               "what may a written row look like?" → checkConditions.
                "which related rows inside the response?" → relConditions.
 
 EXAMPLE (read own published products, with only approved reviews, author name visible):
@@ -1471,7 +1482,12 @@ EXAMPLE (read own published products, with only approved reviews, author name vi
                                 conditions: {
                                     type: "object",
                                     description:
-                                        'ROW FILTER on THIS collection — which RECORDS the role can access. Keys are this collection\'s columns. E.g. {"author_Id": {"eq": "$CURRENT_USER"}}. NOT for filtering related data (use relConditions for that).',
+                                        'USING row filter on THIS collection — which EXISTING records the role can access (read/update/delete). REJECTED on create grants — use checkConditions there. E.g. {"author_Id": {"eq": "$CURRENT_USER"}}. NOT for filtering related data (use relConditions for that).',
+                                },
+                                checkConditions: {
+                                    type: "object",
+                                    description:
+                                        'WITH CHECK filter (create/update): the WRITTEN row must satisfy this after the write, before commit — otherwise 403 + rollback. E.g. {"owner_Id": {"eq": "$CURRENT_USER"}}.',
                                 },
                                 defaultValues: {
                                     type: "object",
@@ -1519,7 +1535,12 @@ EXAMPLE (read own published products, with only approved reviews, author name vi
                                 conditions: {
                                     type: "object",
                                     description:
-                                        'ROW FILTER on THIS collection — which RECORDS the role can access (keys are this collection\'s columns). NOT for filtering related data.',
+                                        'USING row filter — which EXISTING records the role can access (read/update/delete; rejected on create grants). NOT for filtering related data.',
+                                },
+                                checkConditions: {
+                                    type: "object",
+                                    description:
+                                        'WITH CHECK filter (create/update): what the written row must satisfy after the write — 403 + rollback otherwise.',
                                 },
                                 defaultValues: {
                                     type: "object",
@@ -2921,10 +2942,10 @@ The realtime config is stored in the schema definition and can include specific 
     }
 
     async handleCreatePermission(args) {
-        const { role_Id, collection, action, fields, conditions, defaultValues, relConditions } = args;
+        const { role_Id, collection, action, fields, conditions, checkConditions, defaultValues, relConditions } = args;
         const result = await baasixRequest("/permissions", {
             method: "POST",
-            data: { role_Id, collection, action, fields, conditions, defaultValues, relConditions },
+            data: { role_Id, collection, action, fields, conditions, checkConditions, defaultValues, relConditions },
         });
         return {
             content: [
@@ -2937,10 +2958,10 @@ The realtime config is stored in the schema definition and can include specific 
     }
 
     async handleUpdatePermission(args) {
-        const { id, role_Id, collection, action, fields, conditions, defaultValues, relConditions } = args;
+        const { id, role_Id, collection, action, fields, conditions, checkConditions, defaultValues, relConditions } = args;
         const result = await baasixRequest(`/permissions/${id}`, {
             method: "PATCH",
-            data: { role_Id, collection, action, fields, conditions, defaultValues, relConditions },
+            data: { role_Id, collection, action, fields, conditions, checkConditions, defaultValues, relConditions },
         });
         return {
             content: [

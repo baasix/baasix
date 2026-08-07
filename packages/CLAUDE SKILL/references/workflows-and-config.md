@@ -65,11 +65,14 @@ POST /permissions
   "collection": "products",
   "action": "read",              // read, create, update, delete
   "fields": ["*"],               // or specific fields
-  "conditions": {                // Row-level filtering
+  "conditions": {                // Row-level filtering (USING) — read/update/delete only
     "published": {"eq": true}
   },
   "relConditions": {             // Filter array relations (O2M/M2M) in results
     "reviews": {"approved": {"eq": true}}
+  },
+  "checkConditions": {           // WITH CHECK — what a WRITTEN row must satisfy (create/update)
+    "author_Id": {"eq": "$CURRENT_USER"}
   }
 }
 ```
@@ -88,6 +91,14 @@ POST /permissions
   - `relConditions` = filter on RELATED rows returned in array relations (O2M/M2M)
     — *which related rows* appear in the response. Keyed by relation name. Does not
     restrict the main records, and only applies to relations also granted in `fields`.
+- **`checkConditions` (WITH CHECK) vs `conditions` (USING):** `conditions` filters
+  which EXISTING rows a grant covers and is REJECTED (400) on create grants — there
+  are no rows to filter. `checkConditions` is enforced on create AND update: the
+  written row is re-read with it before commit; no match → 403 + rollback (bulk
+  batches atomic). On update the two compose — `conditions` picks which rows may be
+  edited, `checkConditions` limits what they may become (e.g. "may edit drafts, may
+  submit them, may not archive them"). Dynamic variables and `$path$` relation keys
+  work in both. `checkConditions: null` = no post-write check.
 
 ### Built-in Roles
 | Role | Description |

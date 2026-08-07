@@ -282,6 +282,10 @@ export class PermissionService {
             conditions: merged.conditions,
             relConditions: merged.relConditions,
             defaultValues: merged.defaultValues,
+            // checkConditions is a row-level (inline) concept — ACL entries
+            // don't carry it, so the permission row's value applies even when
+            // ACLs replace the other inline fields.
+            checkConditions: permission.checkConditions || null,
           };
         } else {
           rolePermissions[collectionName][permission.action] = {
@@ -289,6 +293,7 @@ export class PermissionService {
             conditions: permission.conditions || {},
             relConditions: permission.relConditions || {},
             defaultValues: permission.defaultValues || {},
+            checkConditions: permission.checkConditions || null,
           };
         }
       }
@@ -556,9 +561,14 @@ export class PermissionService {
     const relConditions = permData.relConditions || {};
     const resolvedConditions = await resolveDynamicVariables(conditions, accountability);
     const resolvedRelConditions = await resolveDynamicVariables(relConditions, accountability);
+    const checkConditions = permData.checkConditions || null;
+    const resolvedCheckConditions = checkConditions
+      ? await resolveDynamicVariables(checkConditions, accountability)
+      : null;
     const filter: PermissionFilter = {
       conditions: resolvedConditions,
       relConditions: resolvedRelConditions,
+      checkConditions: resolvedCheckConditions,
     };
 
     // allowedFields (expanded) + rawFields (unexpanded, for explicit-grant checks)

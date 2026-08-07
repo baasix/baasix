@@ -1,5 +1,31 @@
 # @baasix/baasix
 
+## 0.2.0
+
+### Minor Changes
+
+- WITH CHECK enforcement for writes (Postgres RLS semantics). New nullable `checkConditions` JSON column on baasix_Permission: when set, the written row must satisfy it after create/update, before commit — otherwise 403 and the transaction rolls back atomically (createMany/updateMany batches included). `conditions` keeps exactly one meaning — USING, i.e. which EXISTING rows a grant applies to (read/update/delete) — and never applies to create grants: authoring a create grant with `conditions` is now rejected with a 400 pointing to `checkConditions`. `checkConditions: null` (the default) means no post-write check, so all existing grants behave as before. Dynamic variables ($CURRENT_USER, $CURRENT_USERROLE.*) and `$path$` relation conditions work in checkConditions exactly as in conditions. Admin and bypassPermissions paths are exempt; rejected writes fire no after-hooks and write no audit rows. With ACL-based permissions, checkConditions is read from the permission row itself (ACL entries don't carry it). Requires the updated @baasix/types (PermissionData.checkConditions).
+
+  Note for existing deployments: create-grant `conditions` were never enforced (decorative). They remain unenforced — move them to `checkConditions` to activate real create scoping. Find candidates with:
+
+  ```sql
+  SELECT p.id, p.collection, r.name AS role, p.conditions
+  FROM "baasix_Permission" p JOIN "baasix_Role" r ON r.id = p."role_Id"
+  WHERE p.action = 'create'
+    AND p.conditions IS NOT NULL
+    AND p.conditions::text NOT IN ('{}', 'null');
+  ```
+
+  Also: before-create and before-update hooks now receive the LIVE transaction in `context.transaction` (previously undefined for normal API calls, so transactional hook writes could never roll back — the delete path already behaved correctly). And transactional reads no longer touch the shared cache (uncommitted results could poison it on rollback).
+
+### Patch Changes
+
+- WITH CHECK enforcement for writes (create and update) added.
+- Fixed "Style B" relation definitions (a BelongsTo declared without a separately declared FK field): the FK column existed in DDL but not on the runtime Drizzle table object, so inserts SILENTLY DROPPED the FK value and relation-path filters generated broken SQL. Definitions are now normalized — the FK is injected as an explicit SystemGenerated typed field on schema create/update and healed at startup for already-stored definitions — and the Drizzle table builder adds missing BelongsTo FK columns as a safety net. This also makes permission fields:["*"] grants cover such FK columns. Relations created via the relationships route (app UI / MCP) always declared FKs explicitly and are unaffected.
+- Updated dependencies
+- Updated dependencies
+  - @baasix/types@1.0.13
+
 ## 0.1.95
 
 ### Patch Changes

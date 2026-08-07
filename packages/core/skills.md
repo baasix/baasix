@@ -2153,11 +2153,14 @@ Every block create/update is validated server-side (BlockConfigService) against 
   "collection": "products",
   "action": "read",              // read, create, update, delete
   "fields": ["*", "reviews.*"],  // see "fields" rules below
-  "conditions": {                // ROW filter on THIS collection (which records)
+  "conditions": {                // ROW filter on THIS collection (which records) — read/update/delete only
     "published": {"eq": true}
   },
   "relConditions": {             // filter on RELATED rows in the response
     "reviews": {"approved": {"eq": true}}
+  },
+  "checkConditions": {           // WITH CHECK: what a WRITTEN row must satisfy (create/update)
+    "author_Id": {"eq": "$CURRENT_USER"}
   }
 }
 ```
@@ -2183,7 +2186,14 @@ Each `*` segment is **one level** deep — add another `.*` to go one level deep
 - **`relConditions`** = a filter on **related rows returned alongside** (HasMany / M2M arrays). Decides **which related rows** appear in the response. Keyed by **relation name**. Does **not** restrict the main records, and only takes effect if that relation is also granted in `fields`.
   - `{"reviews": {"approved": {"eq": true}}}` → only approved reviews in each product's `reviews` array
 
-> Rule of thumb: *"which rows of THIS collection?"* → `conditions`. *"which related rows inside the response?"* → `relConditions`.
+#### `checkConditions` — WITH CHECK for writes (create & update)
+
+- **`conditions`** = USING: which EXISTING rows the grant covers. Valid on read/update/delete only — a create grant with `conditions` is **rejected (400)**, since there are no rows to filter.
+- **`checkConditions`** = WITH CHECK: what the row must satisfy **after** a create/update, before commit. Violations fail with 403 and the whole write (bulk batches included) rolls back. `null` = no post-write check.
+- On **update** the two compose: `conditions` decides which rows may be edited, `checkConditions` decides what they may become. Example: `conditions: {"status": {"eq": "draft"}}` + `checkConditions: {"status": {"in": ["draft", "submitted"]}}` = "may edit drafts, may submit them, may not archive them or hand them to someone else".
+- Dynamic variables (`$CURRENT_USER`, `$CURRENT_USERROLE.*`) and `$path$` relation keys work exactly as in `conditions`.
+
+> Rule of thumb: *"which rows of THIS collection?"* → `conditions`. *"what may a written row look like?"* → `checkConditions`. *"which related rows inside the response?"* → `relConditions`.
 
 ### Built-in Roles
 
@@ -2205,13 +2215,23 @@ Each `*` segment is **one level** deep — add another `.*` to go one level deep
   "conditions": {"published": {"eq": true}}
 }
 
-// Users can only edit their own posts
+// Users can only edit their own posts — and cannot reassign them
 {
   "role_Id": "user-role-uuid",
   "collection": "posts",
   "action": "update",
   "fields": ["title", "content"],
-  "conditions": {"author_Id": {"eq": "$CURRENT_USER"}}  // which posts (row filter)
+  "conditions": {"author_Id": {"eq": "$CURRENT_USER"}},      // which posts may be edited (USING)
+  "checkConditions": {"author_Id": {"eq": "$CURRENT_USER"}}  // what they may become (WITH CHECK)
+}
+
+// Users can only create posts they own (create grants use checkConditions, never conditions)
+{
+  "role_Id": "user-role-uuid",
+  "collection": "posts",
+  "action": "create",
+  "fields": ["*"],
+  "checkConditions": {"author_Id": {"eq": "$CURRENT_USER"}}
 }
 
 // Read products with their author + only approved reviews

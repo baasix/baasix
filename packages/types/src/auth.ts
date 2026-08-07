@@ -76,6 +76,8 @@ export interface Permission {
   conditions?: Record<string, unknown>;
   defaultValues?: Record<string, unknown>;
   relConditions?: Record<string, unknown>;
+  /** WITH CHECK filter — see PermissionData.checkConditions */
+  checkConditions?: Record<string, unknown> | null;
 }
 
 /**
@@ -86,6 +88,12 @@ export interface PermissionData {
   conditions: Record<string, unknown>;
   relConditions: Record<string, unknown>;
   defaultValues: Record<string, unknown>;
+  /**
+   * WITH CHECK (RLS-style) filter: what a written row must satisfy, enforced
+   * post-write pre-commit on both create and update. null/absent = no check.
+   * `conditions` never applies to create grants.
+   */
+  checkConditions?: Record<string, unknown> | null;
 }
 
 /**
@@ -99,6 +107,8 @@ export interface CreatePermissionData {
   conditions?: Record<string, unknown>;
   defaultValues?: Record<string, unknown>;
   relConditions?: Record<string, unknown>;
+  /** WITH CHECK filter — see PermissionData.checkConditions */
+  checkConditions?: Record<string, unknown> | null;
 }
 
 // ============================================================================
