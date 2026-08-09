@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.2.1
+
+### Patch Changes
+
+- Fixed permission drawer performance issue.
+
 ## 0.2.0
 
 ### Minor Changes
