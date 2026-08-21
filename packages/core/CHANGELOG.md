@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.2.3
+
+### Patch Changes
+
+- Added missing template for password reset with code.
+
 ## 0.2.2
 
 ### Patch Changes

@@ -405,6 +405,20 @@ ${contentWithoutStyles}
         ),
         description: 'Template for magic link code authentication'
       },
+      passwordResetCode: {
+        subject: 'Your password reset code for {{ project_name }}',
+        body: styledWrapper(
+          `<h2 style="color: #333; margin: 0 0 20px 0;">Password Reset Code</h2>
+<p>Hi {{ name }},</p>
+<p>We received a request to reset your password. Use the following code to continue:</p>`,
+          `<p style="text-align: center; margin: 30px 0;">
+  <span style="background-color: #f5f5f5; padding: 16px 32px; font-size: 28px; font-family: monospace; letter-spacing: 6px; border-radius: 8px; display: inline-block; border: 2px solid #e0e0e0;">{{ code }}</span>
+</p>
+<p style="font-size: 14px; color: #666;">This code will expire in 1 hour for security purposes.</p>
+<p style="font-size: 14px; color: #888;">If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>`
+        ),
+        description: 'Template for password reset code emails'
+      },
       passwordReset: {
         subject: 'Reset your password for {{ project_name }}',
         body: styledWrapper(
@@ -495,11 +509,17 @@ ${contentWithoutStyles}
         description: "Template for magic link code authentication",
         variables: ["name", "code", "project_name"]
       },
-      { 
-        type: "passwordReset", 
+      {
+        type: "passwordReset",
         label: "Password Reset",
         description: "Template for password reset emails",
         variables: ["name", "resetUrl", "expiresAt", "project_name"]
+      },
+      {
+        type: "passwordResetCode",
+        label: "Password Reset (Code)",
+        description: "Template for password reset code emails",
+        variables: ["name", "code", "expiresAt", "project_name"]
       },
       { 
         type: "emailVerification", 
