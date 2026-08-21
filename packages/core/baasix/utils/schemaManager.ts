@@ -2231,6 +2231,19 @@ export class SchemaManager {
         description: 'Template for password reset emails'
       },
       {
+        type: 'passwordResetCode',
+        subject: 'Your password reset code for {{ project_name }}',
+        body: `<h2>Password Reset Code</h2>
+<p>Hi {{ name }},</p>
+<p>We received a request to reset your password. Use the following code to continue:</p>
+<p style="text-align: center; margin: 30px 0;">
+  <span style="background-color: #f5f5f5; padding: 16px 32px; font-size: 24px; font-family: monospace; letter-spacing: 4px; border-radius: 4px; display: inline-block;">{{ code }}</span>
+</p>
+<p>This code will expire in 1 hour for security purposes.</p>
+<p>If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>`,
+        description: 'Template for password reset code emails'
+      },
+      {
         type: 'emailVerification',
         subject: 'Verify your email for {{ project_name }}',
         body: `<h2>Email Verification</h2>

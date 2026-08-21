@@ -1,5 +1,11 @@
 # @baasix/types
 
+## 1.0.14
+
+### Patch Changes
+
+- Added reset password with code option
+
 ## 1.0.13
 
 ### Patch Changes

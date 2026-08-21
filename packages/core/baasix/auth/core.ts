@@ -103,6 +103,7 @@ export interface BaasixAuth {
   
   // Password Reset
   createPasswordReset(email: string): Promise<{ token: string; expiresAt: Date }>;
+  updatePasswordResetToken(email: string, newToken: string): Promise<void>;
   verifyPasswordReset(token: string, newPassword: string): Promise<boolean>;
   
   // Token Generation (for extensions)
@@ -855,6 +856,11 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     // Create Password Reset
     async createPasswordReset(email) {
       return verificationService.createPasswordReset(email);
+    },
+
+    // Update Password Reset Token (for code mode)
+    async updatePasswordResetToken(email, newToken) {
+      return verificationService.updatePasswordResetToken(email, newToken);
     },
     
     // Verify Password Reset and set new password

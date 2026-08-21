@@ -66,6 +66,7 @@ This skill has detailed reference files. **Read the relevant file before writing
 | GET | /auth/me | Yes |
 | GET | /auth/logout | Yes |
 | POST | /auth/magiclink | No |
+| GET | /auth/magiclink/:token | No |
 | POST | /auth/switch-tenant | Yes |
 | POST | /auth/refresh | Yes |
 | POST | /auth/password/reset | No |
@@ -89,6 +90,7 @@ Login returns `{ token, user }`, or `{ twoFactorRequired: true, twoFactorToken, 
 - `GET /auth/signin/:provider?redirect_url=<app-url>` — 302 to the OAuth provider (browser flow); provider is one of 35 social providers. `GET /auth/callback/:provider` completes the flow, redirecting back to `redirect_url` with `?token=` on success or `?error=` on failure.
 - `POST /auth/2fa/enable` → `{ secret, otpauthUrl, backupCodes[10] }` (requires the account to have a password credential); `POST /auth/2fa/verify-setup { code }` confirms setup; `POST /auth/2fa/disable { password }` turns it off; `POST /auth/2fa/verify { twoFactorToken, code }` (public, rate-limited) completes a 2FA login challenge with a TOTP code or unused backup code.
 - `POST /auth/passkey/register/options` / `register/verify` register a new passkey (authed). `POST /auth/passkey/authenticate/options` / `authenticate/verify` (public, rate-limited) log in with a passkey. `GET /auth/passkey` lists the current user's passkeys (no key material); `DELETE /auth/passkey/:id` removes one of your own.
+- `POST /auth/magiclink { email, mode?, link? }` (passwordless login) and `POST /auth/password/reset { email, mode?, link? }` (reset email) share the same mode scheme: `"link"` (default) emails a clickable URL and requires an allow-listed `link`; `"code"` emails a short one-time code and needs no `link`. Both always return the same generic 200 whether or not the account exists (anti-enumeration) — branch the UI on status, not the message. Complete via `GET /auth/magiclink/:token` or `POST /auth/password/reset/:token { password }`; in code mode the emailed code takes the token's place in the URL. Tokens/codes are single-use and expire; a completed password reset revokes all existing sessions.
 
 Social, magic-link, and passkey logins bypass the 2FA challenge (2FA gates password login only).
 

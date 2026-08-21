@@ -142,8 +142,8 @@ ASSET_MAX_INPUT_PIXELS=100000000   # max input pixels the decoder accepts (decom
 | POST | /auth/magiclink | Request magic link login | No |
 | POST | /auth/switch-tenant | Switch to different tenant | Yes |
 | POST | /auth/refresh | Refresh JWT token | Yes |
-| POST | /auth/forgot-password | Request password reset | No |
-| POST | /auth/reset-password | Reset password with token | No |
+| POST | /auth/password/reset | Request password reset (`mode: "link"` default emails a reset URL and requires `link`; `mode: "code"` emails a one-time code) | No |
+| POST | /auth/password/reset/:token | Reset password with token or emailed one-time code (body: `{ password }`) | No |
 
 ### Authentication Examples
 

@@ -613,9 +613,16 @@ export class AuthModule {
    *
    * @example
    * ```typescript
+   * // Link mode (default): emails a clickable reset URL
    * await baasix.auth.forgotPassword({
    *   email: 'user@example.com',
    *   redirectUrl: 'https://myapp.com/reset-password'
+   * });
+   *
+   * // Code mode: emails a short one-time code, no redirectUrl needed
+   * await baasix.auth.forgotPassword({
+   *   email: 'user@example.com',
+   *   mode: 'code'
    * });
    * ```
    */
@@ -625,17 +632,18 @@ export class AuthModule {
       {
         email: options.email,
         link: options.redirectUrl,
+        mode: options.mode || "link",
       },
       { skipAuth: true }
     );
   }
 
   /**
-   * Reset password using a reset token
+   * Reset password using a reset token or emailed one-time code
    *
    * @example
    * ```typescript
-   * await baasix.auth.resetPassword('reset-token', 'newpassword123');
+   * await baasix.auth.resetPassword('reset-token-or-code', 'newpassword123');
    * ```
    */
   async resetPassword(token: string, newPassword: string): Promise<void> {

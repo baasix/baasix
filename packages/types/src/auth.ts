@@ -256,6 +256,7 @@ export interface MagicLinkOptions {
 export interface PasswordResetOptions {
   email: string;
   redirectUrl?: string;
+  mode?: "link" | "code";
 }
 
 // ============================================================================

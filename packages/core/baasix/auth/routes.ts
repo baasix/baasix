@@ -1158,42 +1158,54 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
   
   app.post(`${basePath}/password/reset`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, link } = req.body;
-      
+      const { email, link, mode = "link" } = req.body;
+
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
-      
-      if (!(await isValidAppUrl(link))) {
+
+      if (mode === "link" && !(await isValidAppUrl(link))) {
         return res.status(400).json({ message: "Invalid link" });
       }
-      
-      // Check if user exists
+
+      // Anti-enumeration: same generic response whether or not the account exists.
       const user = await auth.getUserByEmail(email);
-      if (!user) {
-        // Don't reveal if user exists
-        return res.json({ message: "If an account exists, a reset link will be sent" });
+      if (user && options.mailService) {
+        const { token, expiresAt } = await auth.createPasswordReset(email);
+
+        if (mode === "code") {
+          // Replace the long reset token with a fresh CSPRNG one-time code (same
+          // scheme as magic-link code mode); the code becomes the stored
+          // verification value, so /password/reset/:token verifies it as-is.
+          const code = generateOtpCode();
+          await auth.updatePasswordResetToken(email, code);
+
+          await options.mailService.sendMail({
+            to: email,
+            subject: "Reset Your Password",
+            templateName: "passwordResetCode",
+            context: {
+              code,
+              name: user.firstName || user.email,
+              expiresAt: expiresAt.toISOString(),
+            },
+          });
+        } else {
+          const resetUrl = `${link}/auth/reset-password/${token}`;
+
+          await options.mailService.sendMail({
+            to: email,
+            subject: "Reset Your Password",
+            templateName: "passwordReset",
+            context: {
+              resetUrl,
+              name: user.firstName || user.email,
+              expiresAt: expiresAt.toISOString(),
+            },
+          });
+        }
       }
-      
-      // Create reset token
-      const { token, expiresAt } = await auth.createPasswordReset(email);
-      
-      // Send email
-      if (options.mailService) {
-        const resetUrl = `${link}/auth/reset-password/${token}`;
-        
-        await options.mailService.sendMail({
-          to: email,
-          subject: "Reset Your Password",
-          templateName: "passwordReset",
-          context: {
-            resetUrl,
-            name: user.firstName || user.email,
-            expiresAt: expiresAt.toISOString(),
-          },
-        });
-      }
-      
+
       res.json({ message: "If an account exists, a reset link will be sent" });
     } catch (error) {
       next(error);

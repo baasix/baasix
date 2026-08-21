@@ -60,6 +60,11 @@ export interface VerificationService {
    * Verify a password reset token
    */
   verifyPasswordReset(token: string): Promise<string | null>;
+
+  /**
+   * Update a password reset token value (for code mode)
+   */
+  updatePasswordResetToken(email: string, newToken: string): Promise<void>;
   
   /**
    * Create a magic link token
@@ -206,6 +211,11 @@ export function createVerificationService(
 
     async updateMagicLinkToken(email, newToken) {
       const identifier = getIdentifier("magic-link", email);
+      await adapter.updateVerificationByIdentifier(identifier, { value: newToken });
+    },
+
+    async updatePasswordResetToken(email, newToken) {
+      const identifier = getIdentifier("password-reset", email);
       await adapter.updateVerificationByIdentifier(identifier, { value: newToken });
     },
 

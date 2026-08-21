@@ -1,5 +1,13 @@
 # @baasix/sdk
 
+## 0.1.22
+
+### Patch Changes
+
+- Added reset password with code option
+- Updated dependencies
+  - @baasix/types@1.0.14
+
 ## 0.1.21
 
 ### Patch Changes

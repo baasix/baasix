@@ -204,14 +204,20 @@ const { user, token } = await baasix.auth.verifyMagicLink('verification-token');
 ### Password Reset
 
 ```typescript
-// Request reset
+// Request reset (link mode: emails a clickable reset URL)
 await baasix.auth.forgotPassword({
   email: 'user@example.com',
   redirectUrl: 'https://myapp.com/reset-password',
 });
 
-// Reset password
-await baasix.auth.resetPassword('reset-token', 'newpassword123');
+// Request reset (code mode: emails a short one-time code, no redirectUrl needed)
+await baasix.auth.forgotPassword({
+  email: 'user@example.com',
+  mode: 'code',
+});
+
+// Reset password with the token or emailed code
+await baasix.auth.resetPassword('reset-token-or-code', 'newpassword123');
 ```
 
 ### Change Password
