@@ -566,6 +566,73 @@ describe("Settings & Tenant White Labelling - Complete Suite", () => {
         });
     });
 
+    describe("Settings by app_url (scheme-agnostic)", () => {
+        beforeAll(async () => {
+            await request(app)
+                .patch(`/settings?tenant_id=${tenantId}`)
+                .set("Authorization", `Bearer ${adminToken}`)
+                .send({ app_url: "https://iredlms.com" })
+                .expect(200);
+
+            settingsService.invalidateTenantCache(tenantId);
+        });
+
+        test("should resolve tenant settings by exact https app_url", async () => {
+            const response = await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "https://iredlms.com" })
+                .expect(200);
+
+            expect(response.body.data.project_name).toBe("Context Test App");
+        });
+
+        test("should resolve the same tenant for a capacitor:// origin", async () => {
+            const response = await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "capacitor://iredlms.com" })
+                .expect(200);
+
+            expect(response.body.data.project_name).toBe("Context Test App");
+        });
+
+        test("should ignore casing and trailing slashes", async () => {
+            const response = await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "Ionic://IREDLMS.com/" })
+                .expect(200);
+
+            expect(response.body.data.project_name).toBe("Context Test App");
+        });
+
+        test("should not match a partial host substring", async () => {
+            await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "https://iredlms" })
+                .expect(404);
+        });
+
+        test("should not match a host that merely contains the stored host", async () => {
+            await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "https://app.iredlms.com.evil.io" })
+                .expect(404);
+        });
+
+        test("should not allow wildcard characters to widen the match", async () => {
+            await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "https://%.com" })
+                .expect(404);
+        });
+
+        test("should return 404 for an unknown app_url", async () => {
+            await request(app)
+                .get("/settings/by-app-url")
+                .query({ app_url: "https://unknown-app.example.com" })
+                .expect(404);
+        });
+    });
+
     describe("Security Tests", () => {
         test("should filter sensitive fields for all users", async () => {
             const response = await request(app).get(`/settings?tenant_id=${tenantId}`).expect(200);

@@ -464,7 +464,21 @@ class SettingsService {
   }
 
   /**
-   * Get settings by matching app_url
+   * Normalize an app_url for scheme-agnostic comparison: native shells report
+   * origins like capacitor://host or ionic://host for the same app that is
+   * stored as https://host, so everything before "://" is ignored. Trailing
+   * slashes and casing are ignored too; host, port, and path stay significant.
+   */
+  private static normalizeAppUrl(url: string): string {
+    return url
+      .trim()
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+  }
+
+  /**
+   * Get settings by matching app_url (scheme-agnostic)
    */
   async getSettingsByAppUrl(appUrl: string): Promise<TenantSettings> {
     if (!appUrl) {
@@ -472,27 +486,42 @@ class SettingsService {
     }
 
     try {
+      const target = SettingsService.normalizeAppUrl(appUrl);
+      if (!target) {
+        throw new APIError("No settings found with the provided app_url", 404);
+      }
+
       // First check global settings
       const globalSettings = this.getGlobalSettings();
-      if (globalSettings.app_url === appUrl) {
+      if (
+        globalSettings.app_url &&
+        SettingsService.normalizeAppUrl(globalSettings.app_url) === target
+      ) {
         return globalSettings;
       }
 
-      // Query database for tenant settings
+      // Query database for tenant settings. iLike wraps the value in %...%,
+      // so this is only a prefilter on the scheme-less URL; the real match is
+      // the normalized comparison below. Wildcard chars in the client-supplied
+      // value are escaped so they can't widen the pattern.
       const itemsService = new ItemsService("baasix_Settings", {
         accountability: undefined,
       });
 
       const tenantSettings = await itemsService.readByQuery({
-        filter: { app_url: { iLike: appUrl } },
-        limit: 1,
-        fields: ["tenant_Id"],
+        filter: { app_url: { iLike: target.replace(/([\\%_])/g, "\\$1") } },
+        limit: 50,
+        fields: ["tenant_Id", "app_url"],
       });
 
-      if (tenantSettings.data[0]) {
+      const matched = tenantSettings.data.find(
+        (row: any) =>
+          row.app_url && SettingsService.normalizeAppUrl(row.app_url) === target
+      );
+
+      if (matched) {
         // Use getTenantSettings to get cached/merged settings
-        const tenantId = tenantSettings.data[0].tenant_Id;
-        return await this.getTenantSettings(tenantId);
+        return await this.getTenantSettings(matched.tenant_Id);
       }
 
       throw new APIError("No settings found with the provided app_url", 404);

@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.2.4
+
+### Patch Changes
+
+- Fixed capacitorjs couldn't get app setting by url due to url scheme mismatch.
+
 ## 0.2.3
 
 ### Patch Changes
