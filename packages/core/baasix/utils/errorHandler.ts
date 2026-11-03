@@ -53,6 +53,15 @@ export function errorHandler(error: Error | APIError, req: any, res: any, next: 
     // APIError is intentionally-surfaced application error — message/details are
     // author-controlled, so they're safe to return as-is.
     const apiError = error as APIError;
+    // The request carried a token that failed validation (authMiddleware fell
+    // back to the public role): a permission refusal means "re-authenticate",
+    // so answer 401 and let clients refresh instead of showing Forbidden.
+    if (apiError.statusCode === 403 && req?.authTokenRejected) {
+      res.set('WWW-Authenticate', 'Bearer error="invalid_token"');
+      return res.status(401).json({
+        error: { message: 'Session expired or invalid', code: 'INVALID_SESSION', statusCode: 401 }
+      });
+    }
     res.status(apiError.statusCode).json({
       error: {
         message: apiError.message,
@@ -82,10 +91,26 @@ export function errorHandler(error: Error | APIError, req: any, res: any, next: 
 
     // Foreign key constraint violation (PostgreSQL error code 23503)
     if (pgError.code === '23503' || pgError.message?.includes('foreign key constraint')) {
+      // A user delete blocked by a RESTRICT/NO ACTION usertrack FK
+      // (fk_<collection>_userCreated_Id / _userUpdated_Id, see USERTRACK_ON_DELETE)
+      const constraint = String(pgError.constraint_name || pgError.constraint || '');
+      if (/_user(Created|Updated)_Id$/.test(constraint) && String(pgError.detail || '').includes('still referenced')) {
+        return res.status(409).json({
+          error: {
+            message: 'This user has created or updated records and cannot be deleted. Set their status to inactive instead.',
+            code: 'USER_HAS_RECORDS',
+            details: expose ? (pgError.detail || pgError.message) : 'User is still referenced by other records',
+            statusCode: 409
+          }
+        });
+      }
       return res.status(409).json({
         error: {
           message: 'Foreign key constraint violation',
-          details: expose ? (pgError.detail || pgError.message) : 'Referenced record does not exist',
+          // pg detail "... is still referenced from table ..." = a delete blocked by RESTRICT/NO ACTION
+          details: expose ? (pgError.detail || pgError.message)
+            : String(pgError.detail || '').includes('still referenced') ? 'Record is still referenced by other records'
+            : 'Referenced record does not exist',
           statusCode: 409
         }
       });

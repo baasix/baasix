@@ -199,6 +199,12 @@ await baasix.auth.sendMagicLink({
 
 // Verify (after user clicks link)
 const { user, token } = await baasix.auth.verifyMagicLink('verification-token');
+
+// Session type / tenant, so the tenant's web/mobile session limits apply
+await baasix.auth.verifyMagicLink(code, { authType: 'web', tenant_Id: 'tenant-uuid' });
+
+// Emailed code + email: wrong codes are counted and the code is burned after 5 tries
+await baasix.auth.verifyMagicLink(code, { email: 'user@example.com', authType: 'web' });
 ```
 
 ### Password Reset
@@ -218,6 +224,9 @@ await baasix.auth.forgotPassword({
 
 // Reset password with the token or emailed code
 await baasix.auth.resetPassword('reset-token-or-code', 'newpassword123');
+
+// With an emailed code, pass the email too (5-try limit per email)
+await baasix.auth.resetPassword('K7M2PQ9X', 'newSecurePassword', { email: 'user@example.com' });
 ```
 
 ### Change Password
@@ -1597,6 +1606,10 @@ try {
   }
 }
 ```
+
+`error.message` is the server's reason, read from `error.message`, a top-level `message`, or a plain-string `error` (`{ "error": "Authentication required" }`), and falls back to the HTTP status text. `error.code` comes from `error.code` or a top-level `code`. `error.details` is always an array: a details array from the server is passed through, and a string or object detail is wrapped (`[{ message: "…" }]` or `[{ code, errors }]`).
+
+A **401** with code `INVALID_SESSION` means the session is gone (logged out, expired, revoked or suspended user). With `autoRefresh` on, the SDK tries one token refresh and retries the request; if that fails, sign the user in again. A **503** `AUTH_UNAVAILABLE` is temporary — retry.
 
 ## TypeScript Support
 

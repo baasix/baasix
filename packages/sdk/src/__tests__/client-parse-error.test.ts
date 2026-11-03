@@ -97,4 +97,49 @@ describe("HttpClient error parsing", () => {
       status: 400,
     });
   });
+
+  const parse = async (status: number, body: unknown) => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse(status, body));
+    try {
+      await makeClient().request("GET", "/x");
+    } catch (error) {
+      return error as BaasixError;
+    }
+    throw new Error("expected a rejection");
+  };
+
+  it("uses a plain-string error body as the message", async () => {
+    const err = await parse(401, { error: "Authentication required" });
+    expect(err.message).toBe("Authentication required");
+    expect(err.details).toBeUndefined();
+  });
+
+  it("reads details from core's error.details: string, object and array", async () => {
+    expect((await parse(400, { error: { message: "Invalid", details: "premake must be 0-12", statusCode: 400 } })).details)
+      .toEqual([{ message: "premake must be 0-12" }]);
+
+    const validation = { code: "VALIDATION_ERROR", errors: [{ field: "email", message: "required" }] };
+    expect((await parse(400, { error: { message: "Validation failed", details: validation } })).details)
+      .toEqual([validation]);
+
+    const list = [{ field: "a", message: "bad" }];
+    expect((await parse(400, { error: { message: "x", details: list } })).details).toEqual(list);
+  });
+
+  it("still reads top-level details and code", async () => {
+    const err = await parse(409, { message: "Conflict", code: "C", details: [{ field: "slug" }] });
+    expect(err.code).toBe("C");
+    expect(err.details).toEqual([{ field: "slug" }]);
+  });
+
+  it("falls back to statusText for non-JSON and empty bodies", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false, status: 502, statusText: "Bad Gateway", json: async () => { throw new Error("not json"); },
+    } as unknown as Response);
+    await expect(makeClient().request("GET", "/x")).rejects.toMatchObject({ message: "Bad Gateway", status: 502 });
+
+    const empty = await parse(500, {});
+    expect(empty.message).toBe("Error");
+    expect(empty.details).toBeUndefined();
+  });
 });

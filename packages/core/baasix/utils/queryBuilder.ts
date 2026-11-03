@@ -581,6 +581,22 @@ export function pickSearchConfig(searchQuery: string): 'english' | 'simple' {
 }
 
 /**
+ * Build a prefix-matching tsquery ("word1:* & word2:*") from free text. Each word
+ * is quoted as a tsquery lexeme literal so user input can never be parsed as
+ * tsquery operators (`& | ! ( ) : <`) — unquoted, "Anatomy & Physiology" was a
+ * 500 "syntax error in tsquery". Inside a quoted lexeme only ' and \ are special.
+ * Bind the result as a parameter; no SQL escaping is needed.
+ */
+export function buildPrefixTsQuery(searchQuery: string): string {
+  return searchQuery
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => `'${w.replace(/\\/g, '\\\\').replace(/'/g, "''")}':*`)
+    .join(' & ');
+}
+
+/**
  * Apply PostgreSQL full-text search to a query
  * Matches Sequelize implementation for compatibility
  *
@@ -597,7 +613,7 @@ export function applyFullTextSearch(
   searchQuery: string,
   searchFields?: string[],
   sortByRelevance: boolean = false
-): { searchCondition: SQL; orderClause?: SQL } {
+): { searchCondition: SQL; orderClause?: SQL; rankExpr?: SQL } {
   let searchableFields = searchFields;
 
   if (!searchableFields || searchableFields.length === 0) {
@@ -635,12 +651,8 @@ export function applyFullTextSearch(
   // per-lexeme/position overhead in the worst case.
   const cappedExpr = sql`LEFT(${concatExpr}, ${sql.raw(String(TSVECTOR_INPUT_CHAR_CAP))})`;
 
-  // Prepare the full-text search query with proper escaping
-  // Replace spaces with :* & to match partial words
-  const tsQuery = searchQuery.trim().replace(/\s+/g, ':* & ') + ':*';
-
-  // Escape single quotes to prevent SQL injection
-  const escapedTsQuery = tsQuery.replace(/'/g, "''");
+  // Prefix-match every word; words are quoted so input can't inject tsquery syntax
+  const escapedTsQuery = buildPrefixTsQuery(searchQuery);
 
   // 'english' normally; 'simple' when the query is stopwords-only (see pickSearchConfig)
   const config = sql.raw(`'${pickSearchConfig(searchQuery)}'`);
@@ -649,11 +661,13 @@ export function applyFullTextSearch(
   const searchCondition = sql`to_tsvector(${config}, ${cappedExpr}) @@ to_tsquery(${config}, ${escapedTsQuery})`;
 
   let orderClause: SQL | undefined;
+  let rankExpr: SQL | undefined;
 
   // Apply sorting by relevance using ts_rank if sortByRelevance is true
   if (sortByRelevance) {
-    orderClause = sql`ts_rank(to_tsvector(${config}, ${cappedExpr}), to_tsquery(${config}, ${escapedTsQuery})) DESC`;
+    rankExpr = sql`ts_rank(to_tsvector(${config}, ${cappedExpr}), to_tsquery(${config}, ${escapedTsQuery}))`;
+    orderClause = sql`${rankExpr} DESC`;
   }
 
-  return { searchCondition, orderClause };
+  return { searchCondition, orderClause, rankExpr };
 }

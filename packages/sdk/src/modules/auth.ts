@@ -594,13 +594,29 @@ export class AuthModule {
    * @example
    * ```typescript
    * const { user, token } = await baasix.auth.verifyMagicLink('verification-token');
+   *
+   * // Enforce the tenant's web/mobile session limits for this sign-in
+   * await baasix.auth.verifyMagicLink(code, { authType: 'web', tenant_Id });
+   *
+   * // Emailed code + email: wrong codes are counted and the code is burned after 5
+   * await baasix.auth.verifyMagicLink(code, { email: 'user@example.com', authType: 'web' });
    * ```
    */
-  async verifyMagicLink(token: string): Promise<AuthResponse> {
-    const response = await this.client.get<AuthResponse>(
-      `/auth/magiclink/${encodeURIComponent(token)}`,
-      { skipAuth: true }
-    );
+  async verifyMagicLink(
+    token: string,
+    opts?: { email?: string; authType?: string; authMode?: AuthMode; tenant_Id?: string }
+  ): Promise<AuthResponse> {
+    const { email, ...params } = opts || {};
+    const response = email
+      ? await this.client.post<AuthResponse>(
+          "/auth/magiclink/verify",
+          { email, code: token, ...params },
+          { skipAuth: true }
+        )
+      : await this.client.get<AuthResponse>(
+          `/auth/magiclink/${encodeURIComponent(token)}`,
+          { skipAuth: true, params }
+        );
 
     await this.storeTokens(response);
     this.emitAuthStateChange("SIGNED_IN", response.user);
@@ -644,9 +660,20 @@ export class AuthModule {
    * @example
    * ```typescript
    * await baasix.auth.resetPassword('reset-token-or-code', 'newpassword123');
+   *
+   * // Emailed code + email: wrong codes are counted and the code is burned after 5
+   * await baasix.auth.resetPassword('K7M2PQ9X', 'newpassword123', { email: 'user@example.com' });
    * ```
    */
-  async resetPassword(token: string, newPassword: string): Promise<void> {
+  async resetPassword(token: string, newPassword: string, opts?: { email?: string }): Promise<void> {
+    if (opts?.email) {
+      await this.client.post(
+        "/auth/password/reset/verify",
+        { email: opts.email, code: token, password: newPassword },
+        { skipAuth: true }
+      );
+      return;
+    }
     await this.client.post(
       `/auth/password/reset/${encodeURIComponent(token)}`,
       { password: newPassword },

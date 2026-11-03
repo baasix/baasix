@@ -13,7 +13,7 @@ export interface VerificationConfig {
    */
   tokenExpiration?: number;
   /**
-   * Magic link expiration in seconds
+   * Magic link expiration in seconds (createAuth passes AUTH_MAGIC_LINK_EXPIRES_IN, default 900)
    * @default 3600 (1 hour)
    */
   magicLinkExpiration?: number;
@@ -81,6 +81,18 @@ export interface VerificationService {
    */
   verifyMagicLink(token: string): Promise<string | null>;
   
+  /**
+   * Check an emailed code (or link token) for one email. Wrong guesses are
+   * counted per email; after maxAttempts the code is deleted. Returns the email
+   * on success (and, when consume is true, deletes the code), else null.
+   */
+  verifyCodeForEmail(
+    type: "magic-link" | "password-reset",
+    email: string,
+    code: string,
+    options?: { maxAttempts?: number; consume?: boolean }
+  ): Promise<string | null>;
+
   /**
    * Delete a verification by identifier
    */
@@ -239,6 +251,47 @@ export function createVerificationService(
       await adapter.deleteVerification(verifications.id);
       
       return email;
+    },
+
+    async verifyCodeForEmail(type, email, code, { maxAttempts = 5, consume = true } = {}) {
+      const identifier = getIdentifier(type, email);
+      const verification = await adapter.findVerificationByIdentifier(identifier);
+      if (!verification || !code) {
+        return null;
+      }
+      if (new Date() > new Date(verification.expiresAt)) {
+        await adapter.deleteVerification(verification.id);
+        return null;
+      }
+
+      const { getCache } = await import("../../utils/cache.js");
+      const cache = getCache();
+      const attemptsKey = `verify:attempts:${identifier}`;
+
+      // Codes are upper-case and link tokens hex, so compare case-insensitively
+      const given = Buffer.from(String(code).trim().toUpperCase());
+      const stored = Buffer.from(String(verification.value).toUpperCase());
+      const matches = given.length === stored.length && crypto.timingSafeEqual(given, stored);
+
+      if (!matches) {
+        // shortcut: read-then-write counter, so parallel guesses can slip a few past
+        // maxAttempts; use an atomic INCR if that ever matters.
+        const attempts = (Number(await cache.get(attemptsKey)) || 0) + 1;
+        if (attempts >= maxAttempts) {
+          await adapter.deleteVerification(verification.id);
+          await cache.delete(attemptsKey);
+        } else {
+          const ttl = Math.max(1, Math.ceil((new Date(verification.expiresAt).getTime() - Date.now()) / 1000));
+          await cache.set(attemptsKey, attempts, ttl);
+        }
+        return null;
+      }
+
+      await cache.delete(attemptsKey);
+      if (consume) {
+        await adapter.deleteVerification(verification.id);
+      }
+      return email.toLowerCase();
     },
 
     async deleteVerification(identifier) {

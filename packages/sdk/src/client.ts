@@ -1,6 +1,6 @@
 import type { StorageAdapter } from "./storage/types";
 import { STORAGE_KEYS } from "./storage/types";
-import type { AuthMode, AuthTokens } from "./types";
+import type { AuthMode, AuthTokens, BaasixErrorDetails } from "./types";
 import { BaasixError } from "./types";
 
 export interface RequestOptions extends RequestInit {
@@ -218,7 +218,7 @@ export class HttpClient {
    * Parse error response
    */
   private async parseError(response: Response): Promise<BaasixError> {
-    let errorData: { message?: string; code?: string; error?: { message?: string; code?: string }; details?: unknown[] } = {};
+    let errorData: { message?: string; code?: string; error?: string | { message?: string; code?: string; details?: unknown }; details?: unknown } = {};
 
     try {
       errorData = await response.json();
@@ -226,14 +226,25 @@ export class HttpClient {
       // Response might not be JSON
     }
 
+    // Core errors are { error: { message, code, details } }; many routes and
+    // extensions answer { error: "reason" } or a top-level { message, code }.
+    const errorObj = typeof errorData.error === "object" && errorData.error !== null ? errorData.error : undefined;
     const message =
-      errorData.error?.message ||
+      errorObj?.message ||
       errorData.message ||
+      (typeof errorData.error === "string" ? errorData.error : "") ||
       response.statusText ||
       "Request failed";
 
-    const code = errorData.error?.code ?? errorData.code;
-    const details = errorData.details as { code?: string; field?: string; message?: string }[] | undefined;
+    const code = errorObj?.code ?? errorData.code;
+    // BaasixError.details is an array; core also sends a string ("premake must be…")
+    // or an object ({ code, errors }) — wrap those instead of dropping them
+    const rawDetails = errorObj?.details ?? errorData.details;
+    const details: BaasixErrorDetails[] | undefined =
+      rawDetails == null ? undefined
+      : Array.isArray(rawDetails) ? rawDetails
+      : typeof rawDetails === "object" ? [rawDetails as BaasixErrorDetails]
+      : [{ message: String(rawDetails) }];
 
     return new BaasixError(message, response.status, code, details);
   }

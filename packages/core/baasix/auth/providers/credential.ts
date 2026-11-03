@@ -202,42 +202,25 @@ export function credential(options: CredentialProviderOptions): CredentialProvid
     async signIn({ adapter, email, password }) {
       // Find user
       const user = await adapter.findUserByEmail(email.toLowerCase());
-      if (!user) {
-        // Anti-enumeration: run a dummy password verification so the response time
-        // for a non-existent account matches that of a wrong-password attempt
-        // (otherwise the missing argon2 call is a timing oracle for valid emails).
-        await this.verifyPassword(password, DUMMY_PASSWORD_HASH).catch(() => false);
-        return null;
-      }
-
-      // Check user status
-      if (user.status !== "active") {
-        throw new Error(`Account is ${user.status}`);
-      }
 
       // Find credential account
-      const accounts = await adapter.findAccountsByUserId(user.id);
+      const accounts = user ? await adapter.findAccountsByUserId(user.id) : [];
       const credentialAccount = accounts.find((a) => a.providerId === "credential");
 
       // Get password - try account first, then fallback to user.password for migration
-      let passwordHash: string | null | undefined = credentialAccount?.password;
-      
-      // If no credential account or no password in account, check user table (migration support)
-      if (!passwordHash) {
-        // Need to get the full user with password
-        // This is a special case for migration from old password storage
-        const userWithPassword = user as User & { password?: string };
-        passwordHash = userWithPassword.password;
-      }
+      const passwordHash: string | null | undefined =
+        credentialAccount?.password || (user as (User & { password?: string }) | null)?.password;
 
-      if (!passwordHash) {
-        throw new Error("No password set for this account. Please reset your password or use a different sign-in method.");
-      }
-
-      // Verify password
-      const isValid = await this.verifyPassword(password, passwordHash);
-      if (!isValid) {
+      // Anti-enumeration: every failure (no such user, no password set, wrong
+      // password) runs exactly one KDF and returns the same null, and the
+      // account status is only revealed after a correct password.
+      const isValid = await this.verifyPassword(password, passwordHash || DUMMY_PASSWORD_HASH).catch(() => false);
+      if (!user || !passwordHash || !isValid) {
         return null;
+      }
+
+      if (user.status !== "active") {
+        throw new Error(`Account is ${user.status}`);
       }
 
       // If password was in user table, migrate it to account table

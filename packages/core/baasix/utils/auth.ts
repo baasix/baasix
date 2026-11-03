@@ -391,10 +391,14 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
     const payload = jwt.verify(token, getJwtSecret(), { algorithms: [JWT_ALGORITHM] }) as JWTPayload;
 
     // Validate session and get user in one query
-    const sessionResult = await validateSession(payload.sessionToken, payload.tenant_Id?.toString() || null);
+    const sessionResult = typeof payload?.sessionToken === 'string' && payload.sessionToken
+      ? await validateSession(payload.sessionToken, payload.tenant_Id?.toString() || null)
+      : null;
     if (!sessionResult) {
       // Session invalid/expired - fall back to public access instead of returning error
-      // This allows public routes to work even with expired cookies
+      // This allows public routes to work even with expired cookies. The flag makes
+      // errorHandler answer 401 instead of 403 so clients refresh/re-login.
+      req.authTokenRejected = true;
       const publicRole = await getPublicRole();
       req.accountability = {
         user: null,
@@ -479,7 +483,20 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
     let permissions: any[] = [];
 
     if (userRole?.role_Id) {
-      const roleData = await getRolesAndPermissions(userRole.role_Id);
+      let roleData;
+      try {
+        roleData = await getRolesAndPermissions(userRole.role_Id);
+      } catch (error: any) {
+        if (!String(error?.message).startsWith('Role with id')) throw error;
+        // Assignment points at a deleted role (typically a stale userrole cache
+        // entry after a DB-level cascade). Not transient, so don't 503: evict the
+        // entry so the next request re-reads the DB, and treat the token as invalid.
+        await cache.delete(userRoleCacheKey);
+        await cache.delete(`auth:userrole:${user.id}:${tenantKey}`);
+        const rejected: any = new Error(error.message);
+        rejected.name = 'AuthRoleMissingError';
+        throw rejected;
+      }
       role = {
         id: roleData.id,
         name: roleData.name,
@@ -520,10 +537,24 @@ export const authMiddleware = async (req: any, res: any, next: any) => {
     const isExpectedError = error.message === 'jwt malformed' || 
                             error.message === 'jwt must be provided' ||
                             error.message?.includes('invalid token');
-    if (!isExpectedError) {
+    // jsonwebtoken errors (JsonWebTokenError, TokenExpiredError, NotBeforeError) and
+    // a missing role are "this token is no good", not an outage
+    const isJwtError = ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError', 'AuthRoleMissingError'].includes(error?.name);
+    // APIError = an application-level refusal, not an outage
+    const isAppError = error?.name === 'APIError' || error?.isOperational === true;
+    if (!isExpectedError && !isJwtError && !isAppError) {
       console.error('Auth middleware error:', error.message);
+      // A presented token we couldn't check (DB/cache hiccup) is not "signed
+      // out": answer 503 so clients retry instead of acting as the public role.
+      if (!res.headersSent) {
+        res.set('Retry-After', '1');
+        return res.status(503).json({
+          error: { message: 'Authentication temporarily unavailable', code: 'AUTH_UNAVAILABLE', statusCode: 503 },
+        });
+      }
     }
-    // Fall back to public access on error
+    // Fall back to public access on an invalid token (see !sessionResult above)
+    req.authTokenRejected = true;
     const publicRole = await getPublicRole();
     req.accountability = {
       user: null,
@@ -580,6 +611,11 @@ export async function createSession(
   return sessionToken;
 }
 
+/** Same rule as sign-in (`status !== "active"` refuses), but a missing status counts as active. */
+export function isActiveUser(user: any): boolean {
+  return !user?.status || user.status === "active";
+}
+
 /**
  * Validate a session token
  */
@@ -597,7 +633,12 @@ export async function validateSession(
       await cache.delete(sessionCacheKey);
       const ItemsService = await getItemsService();
       const sessionService = new ItemsService('baasix_Sessions');
-      await sessionService.deleteOne(cached.session.id);
+      // Best-effort: a parallel request may have deleted it already
+      await sessionService.deleteOne(cached.session.id).catch(() => {});
+      return null;
+    }
+    if (!isActiveUser(cached.user)) {
+      await cache.delete(sessionCacheKey);
       return null;
     }
     return cached;
@@ -623,7 +664,8 @@ export async function validateSession(
 
   // Check if session has expired
   if (new Date() > new Date(session.expiresAt)) {
-    await sessionService.deleteOne(session.id);
+    // Best-effort: a parallel request may have deleted it already
+    await sessionService.deleteOne(session.id).catch(() => {});
     return null;
   }
 
@@ -640,14 +682,16 @@ export async function validateSession(
     user = await userService.readOne(session.user_Id);
   }
 
-  if (!user) {
+  // Suspended/archived users' existing tokens stop working (null status = active).
+  if (!user || !isActiveUser(user)) {
     return null;
   }
 
   const result = { session, user };
 
   // Cache for 30 seconds — balances performance with session revocation latency
-  await cache.set(sessionCacheKey, result, 30000);
+  // (cache TTLs are in seconds; this was 30000 = ~8 hours)
+  await cache.set(sessionCacheKey, result, 30);
 
   return result;
 }

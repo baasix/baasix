@@ -16,7 +16,7 @@
 import { SQL, sql, count } from 'drizzle-orm';
 import { PgColumn } from 'drizzle-orm/pg-core';
 import { isSafeFieldPath } from './relationPathResolver.js';
-import { TSVECTOR_INPUT_CHAR_CAP, pickSearchConfig } from './queryBuilder.js';
+import { TSVECTOR_INPUT_CHAR_CAP, pickSearchConfig, buildPrefixTsQuery } from './queryBuilder.js';
 
 /** Valid PostgreSQL date/time parts for EXTRACT — allowlist to block injection. */
 const VALID_DATE_PARTS = new Set([
@@ -529,9 +529,8 @@ export function applyFullTextSearch(
   columns: Array<PgColumn | SQL>,
   searchQuery: string
 ): SQL<boolean> {
-  // Prepare the full-text search query
-  const tsQuery = searchQuery.trim().replace(/\s+/g, ":* & ") + ":*";
-  const escapedTsQuery = tsQuery.replace(/'/g, "''");
+  // Prefix-match every word; quoted so input can't inject tsquery syntax (see queryBuilder)
+  const escapedTsQuery = buildPrefixTsQuery(searchQuery);
 
   // Build concatenated fields using sql template
   const concatParts = columns.map(col => sql`coalesce(${col}::text, '')`);

@@ -16,7 +16,7 @@ import { SQL, sql, asc, desc, l2Distance, cosineDistance, innerProduct, l1Distan
 import { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 import type { SortDirection, SortObject, SortContext } from '../types/index.js';
 import { isSafeFieldPath } from './relationPathResolver.js';
-import { TSVECTOR_INPUT_CHAR_CAP, pickSearchConfig } from './queryBuilder.js';
+import { TSVECTOR_INPUT_CHAR_CAP, pickSearchConfig, buildPrefixTsQuery } from './queryBuilder.js';
 
 // Re-export types for backward compatibility
 export type { SortDirection, SortObject, SortContext };
@@ -25,6 +25,15 @@ export type { SortDirection, SortObject, SortContext };
  * Process a single sort field
  * Handles both simple fields and complex nested relation paths
  */
+/**
+ * ORDER BY one expression. Descending sorts put NULLs last (Postgres' default is
+ * NULLS FIRST for DESC, so "highest first" lists opened on empty rows); ascending
+ * already does.
+ */
+function orderBy(column: SQL | PgColumn, direction: 'ASC' | 'DESC'): SQL {
+  return direction === 'ASC' ? asc(column) : sql`${desc(column)} NULLS LAST`;
+}
+
 function processSortField(
   fieldPath: string,
   direction: SortDirection,
@@ -59,13 +68,13 @@ function processSortField(
     const columnName = parts[parts.length - 1];  // Last part is the column
 
     const sqlColumn = sql.raw(`"${relationName}"."${columnName}"`);
-    return normalizedDirection === 'ASC' ? asc(sqlColumn) : desc(sqlColumn);
+    return orderBy(sqlColumn, normalizedDirection);
   }
 
   // Direct field - check if it exists in schema
   if (ctx.schema && ctx.schema[fieldPath]) {
     const column = ctx.schema[fieldPath];
-    return normalizedDirection === 'ASC' ? asc(column) : desc(column);
+    return orderBy(column, normalizedDirection);
   }
 
   // Fallback to raw SQL for computed/aggregate fields
@@ -73,7 +82,7 @@ function processSortField(
     ? sql.raw(`"${ctx.tableName}"."${fieldPath}"`)
     : sql.raw(`"${fieldPath}"`);
 
-  return normalizedDirection === 'ASC' ? asc(sqlColumn) : desc(sqlColumn);
+  return orderBy(sqlColumn, normalizedDirection);
 }
 
 /**
@@ -190,9 +199,8 @@ export function applyFullTextSearchRanking(
   // Cap input to stay under to_tsvector's 1MB built-vector limit (see queryBuilder)
   const cappedFields = sql`LEFT(${concatFields}, ${sql.raw(String(TSVECTOR_INPUT_CHAR_CAP))})`;
 
-  // Prepare the full-text search query (escape single quotes)
-  const tsQuery = searchQuery.trim().replace(/\s+/g, ":* & ") + ":*";
-  const escapedTsQuery = tsQuery.replace(/'/g, "''");
+  // Prefix-match every word; quoted so input can't inject tsquery syntax (see queryBuilder)
+  const escapedTsQuery = buildPrefixTsQuery(searchQuery);
 
   // 'english' normally; 'simple' when the query is stopwords-only (see queryBuilder)
   const config = sql.raw(`'${pickSearchConfig(searchQuery)}'`);

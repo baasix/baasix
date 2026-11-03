@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import jwt from "jsonwebtoken";
-import { getUserRolesPermissionsAndTenant, getJwtSecret, JWT_ALGORITHM } from "../utils/auth.js";
+import { getUserRolesPermissionsAndTenant, getJwtSecret, JWT_ALGORITHM, validateSession } from "../utils/auth.js";
 import fieldUtils from "../utils/fieldUtils.js";
 import { permissionService } from "./PermissionService.js";
 import settingsService from "./SettingsService.js";
@@ -320,6 +320,13 @@ class SocketService {
       }
 
       const decoded: any = jwt.verify(token as string, getJwtSecret(), { algorithms: [JWT_ALGORITHM] });
+      // Same session check as HTTP: logged-out, expired and suspended users' tokens are refused
+      const sessionResult = typeof decoded?.sessionToken === "string" && decoded.sessionToken
+        ? await validateSession(decoded.sessionToken, decoded.tenant_Id?.toString() || null)
+        : null;
+      if (!sessionResult || String(sessionResult.user?.id) !== String(decoded.id)) {
+        throw new APIError("Session expired or invalid", 401);
+      }
       const { user, role, permissions, tenant, userRole } = await this.authenticateUser(decoded);
 
       // Attach user info to socket

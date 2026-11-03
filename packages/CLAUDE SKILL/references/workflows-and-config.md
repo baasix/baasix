@@ -377,6 +377,10 @@ const products = await baasix.items<Products>("products").list();
 | AUTH_RATE_LIMIT | 10 | Brute-force limit for login/magic-link/password-reset, per (IP+email) pair (per-account budget per IP; does not cap total across accounts) |
 | AUTH_RATE_LIMIT_INTERVAL | 900000 | Window (ms) for the auth limiter (15 min) |
 | AUTH_RATE_LIMIT_DISABLED | (off) | Disable the auth limiter (auto-disabled in TEST_MODE) |
+| AUTH_CODE_RATE_LIMIT | 100 | Per-IP limit for code/token redeem routes (magic-link verify, password reset submit), separate from the login bucket |
+| AUTH_CODE_REQUIRE_EMAIL | false | `true`: short emailed codes only via the email + code routes (5-try limit per email); link tokens keep working |
+| AUTH_MAGIC_LINK_EXPIRES_IN | 900 | Magic-link / email sign-in code lifetime (seconds) |
+| USERTRACK_ON_DELETE | CASCADE | ON DELETE for usertrack FKs: `CASCADE`, `RESTRICT`, `SET NULL`, `NO ACTION`; a relation-level `onDelete` wins |
 | COUNT_BY_DEFAULT | true | Compute `totalCount` on list reads (per-request `?count=` overrides) |
 
 ### Authentication Methods

@@ -2639,6 +2639,10 @@ export async function down(baasix) {
 | AUTH_RATE_LIMIT | No | 10 | Brute-force limit for login/magic-link/password-reset, per (IP+email) pair (each account has its own budget per IP; does not cap total attempts across accounts) |
 | AUTH_RATE_LIMIT_INTERVAL | No | 900000 | Window (ms) for the auth limiter (15 min) |
 | AUTH_RATE_LIMIT_DISABLED | No | (off) | Disable the auth limiter (auto-disabled in TEST_MODE) |
+| AUTH_CODE_RATE_LIMIT | No | 100 | Per-IP limit for code/token redeem routes (`GET /auth/magiclink/:token`, `POST /auth/password/reset/:token`), separate from the login bucket |
+| AUTH_CODE_REQUIRE_EMAIL | No | false | `true` refuses short emailed codes on the URL redeem routes, so they must go through `POST /auth/magiclink/verify` / `POST /auth/password/reset/verify` (`{ email, code }`, code burned after 5 wrong tries). Link tokens keep working |
+| AUTH_MAGIC_LINK_EXPIRES_IN | No | 900 | Magic-link / email sign-in code lifetime (seconds) |
+| USERTRACK_ON_DELETE | No | CASCADE | ON DELETE for usertrack FKs (`userCreated_Id`/`userUpdated_Id` → `baasix_User`): `CASCADE`, `RESTRICT`, `SET NULL` or `NO ACTION`. An `onDelete` set on the `userCreated`/`userUpdated` relation wins. Applied when a collection's schema is next saved |
 | SYSTEM_CACHE_ADAPTER | No | memory | System cache adapter (memory/redis/upstash) |
 | SYSTEM_CACHE_REDIS_URL | No | - | Redis URL for system cache |
 | SYSTEM_CACHE_SYNC_INTERVAL | No | 5 | L1↔L2 sync interval in seconds |

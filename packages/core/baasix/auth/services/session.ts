@@ -112,6 +112,12 @@ export function createSessionService(adapter: AuthAdapter, config: SessionConfig
 
       const { session, user } = result;
 
+      // Suspended/archived users' sessions are refused (null status = active),
+      // so /auth/refresh can't rotate them into fresh sessions.
+      if (user?.status && user.status !== "active") {
+        return null;
+      }
+
       // Check if session has expired
       if (new Date() > new Date(session.expiresAt)) {
         await adapter.deleteSessionByToken(token);

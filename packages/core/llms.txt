@@ -76,6 +76,10 @@ RATE_LIMIT_INTERVAL=5000           # Interval in ms
 AUTH_RATE_LIMIT=10                 # brute-force limit for login/magic-link/password-reset, per (IP+email) pair (per-account budget per IP; does NOT cap total attempts across accounts — use a WAF for spraying)
 AUTH_RATE_LIMIT_INTERVAL=900000    # window (ms) for the auth limiter (15 min)
 # AUTH_RATE_LIMIT_DISABLED=false   # disable the auth limiter (auto-disabled in TEST_MODE)
+# AUTH_CODE_RATE_LIMIT=100         # per-IP limit for code/token redeem routes (magic-link verify, password reset submit)
+# AUTH_CODE_REQUIRE_EMAIL=false    # true: short emailed codes only via the email + code routes (5-try limit per email)
+# AUTH_MAGIC_LINK_EXPIRES_IN=900    # magic-link / email sign-in code lifetime in seconds (15 min)
+# USERTRACK_ON_DELETE=CASCADE       # ON DELETE for userCreated_Id/userUpdated_Id FKs: CASCADE | RESTRICT | SET NULL | NO ACTION
 
 # File Storage
 STORAGE_SERVICES_ENABLED=LOCAL     # Comma-separated list (LOCAL,S3)

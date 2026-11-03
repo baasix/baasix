@@ -386,7 +386,7 @@ ${contentWithoutStyles}
           `<p style="text-align: center; margin: 30px 0;">
   <a href="{{ magicLinkUrl }}" style="${buttonStyle}">Sign In</a>
 </p>
-<p style="font-size: 14px; color: #666;">This link will expire in 15 minutes for security purposes.</p>
+<p style="font-size: 14px; color: #666;">This link will expire in {{ expiresInMinutes | default: 15 }} minutes for security purposes.</p>
 <p style="font-size: 14px; color: #888;">If you didn't request this sign-in link, you can safely ignore this email.</p>`
         ),
         description: 'Template for magic link URL authentication'
@@ -400,7 +400,7 @@ ${contentWithoutStyles}
           `<p style="text-align: center; margin: 30px 0;">
   <span style="background-color: #f5f5f5; padding: 16px 32px; font-size: 28px; font-family: monospace; letter-spacing: 6px; border-radius: 8px; display: inline-block; border: 2px solid #e0e0e0;">{{ code }}</span>
 </p>
-<p style="font-size: 14px; color: #666;">This code will expire in 15 minutes for security purposes.</p>
+<p style="font-size: 14px; color: #666;">This code will expire in {{ expiresInMinutes | default: 15 }} minutes for security purposes.</p>
 <p style="font-size: 14px; color: #888;">If you didn't request this code, you can safely ignore this email.</p>`
         ),
         description: 'Template for magic link code authentication'

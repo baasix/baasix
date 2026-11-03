@@ -1,5 +1,34 @@
 # @baasix/sdk
 
+## 0.2.1
+
+### Patch Changes
+
+- Minor error message fixes.
+
+## 0.2.0
+
+### Minor Changes
+
+- Security fixes.
+
+### Patch Changes
+
+- Security and correctness fixes for sign-in, sessions, audit log, search and schema sync.
+
+  - Audit log no longer stores password hashes or other secrets (hidden fields and token/secret columns; changes show `"[REDACTED]"`), skips `lastAccess`-only updates, and never audits `baasix_Verification`.
+  - Email code / magic-link sign-in now refuses non-active accounts, honours `authType` and `tenant_Id` (session limits apply) and returns `role`/`permissions`/`tenant`; codes expire after 15 minutes (`AUTH_MAGIC_LINK_EXPIRES_IN`).
+  - Suspending or archiving a user revokes their sessions; their existing tokens are refused by the API, `/auth/refresh` and realtime sockets.
+  - Password sign-in no longer reveals whether an account exists or its status before the password is verified.
+  - Requests with an expired/revoked token now get 401 `INVALID_SESSION` instead of 403 when the resource isn't public; auth check outages return 503 `AUTH_UNAVAILABLE`.
+  - Code redeem routes have their own per-IP limit (`AUTH_CODE_RATE_LIMIT`, default 100); a too-short password no longer uses up a reset code.
+  - Full-text search treats punctuation (`& | ! ( ) : <` and quotes) as text instead of failing with a 500.
+  - Sorting by a related field now works when a relation filter or permission is involved.
+  - Delete/update under a relation-path permission passes a flat row to hooks and the audit log, and M2A junction cleanup runs again.
+  - Usertrack FKs keep an explicit `onDelete` and can default via `USERTRACK_ON_DELETE`; SET NULL / NO ACTION FKs are no longer recreated on every sync.
+  - MCP schema tools accept ENUM `values` as a plain array.
+  - SDK: `verifyMagicLink(token, { authType, authMode, tenant_Id })`; error parsing reads string `error` bodies, top-level `code` and `error.details`.
+
 ## 0.1.22
 
 ### Patch Changes

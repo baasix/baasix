@@ -99,12 +99,19 @@ export interface BaasixAuth {
   // Magic Link
   createMagicLink(email: string): Promise<{ token: string; expiresAt: Date }>;
   updateMagicLinkToken(email: string, newToken: string): Promise<void>;
-  verifyMagicLink(token: string): Promise<AuthResponse | null>;
+  verifyMagicLink(token: string, options?: {
+    /** When given, the code is checked against this email's code only, with an attempt limit */
+    email?: string;
+    tenantId?: string | null;
+    authType?: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }): Promise<AuthResponse | null>;
   
   // Password Reset
   createPasswordReset(email: string): Promise<{ token: string; expiresAt: Date }>;
   updatePasswordResetToken(email: string, newToken: string): Promise<void>;
-  verifyPasswordReset(token: string, newPassword: string): Promise<boolean>;
+  verifyPasswordReset(token: string, newPassword: string, options?: { email?: string }): Promise<boolean>;
   
   // Token Generation (for extensions)
   generateTokenForUser(userId: string, options?: {
@@ -155,7 +162,10 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     expiresIn: options.session?.expiresIn ? `${options.session.expiresIn}s` : "7d",
   });
   
-  const verificationService = createVerificationService(adapter);
+  // Magic-link default 15 min matches the shipped email templates' wording.
+  const verificationService = createVerificationService(adapter, {
+    magicLinkExpiration: parseInt(env.get("AUTH_MAGIC_LINK_EXPIRES_IN") || "900") || 900,
+  });
 
   // Create two-factor service
   const twoFactorService = createTwoFactorService(adapter, {
@@ -287,7 +297,37 @@ export function createAuth(options: AuthOptions): BaasixAuth {
       tenant,
     };
   }
-  
+
+  // Login-shaped AuthResponse for a user already authenticated by a non-password
+  // path (passkey, magic link). Mirrors signIn's account-status check and
+  // session-limit enforcement so alternate login paths can't bypass either.
+  async function createAuthResponseForUser(
+    user: User,
+    tenantId?: string | null,
+    ipAddress?: string | null,
+    userAgent?: string | null,
+    sessionType: string = "default"
+  ): Promise<AuthResponse> {
+    if (user.status !== "active") {
+      throw new Error(`Account is ${user.status}`);
+    }
+
+    const { role, tenant } = await getUserRoleAndPermissions(user.id, tenantId);
+
+    const validation = await validateSessionLimits(
+      user,
+      sessionType || "default",
+      tenant?.id || null,
+      role
+    );
+
+    if (!validation.isValid) {
+      throw new Error(validation.error);
+    }
+
+    return createAuthResponse(user, tenantId, ipAddress, userAgent, sessionType);
+  }
+
   return {
     context,
     adapter,
@@ -833,24 +873,32 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     },
     
     // Verify Magic Link
-    async verifyMagicLink(token) {
-      const email = await verificationService.verifyMagicLink(token);
+    async verifyMagicLink(token, { email: forEmail, tenantId = null, authType = "default", ipAddress = null, userAgent = null } = {}) {
+      const email = forEmail
+        ? await verificationService.verifyCodeForEmail("magic-link", forEmail, token)
+        : await verificationService.verifyMagicLink(token);
       if (!email) {
         return null;
       }
-      
+
       let user = await adapter.findUserByEmail(email);
       if (!user) {
         return null;
       }
-      
+
+      // Refuse non-active accounts before touching emailVerified (the holder
+      // proved mailbox ownership, so revealing the status here is fine).
+      if (user.status !== "active") {
+        throw new Error(`Account is ${user.status}`);
+      }
+
       // Mark email as verified after successful magic link login
       if (!user.emailVerified) {
         await adapter.updateUser(user.id, { emailVerified: true });
         user = await adapter.findUserById(user.id) as User;
       }
-      
-      return createAuthResponse(user);
+
+      return createAuthResponseForUser(user, tenantId, ipAddress, userAgent, authType);
     },
     
     // Create Password Reset
@@ -864,8 +912,17 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     },
     
     // Verify Password Reset and set new password
-    async verifyPasswordReset(token, newPassword) {
-      const email = await verificationService.verifyPasswordReset(token);
+    async verifyPasswordReset(token, newPassword, { email: forEmail }: { email?: string } = {}) {
+      // Validate before consuming the single-use code so a too-short password
+      // doesn't burn it.
+      const validation = credentialProvider.validatePassword(newPassword);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
+
+      const email = forEmail
+        ? await verificationService.verifyCodeForEmail("password-reset", forEmail, token)
+        : await verificationService.verifyPasswordReset(token);
       if (!email) {
         return false;
       }
@@ -913,32 +970,7 @@ export function createAuth(options: AuthOptions): BaasixAuth {
     },
 
     // Create Auth Response for an already-authenticated user (e.g. passkey)
-    async createAuthResponseForUser(user, tenantId, ipAddress, userAgent, sessionType = "default") {
-      // Mirror signIn's account-status check so alternate login paths (e.g.
-      // passkey) can't bypass suspension/disablement. The caller (passkey
-      // route) maps this to the same generic 401 as any other verification
-      // failure so the status can't be probed from the response.
-      if (user.status !== "active") {
-        throw new Error(`Account is ${user.status}`);
-      }
-
-      // Mirror signIn's session-limit enforcement so alternate login paths
-      // (e.g. passkey) can't bypass per-session-type limits.
-      const { role, tenant } = await getUserRoleAndPermissions(user.id, tenantId);
-
-      const validation = await validateSessionLimits(
-        user,
-        sessionType || "default",
-        tenant?.id || null,
-        role
-      );
-
-      if (!validation.isValid) {
-        throw new Error(validation.error);
-      }
-
-      return createAuthResponse(user, tenantId, ipAddress, userAgent, sessionType);
-    },
+    createAuthResponseForUser,
   };
 }
 

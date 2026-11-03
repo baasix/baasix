@@ -1357,8 +1357,9 @@ export class SchemaManager {
       const foreignKey = assoc.foreignKey || `${fieldName}_Id`;
       const targetTable = assoc.target;
       const targetKey = assoc.targetKey || 'id';
-      const onDelete = (assoc.onDelete || 'CASCADE').toUpperCase();
-      const onUpdate = (assoc.onUpdate || 'CASCADE').toUpperCase();
+      // Normalised to SQL spelling ("SET NULL"); a stored "SET_NULL" would be invalid SQL
+      const onDelete = (assoc.onDelete || 'CASCADE').toUpperCase().replace(/_/g, ' ');
+      const onUpdate = (assoc.onUpdate || 'CASCADE').toUpperCase().replace(/_/g, ' ');
       const constraintName = `fk_${collectionName}_${foreignKey}`;
 
       try {
@@ -1411,8 +1412,10 @@ export class SchemaManager {
         // If constraint exists, check if onDelete/onUpdate actions match
         if (existingConstraint.length > 0) {
           const existing = existingConstraint[0];
-          const existingOnDelete = existing.delete_rule.replace(' ', '_').toUpperCase();
-          const existingOnUpdate = existing.update_rule.replace(' ', '_').toUpperCase();
+          // Compare in the same spelling, else SET NULL / NO ACTION FKs never match
+          // and get dropped and recreated on every sync
+          const existingOnDelete = existing.delete_rule.toUpperCase();
+          const existingOnUpdate = existing.update_rule.toUpperCase();
 
           if (existingOnDelete === onDelete && existingOnUpdate === onUpdate) {
             console.log(`Foreign key constraint ${constraintName} already exists with correct actions`);
@@ -2200,7 +2203,7 @@ export class SchemaManager {
 <p style="text-align: center; margin: 30px 0;">
   <a href="{{ magicLinkUrl }}" style="background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Sign In</a>
 </p>
-<p>This link will expire in 15 minutes for security purposes.</p>
+<p>This link will expire in {{ expiresInMinutes | default: 15 }} minutes for security purposes.</p>
 <p>If you didn't request this sign-in link, you can safely ignore this email.</p>`,
         description: 'Template for magic link URL authentication'
       },
@@ -2213,7 +2216,7 @@ export class SchemaManager {
 <p style="text-align: center; margin: 30px 0;">
   <span style="background-color: #f5f5f5; padding: 16px 32px; font-size: 24px; font-family: monospace; letter-spacing: 4px; border-radius: 4px; display: inline-block;">{{ code }}</span>
 </p>
-<p>This code will expire in 15 minutes for security purposes.</p>
+<p>This code will expire in {{ expiresInMinutes | default: 15 }} minutes for security purposes.</p>
 <p>If you didn't request this code, you can safely ignore this email.</p>`,
         description: 'Template for magic link code authentication'
       },

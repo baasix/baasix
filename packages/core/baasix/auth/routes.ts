@@ -150,6 +150,22 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         message: { message: "Too many attempts. Please try again later." },
       });
 
+  // Code/token redeem routes (GET /magiclink/:token, POST /password/reset/:token)
+  // carry no email, so authLimiter would key them on IP alone and share that
+  // bucket with login/2FA/passkey — one NAT'd campus locks everyone out. They get
+  // their own looser IP bucket; an 8-char code over 30 symbols (~39 bits) keeps
+  // guessing infeasible at AUTH_CODE_RATE_LIMIT (default 100) per interval.
+  const codeRedeemLimiter = authRateLimiterDisabled
+    ? (_req: Request, _res: Response, next: NextFunction) => next()
+    : rateLimit({
+        windowMs: parseInt(options.env?.get("AUTH_RATE_LIMIT_INTERVAL") || "900000"),
+        max: parseInt(options.env?.get("AUTH_CODE_RATE_LIMIT") || "100"),
+        standardHeaders: true,
+        legacyHeaders: false,
+        keyGenerator: (req: Request) => `authcode:${req.ip || "unknown"}`,
+        message: { message: "Too many attempts. Please try again later." },
+      });
+
   // Helper to get allowed app URLs
   async function getAllowedAppUrls(): Promise<string[]> {
     try {
@@ -1087,9 +1103,11 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       // Anti-enumeration: do NOT reveal whether the email maps to an account.
       // If the user exists, create + send the magic link; if not, do nothing. Either
       // way return the SAME generic response so an attacker can't enumerate accounts.
+      // Non-active accounts get the same generic reply but no code/mail.
       const user = await auth.getUserByEmail(email);
-      if (user && options.mailService) {
-        const { token } = await auth.createMagicLink(email);
+      if (user && user.status === "active" && options.mailService) {
+        const { token, expiresAt } = await auth.createMagicLink(email);
+        const expiresInMinutes = Math.round((expiresAt.getTime() - Date.now()) / 60000);
 
         if (mode === "link") {
           const magicLinkUrl = `${link}/auth/magiclink/${token}`;
@@ -1100,6 +1118,8 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
             context: {
               magicLinkUrl,
               name: user.firstName || user.email,
+              expiresAt: expiresAt.toISOString(),
+              expiresInMinutes,
             },
           });
         } else if (mode === "code") {
@@ -1116,6 +1136,8 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
             context: {
               code,
               name: user.firstName || user.email,
+              expiresAt: expiresAt.toISOString(),
+              expiresInMinutes,
             },
           });
         }
@@ -1127,19 +1149,36 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     }
   });
   
-  app.get(`${basePath}/magiclink/:token`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  // Emailed codes are 8 characters, link tokens 64 hex. With
+  // AUTH_CODE_REQUIRE_EMAIL=true, short codes must be redeemed through the
+  // email-scoped POST routes, whose per-email attempt limit the URL form can't have.
+  const codeRequiresEmail = options.env?.get("AUTH_CODE_REQUIRE_EMAIL") === "true";
+  const isShortCode = (token: string) => String(token).length < 32;
+
+  // Shared by GET /magiclink/:token (params from the query) and
+  // POST /magiclink/verify (params from the body, with email).
+  async function redeemMagicLink(req: Request, res: Response, next: NextFunction, token: string, params: Record<string, any>, email?: string) {
     try {
-      const { token } = req.params;
-      const authMode = (req.query.authMode as string) || "jwt";
-      
-      const result = await auth.verifyMagicLink(token);
+      const authMode = (params.authMode as string) || "jwt";
+      // Missing/unknown authType stays "default" (unlimited) for backwards compat,
+      // same as /login.
+      const authType = ["web", "mobile"].includes(String(params.authType)) ? String(params.authType) : "default";
+      const tenantId = (params.tenant_Id as string) || null;
+
+      const result = await auth.verifyMagicLink(token, {
+        email,
+        tenantId,
+        authType,
+        ipAddress: req.ip || (req.connection as any)?.remoteAddress || null,
+        userAgent: req.headers["user-agent"] || null,
+      });
       if (!result) {
         return res.status(400).json({ message: "Invalid or expired token" });
       }
-      
+
       // Set token in response based on authMode
       const tokenResponse = setTokenInResponse(res, result.token, authMode, options.env);
-      
+
       res.json({
         ...tokenResponse,
         user: {
@@ -1148,10 +1187,34 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
           firstName: result.user.firstName,
           lastName: result.user.lastName,
         },
+        role: result.role,
+        permissions: result.permissions,
+        tenant: result.tenant,
       });
-    } catch (error) {
+    } catch (error: any) {
+      // Same mapping as /login for status and session-limit refusals.
+      if (/Account is|session limit|sessions are not allowed|Invalid session type/.test(error?.message || "")) {
+        return res.status(403).json({ message: error.message });
+      }
       next(error);
     }
+  }
+
+  app.get(`${basePath}/magiclink/:token`, codeRedeemLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    if (codeRequiresEmail && isShortCode(req.params.token)) {
+      return res.status(400).json({ message: "Send the code with your email to POST /auth/magiclink/verify", code: "EMAIL_REQUIRED" });
+    }
+    return redeemMagicLink(req, res, next, req.params.token, req.query as Record<string, any>);
+  });
+
+  // Email + code form: wrong codes are counted per email, and the code is
+  // deleted after 5 (see verificationService.verifyCodeForEmail).
+  app.post(`${basePath}/magiclink/verify`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    const { email, code } = req.body || {};
+    if (!email || !code) {
+      return res.status(400).json({ message: "Email and code are required" });
+    }
+    return redeemMagicLink(req, res, next, String(code), req.body, String(email));
   });
   
   // ==================== Password Reset ====================
@@ -1212,16 +1275,16 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
     }
   });
   
-  app.post(`${basePath}/password/reset/:token`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  // Shared by POST /password/reset/:token and POST /password/reset/verify (with email)
+  async function redeemPasswordReset(req: Request, res: Response, next: NextFunction, token: string, email?: string) {
     try {
-      const { token } = req.params;
       const { password } = req.body;
       
       if (!password) {
         return res.status(400).json({ message: "Password is required" });
       }
       
-      const success = await auth.verifyPasswordReset(token, password);
+      const success = await auth.verifyPasswordReset(token, password, { email });
       if (!success) {
         return res.status(400).json({ message: "Invalid or expired token" });
       }
@@ -1233,6 +1296,24 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
       }
       next(error);
     }
+  }
+
+  app.post(`${basePath}/password/reset/:token`, codeRedeemLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    // "verify" is the email-scoped route below, not a token
+    if (req.params.token === "verify") return next();
+    if (codeRequiresEmail && isShortCode(req.params.token)) {
+      return res.status(400).json({ message: "Send the code with your email to POST /auth/password/reset/verify", code: "EMAIL_REQUIRED" });
+    }
+    return redeemPasswordReset(req, res, next, req.params.token);
+  });
+
+  // Email + code form with a per-email attempt limit (see /magiclink/verify)
+  app.post(`${basePath}/password/reset/verify`, authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    const { email, code } = req.body || {};
+    if (!email || !code) {
+      return res.status(400).json({ message: "Email and code are required" });
+    }
+    return redeemPasswordReset(req, res, next, String(code), String(email));
   });
   
   // ==================== Change Password ====================

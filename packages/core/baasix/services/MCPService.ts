@@ -834,13 +834,14 @@ schema: { "timestamps": true, "fields": { "id": { "type": "UUID", "primaryKey": 
               unique: z.boolean().optional().describe("Enforce a UNIQUE constraint on this column."),
               primaryKey: z.boolean().optional().describe("Mark as the primary key column."),
               defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null(), z.object({ type: z.string(), value: z.string().optional() })]).optional().describe("Default value: a literal (e.g. 0, 'active', true) or { type: 'UUIDV4' | 'SUID' | 'NOW' | 'AUTOINCREMENT' | 'SQL', value?: 'expr' }."),
-              values: z.object({
+              // ENUM values also accepted as the stored plain array; passthrough keeps e.g. dimensions
+              values: z.union([z.array(z.string()), z.object({
                 length: z.number().optional().describe("Max character length — required for String/VARCHAR (e.g. 255)"),
                 precision: z.number().optional().describe("Total digits — required for Decimal (e.g. 10)"),
                 scale: z.number().optional().describe("Decimal places — required for Decimal (e.g. 2)"),
                 type: z.string().optional().describe("Element type — required for Array (e.g. 'String', 'Integer')"),
                 values: z.array(z.string()).optional().describe("Allowed values — required for Enum (e.g. ['active','inactive'])"),
-              }).optional().describe("Type-specific config. String→{length}, Decimal→{precision,scale}, Array→{type}, Enum→{values:[...]}"),
+              }).passthrough()]).optional().describe("Type-specific config. String→{length}, Decimal→{precision,scale}, Array→{type}, Enum→['a','b'] (or {values:[...]})"),
               description: z.string().optional().describe("Human-readable description stored in schema metadata only."),
             }).passthrough()
           ).describe("Field definitions keyed by column name. ALWAYS include an 'id' primary key field (type UUID with defaultValue {type:'UUIDV4'})."),
@@ -921,13 +922,14 @@ EXAMPLE — Adding a "description" field to an existing "products" table that ha
               unique: z.boolean().optional().describe("Enforce UNIQUE constraint."),
               primaryKey: z.boolean().optional().describe("Primary key column."),
               defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null(), z.object({ type: z.string(), value: z.string().optional() })]).optional().describe("Literal default or { type: 'UUIDV4'|'SUID'|'NOW'|'AUTOINCREMENT'|'SQL', value?: 'expr' }."),
-              values: z.object({
+              // ENUM values also accepted as the stored plain array; passthrough keeps e.g. dimensions
+              values: z.union([z.array(z.string()), z.object({
                 length: z.number().optional().describe("Required for String/VARCHAR"),
                 precision: z.number().optional().describe("Required for Decimal"),
                 scale: z.number().optional().describe("Required for Decimal"),
                 type: z.string().optional().describe("Required for Array element type"),
                 values: z.array(z.string()).optional().describe("Required for Enum allowed values"),
-              }).optional(),
+              }).passthrough()]).optional(),
               description: z.string().optional().describe("Field description (metadata only)"),
             }).passthrough()
           ).optional().describe("The COMPLETE field definitions — ALL existing fields plus your changes. This REPLACES the entire fields object. Missing fields will be removed from schema definition."),
@@ -985,13 +987,14 @@ EXAMPLE — Add a "status" enum with default:
             z.string(), z.number(), z.boolean(), z.null(),
             z.object({ type: z.enum(["UUIDV4","SUID","NOW","AUTOINCREMENT","SQL"]), value: z.string().optional() })
           ]).optional().describe("Default value for the column. Use a literal (e.g. 0, 'active', true) or a special object: { type: 'UUIDV4' } for auto UUID, { type: 'SUID' } for short ID, { type: 'NOW' } for current timestamp, { type: 'AUTOINCREMENT' } for auto-increment integer, { type: 'SQL', value: 'expr' } for raw SQL expression."),
-          values: z.object({
+          // ENUM values also accepted as the stored plain array; passthrough keeps e.g. dimensions
+          values: z.union([z.array(z.string()), z.object({
             length: z.number().optional().describe("Max character length — required for String/VARCHAR (e.g. 255)"),
             precision: z.number().optional().describe("Total number of digits — required for Decimal (e.g. 10)"),
             scale: z.number().optional().describe("Number of decimal places — required for Decimal (e.g. 2)"),
             type: z.string().optional().describe("Element data type — required for Array (e.g. 'String', 'Integer', 'UUID')"),
             values: z.array(z.string()).optional().describe("Allowed enum values — required for Enum (e.g. ['active','inactive','pending'])"),
-          }).optional().describe("Type-specific configuration: String→{length}, Decimal→{precision,scale}, Array→{type}, Enum→{values:[...]}"),
+          }).passthrough()]).optional().describe("Type-specific configuration: String→{length}, Decimal→{precision,scale}, Array→{type}, Enum→['a','b'] (or {values:[...]})"),
           description: z.string().optional().describe("Human-readable description stored in schema metadata only, not in the DB column."),
         })
         .passthrough()
@@ -1031,13 +1034,14 @@ EXAMPLE — Add a default value to an existing field:
             z.string(), z.number(), z.boolean(), z.null(),
             z.object({ type: z.enum(["UUIDV4","SUID","NOW","AUTOINCREMENT","SQL"]), value: z.string().optional() })
           ]).optional().describe("New default value. Literal or special object: { type: 'UUIDV4'|'SUID'|'NOW'|'AUTOINCREMENT'|'SQL', value?: 'expr' }."),
-          values: z.object({
+          // ENUM values also accepted as the stored plain array; passthrough keeps e.g. dimensions
+          values: z.union([z.array(z.string()), z.object({
             length: z.number().optional().describe("Max character length for String/VARCHAR"),
             precision: z.number().optional().describe("Total digits for Decimal"),
             scale: z.number().optional().describe("Decimal places for Decimal"),
             type: z.string().optional().describe("Element type for Array"),
             values: z.array(z.string()).optional().describe("Allowed values for Enum"),
-          }).optional().describe("Type-specific settings to update"),
+          }).passthrough()]).optional().describe("Type-specific settings to update"),
           description: z.string().optional().describe("Human-readable description stored in schema metadata"),
         })
         .passthrough()

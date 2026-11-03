@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql, SQL, asc, desc } from 'drizzle-orm';
+import { and, eq, inArray, sql, SQL, asc, desc, getTableColumns } from 'drizzle-orm';
 import { PgTable, alias } from 'drizzle-orm/pg-core';
 import argon2 from 'argon2';
 import { APIError } from '../utils/errorHandler.js';
@@ -34,7 +34,7 @@ import {
   resolveCircularDependencies,
   processDeferredFields
 } from '../utils/relationUtils.js';
-import { resolveRelationPath } from '../utils/relationPathResolver.js';
+import { resolveRelationPath, isSafeFieldPath } from '../utils/relationPathResolver.js';
 import fieldUtils from '../utils/fieldUtils.js';
 import valueValidator from '../utils/valueValidator.js';
 import type {
@@ -57,6 +57,14 @@ import { softDelete, restore } from '../plugins/softDelete.js';
 export type QueryOptions = BaseQueryOptions;
 export type ServiceParams = BaseServiceParams;
 export type { ReadResult, OperationOptions };
+
+// Column names never written to baasix_AuditLog, on top of schema-hidden fields.
+const AUDIT_SECRET_KEYS = [
+  'password', 'token', 'secret', 'twoFactorSecret', 'magicLinkToken', 'magicLinkExpires',
+  'accessToken', 'refreshToken', 'idToken',
+];
+// An update that only changes these is not audited.
+const AUDIT_BOOKKEEPING_KEYS = ['lastAccess', 'updatedAt'];
 
 /**
  * ItemsService - Core CRUD service for all collections
@@ -661,6 +669,7 @@ export class ItemsService {
     userRequestedFields: string[];
     userRequestedIncludes: ProcessedInclude[];
     permAllowedFields: string[] | null;
+    searchRankExpr?: SQL;
   }> {
     const { isAdmin, action, bypassPermissions, idFilter } = options;
 
@@ -891,8 +900,9 @@ export class ItemsService {
 
     // Apply full-text search if search query is provided
     let searchOrderClause: SQL | undefined;
+    let searchRankExpr: SQL | undefined;
     if (query.search) {
-      const { searchCondition, orderClause } = applyFullTextSearch(
+      const { searchCondition, orderClause, rankExpr } = applyFullTextSearch(
         this.collection,
         this.table as any,
         query.search,
@@ -909,6 +919,7 @@ export class ItemsService {
 
       // Store search order clause for later
       searchOrderClause = orderClause;
+      searchRankExpr = rankExpr;
     }
 
     // Build order by clause
@@ -961,7 +972,9 @@ export class ItemsService {
       filterJoins,
       userRequestedFields: expandedDirectFields,
       userRequestedIncludes: processedIncludes,
-      permAllowedFields
+      permAllowedFields,
+      // Relevance only orders results when there's no explicit sort (as above)
+      searchRankExpr: query.sort ? undefined : searchRankExpr
     };
   }
 
@@ -1279,7 +1292,8 @@ export class ItemsService {
     filterJoins: any[] = [],
     transaction?: Transaction,
     includeHidden: boolean = false,
-    permAllowedFields: string[] | null = null
+    permAllowedFields: string[] | null = null,
+    searchRankExpr?: SQL
   ): Promise<ReadResult> {
     const dbClient = transaction || db;
     console.log('[ItemsService] Using Drizzle query builder for HasMany sorting/filtering');
@@ -1295,6 +1309,8 @@ export class ItemsService {
     
     // Build a map of field -> direction from query.sort for later ORDER BY
     const sortDirections: Map<string, string> = new Map();
+    // Every sort key in order, dotted relation paths included
+    const sortEntries: { field: string; dir: string }[] = [];
 
     // Add sort fields from query.sort to DISTINCT ON
     // Handle both object format { field: 'asc' } and array format ['-field', 'field']
@@ -1306,6 +1322,7 @@ export class ItemsService {
             // Simple sort: "fieldName" or "-fieldName"
             const isDesc = sortItem.startsWith('-');
             const fieldName = isDesc ? sortItem.slice(1) : sortItem;
+            sortEntries.push({ field: fieldName, dir: isDesc ? 'desc' : 'asc' });
             if (!fieldName.includes('.')) {
               distinctOnFields.push(`"${tableName}"."${fieldName}"`);
               sortDirections.set(fieldName, isDesc ? 'desc' : 'asc');
@@ -1313,6 +1330,7 @@ export class ItemsService {
           } else if (typeof sortItem === 'object') {
             // Object in array: { fieldName: 'asc' }
             for (const [fieldName, dir] of Object.entries(sortItem)) {
+              sortEntries.push({ field: fieldName, dir: String(dir).toLowerCase() });
               if (!fieldName.includes('.')) {
                 distinctOnFields.push(`"${tableName}"."${fieldName}"`);
                 sortDirections.set(fieldName, String(dir).toLowerCase());
@@ -1323,6 +1341,7 @@ export class ItemsService {
       } else if (typeof query.sort === 'object') {
         // Object format: { createdAt: 'desc', name: 'asc' }
         for (const [fieldName, dir] of Object.entries(query.sort)) {
+          sortEntries.push({ field: fieldName, dir: String(dir).toLowerCase() });
           if (!fieldName.includes('.')) {
             distinctOnFields.push(`"${tableName}"."${fieldName}"`);
             sortDirections.set(fieldName, String(dir).toLowerCase());
@@ -1343,10 +1362,45 @@ export class ItemsService {
 
     console.log(`[ItemsService] Using DISTINCT ON with fields: ${distinctOnFields.join(', ')}`);
 
-    let idQuery = dbClient
-      .select({ [this.primaryKey]: sql.raw(distinctOnClause) })
-      .from(this.table)
-      .$dynamic();
+    // Dotted (relation) sort keys: DISTINCT ON can't order by them directly, so
+    // pick one row per id carrying the sort values (min for asc / max for desc
+    // via the inner ORDER BY) and sort the ids in an outer query below.
+    const hasRelationSort = sortEntries.some((e) => e.field.includes('.'));
+    const pkCol = this.getPrimaryKeyColumn();
+    const sortCols = sortEntries.map((e, i) => {
+      if (!isSafeFieldPath(e.field)) {
+        throw new APIError(`Invalid sort field: ${e.field}`, 400);
+      }
+      const parts = e.field.split('.');
+      // Join alias convention from relationLoader: nested relations are "parent__child"
+      const alias = parts.length > 1 ? parts.slice(0, -1).join('__') : tableName;
+      return {
+        key: `__sort${i}`,
+        alias,
+        ref: sql.raw(`"${alias}"."${parts[parts.length - 1]}"`),
+        dir: sql.raw(e.dir === 'desc' ? 'DESC NULLS LAST' : 'ASC'),
+      };
+    });
+    // search + sortByRelevance without an explicit sort: order by rank
+    if (searchRankExpr) {
+      sortCols.push({ key: '__rank', alias: tableName, ref: searchRankExpr as any, dir: sql.raw('DESC NULLS LAST') });
+    }
+    // Relation sort keys and relevance can't be expressed with DISTINCT ON
+    // alone, so they take the subquery path below
+    const useSortSubquery = hasRelationSort || !!searchRankExpr;
+
+    let idQuery: any = useSortSubquery
+      ? dbClient
+          .selectDistinctOn([pkCol], {
+            __pk: sql`${pkCol}`.as('__pk'),
+            ...Object.fromEntries(sortCols.map((c) => [c.key, sql`${c.ref}`.as(c.key)])),
+          })
+          .from(this.table)
+          .$dynamic()
+      : dbClient
+          .select({ [this.primaryKey]: sql.raw(distinctOnClause) })
+          .from(this.table)
+          .$dynamic();
 
     // Apply processedIncludes joins using Drizzle query builder
     for (const include of processedIncludes) {
@@ -1364,6 +1418,39 @@ export class ItemsService {
 
         if (include.nested.length > 0) {
           idQuery = this.applyNestedJoins(idQuery, include.nested);
+        }
+      }
+    }
+
+    // Join any relation a dotted sort key needs that the includes didn't already
+    if (hasRelationSort) {
+      const joined = new Set<string>();
+      const collect = (incs: ProcessedInclude[], top: boolean) => {
+        for (const inc of incs) {
+          if ((top && inc.separate) || (!inc.separate && (inc.relationType === 'BelongsTo' || inc.relationType === 'HasOne'))) {
+            joined.add(inc.alias);
+            collect(inc.nested, false);
+          }
+        }
+      };
+      collect(processedIncludes, true);
+      const joinMissing = (incs: ProcessedInclude[]) => {
+        for (const inc of incs) {
+          if (!joined.has(inc.alias)) {
+            idQuery = idQuery.leftJoin(inc.table, inc.joinCondition);
+            joined.add(inc.alias);
+          }
+          joinMissing(inc.nested);
+        }
+      };
+      for (const e of sortEntries) {
+        if (e.field.includes('.')) {
+          joinMissing(expandFieldsWithIncludes([e.field], this.collection).includes);
+        }
+      }
+      for (const c of sortCols) {
+        if (c.alias !== tableName && !joined.has(c.alias)) {
+          throw new APIError(`Invalid sort field: ${sortEntries[sortCols.indexOf(c)].field}`, 400);
         }
       }
     }
@@ -1386,7 +1473,15 @@ export class ItemsService {
 
     // Apply ORDER BY - must match DISTINCT ON for PostgreSQL
     // We need to ensure ORDER BY starts with the same columns as DISTINCT ON
-    if (distinctOnFields.length > 0) {
+    if (useSortSubquery) {
+      idQuery = idQuery.orderBy(pkCol, ...sortCols.map((c) => sql`${c.ref} ${c.dir}`));
+      const sorted = idQuery.as('__sorted_ids');
+      idQuery = dbClient
+        .select({ [this.primaryKey]: sorted.__pk })
+        .from(sorted)
+        .orderBy(...sortCols.map((c) => sql`${sorted[c.key]} ${c.dir}`), asc(sorted.__pk))
+        .$dynamic();
+    } else if (distinctOnFields.length > 0) {
       // Build ORDER BY from DISTINCT ON fields using sortDirections map built earlier
       const orderByClauses: SQL[] = [];
 
@@ -1398,7 +1493,7 @@ export class ItemsService {
         
         // Look up direction from sort map (built earlier when processing query.sort)
         const direction = sortDirections.get(fieldName) || 'asc';
-        orderByClauses.push(sql.raw(`${field} ${direction.toUpperCase()}`));
+        orderByClauses.push(sql.raw(`${field} ${direction === 'desc' ? 'DESC NULLS LAST' : 'ASC'}`));
       }
 
       idQuery = idQuery.orderBy(...orderByClauses);
@@ -1666,7 +1761,8 @@ export class ItemsService {
         filterJoins = [],
         userRequestedFields = [],
         userRequestedIncludes = [],
-        permAllowedFields = null
+        permAllowedFields = null,
+        searchRankExpr
       } = await this.buildQuery(modifiedQuery, {
         isAdmin,
         action: 'read',
@@ -1714,7 +1810,8 @@ export class ItemsService {
           filterJoins,
           transaction,
           includeHidden,
-          permAllowedFields
+          permAllowedFields,
+          searchRankExpr
         );
       }
 
@@ -2913,7 +3010,8 @@ export class ItemsService {
     let existingItems;
     if (filterJoins.length > 0) {
       // Use transaction for reads to prevent deadlocks and ensure consistency
-      let query: any = transaction.select().from(this.table);
+      // Base-table columns only, so the row stays flat (not { table, joined })
+      let query: any = transaction.select(getTableColumns(this.table)).from(this.table);
       filterJoins.forEach((join) => {
         const { table: joinTable, condition } = join;
         query = query.leftJoin(joinTable, condition);
@@ -2932,12 +3030,7 @@ export class ItemsService {
       throw new APIError("Item not found or you don't have permission to update it", 403);
     }
 
-    // When there are joins, Drizzle returns results in nested format: { tableName: { ...data }, joinedTable: { ...data } }
-    // Extract the main table's data when joins are present
     let existingItem = existingItems[0];
-    if (filterJoins.length > 0 && existingItem[this.collection]) {
-      existingItem = existingItem[this.collection];
-    }
 
     // Ensure tenant_Id cannot be changed (except by admin)
     if (
@@ -3310,7 +3403,8 @@ export class ItemsService {
     let existingItems;
     if (filterJoins.length > 0) {
       // Use transaction for reads to prevent deadlocks and ensure consistency
-      let query: any = transaction.select().from(this.table);
+      // Base-table columns only, so the row stays flat (not { table, joined })
+      let query: any = transaction.select(getTableColumns(this.table)).from(this.table);
       filterJoins.forEach((join) => {
         const { table: joinTable, condition } = join;
         query = query.leftJoin(joinTable, condition);
@@ -3661,7 +3755,8 @@ export class ItemsService {
     transaction?: Transaction
   ): Promise<void> {
     // Collections to exclude from audit logging
-    const excludeCollections = ['baasix_AuditLog', 'baasix_Sessions'];
+    // baasix_Verification rows are one-time codes/tokens: never audit them.
+    const excludeCollections = ['baasix_AuditLog', 'baasix_Sessions', 'baasix_Verification'];
 
     // Skip audit log creation for excluded collections
     if (excludeCollections.includes(this.collection)) {
@@ -3669,18 +3764,44 @@ export class ItemsService {
     }
 
     try {
+      // Never copy secrets into the audit log: schema-hidden fields (e.g.
+      // baasix_User.password) plus well-known secret column names (OAuth tokens
+      // on baasix_Account, 2FA secrets, legacy magic-link columns).
+      const rawBefore = changes.before ? JSON.parse(JSON.stringify(changes.before)) : null;
+      const rawAfter = changes.after ? JSON.parse(JSON.stringify(changes.after)) : null;
+      const scrub = (row: any) => {
+        if (!row) return null;
+        const clean: Record<string, any> = fieldUtils.stripHiddenFields(this.collection, row);
+        for (const key of AUDIT_SECRET_KEYS) delete clean[key];
+        return clean;
+      };
+      const before = scrub(rawBefore);
+      const after = scrub(rawAfter);
+
+      // Diff the RAW rows: on the scrubbed ones a password change would look
+      // like an updatedAt-only change and be skipped.
+      if (action === 'update' && rawBefore && rawAfter) {
+        const changedKeys = [...new Set([...Object.keys(rawBefore), ...Object.keys(rawAfter)])]
+          .filter((k) => JSON.stringify(rawBefore[k]) !== JSON.stringify(rawAfter[k]));
+        // Skip bookkeeping-only updates (sign-in / heartbeat lastAccess writes):
+        // they are not user actions and made up most of the audit table.
+        if (changedKeys.length > 0 && changedKeys.every((k) => AUDIT_BOOKKEEPING_KEYS.includes(k))) {
+          return;
+        }
+        // Record THAT a secret changed, never its value
+        for (const k of changedKeys) {
+          if (!(k in after!)) after![k] = '[REDACTED]';
+        }
+      }
+
       // Get special handling for baasix_SchemaDefinition - use collectionName as ID
       let auditEntityId = entityId;
       if (this.collection === 'baasix_SchemaDefinition' && changes.after?.collectionName) {
         auditEntityId = changes.after.collectionName;
       }
 
-      // Serialize changes to JSON to avoid Postgres type issues
-      // Drizzle expects JSON fields to be properly serialized
-      const serializedChanges = {
-        before: changes.before ? JSON.parse(JSON.stringify(changes.before)) : null,
-        after: changes.after ? JSON.parse(JSON.stringify(changes.after)) : null
-      };
+      // Serialized (JSON round-trip) and scrubbed above
+      const serializedChanges = { before, after };
 
       // Use ALS accountability as fallback so audit logs capture user info
       // even when ItemsService was created without explicit accountability (admin bypass)

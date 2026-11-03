@@ -313,6 +313,30 @@ if (!globalThis.__baasix_hooksManagerInitialized) {
     return context;
   });
 
+  // Kill every session of a user whose status leaves "active" (suspend/archive),
+  // so already-signed-in devices are cut off immediately rather than at token
+  // expiry. Deleting through ItemsService fires the baasix_Sessions hook above,
+  // which evicts each auth:session:<token> cache entry.
+  hooksManager.registerHook('baasix_User', 'items.update.after', async (context: HookContext) => {
+    try {
+      const status = context.document?.status;
+      const userId = context.document?.id ?? context.id;
+      if (!userId || !status || status === 'active' || context.previousDocument?.status === status) return context;
+      const { default: ItemsService } = await import('./ItemsService.js');
+      const sessionService = new ItemsService('baasix_Sessions');
+      const sessions = await sessionService.readByQuery(
+        { filter: { user_Id: { eq: userId } }, fields: ['id'], limit: -1 },
+        true,
+        context.transaction // join the caller's transaction so a rollback keeps the sessions
+      );
+      const ids = (sessions.data || []).map((s: any) => s.id);
+      if (ids.length) await sessionService.deleteMany(ids, { transaction: context.transaction });
+    } catch (error: any) {
+      console.error('[HooksManager] Failed to revoke sessions for non-active user:', error.message);
+    }
+    return context;
+  });
+
   // Partition lifecycle: create partitions when a tenant is created,
   // drop them (bulk data erase) right before the tenant row is deleted.
   hooksManager.registerHook('baasix_Tenant', 'items.create.after', async (context: HookContext) => {

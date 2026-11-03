@@ -275,7 +275,7 @@ const registerEndpoint = (app: Express, context?: any) => {
 
         // Handle usertrack flag
         if (processedSchema.usertrack === true) {
-            const usertrack = {
+            const usertrack: Record<string, any> = {
                 userCreated_Id: { type: "UUID", SystemGenerated: true },
                 userCreated: {
                     relType: "BelongsTo",
@@ -295,6 +295,15 @@ const registerEndpoint = (app: Express, context?: any) => {
                     description: "M2O",
                 },
             };
+
+            // Keep an explicit per-relation onDelete (stored or sent) instead of
+            // resetting it; else USERTRACK_ON_DELETE; else none (FK sync's CASCADE default).
+            const envOnDelete = String(env.get("USERTRACK_ON_DELETE") || "").toUpperCase().replace(/_/g, " ").trim();
+            const defaultOnDelete = ["CASCADE", "RESTRICT", "SET NULL", "NO ACTION"].includes(envOnDelete) ? envOnDelete : undefined;
+            for (const name of ["userCreated", "userUpdated"]) {
+                const onDelete = processedSchema.fields[name]?.onDelete ?? defaultOnDelete;
+                if (onDelete) usertrack[name].onDelete = onDelete;
+            }
 
             processedSchema.fields = { ...processedSchema.fields, ...usertrack };
         }

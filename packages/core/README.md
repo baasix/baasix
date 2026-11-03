@@ -397,6 +397,10 @@ SECRET_KEY=your-secret-key-min-32-chars
 # AUTH_RATE_LIMIT=10                # max attempts per window, per (IP+email) pair (per-account budget per IP; does not cap total across accounts)
 # AUTH_RATE_LIMIT_INTERVAL=900000   # window in ms (15 min)
 # AUTH_RATE_LIMIT_DISABLED=false    # disable the auth limiter (auto-disabled in TEST_MODE)
+# AUTH_CODE_RATE_LIMIT=100          # per-IP limit for code/token redeem routes (magic-link verify, password reset submit)
+# AUTH_CODE_REQUIRE_EMAIL=false      # true: short emailed codes only via the email + code routes (5-try limit per email)
+# AUTH_MAGIC_LINK_EXPIRES_IN=900     # magic-link / email sign-in code lifetime in seconds (15 min)
+# USERTRACK_ON_DELETE=CASCADE        # ON DELETE for userCreated_Id/userUpdated_Id FKs: CASCADE | RESTRICT | SET NULL | NO ACTION
 # Note: SQL-injection protection (identifier allowlisting + JSONB numeric validation) is always on.
 ```
 
