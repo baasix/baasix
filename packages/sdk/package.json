@@ -1,6 +1,6 @@
 {
   "name": "@baasix/sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Official JavaScript/TypeScript SDK for Baasix Backend-as-a-Service",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -106,7 +106,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@baasix/types": "^1.0.14",
+    "@baasix/types": "^1.1.0",
     "@simplewebauthn/browser": "^13.3.0"
   }
 }

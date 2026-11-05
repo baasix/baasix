@@ -1,5 +1,13 @@
 # @baasix/lexical
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @baasix/sdk@0.3.0
+
 ## 0.0.14
 
 ### Patch Changes

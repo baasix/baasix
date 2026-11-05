@@ -99,6 +99,19 @@ describe("Full-Text Search API Tests", () => {
         expect(response.body.data.some((post) => post.title.includes("Fourth post"))).toBeTruthy();
     });
 
+    test("excludeSearchFields removes fields from default and explicit search", async () => {
+        // "HTML" appears only in the third post's content
+        const get = (query) =>
+            request(app).get("/items/posts").set("Authorization", `Bearer ${userToken}`).query({ search: "HTML", ...query });
+
+        expect((await get({})).body.data.length).toBe(1);
+        expect((await get({ excludeSearchFields: "content" })).body.data.length).toBe(0);
+        expect((await get({ searchFields: "title,content", excludeSearchFields: "content" })).body.data.length).toBe(0);
+
+        const allExcluded = await get({ searchFields: "title,content", excludeSearchFields: "title,content" });
+        expect(allExcluded.status).toBe(400);
+    });
+
     test("Search with relevance sorting", async () => {
         const response = await request(app)
             .get("/items/posts?search=databases&sortByRelevance=true")

@@ -1,5 +1,18 @@
 # @baasix/sdk
 
+## 0.3.0
+
+### Minor Changes
+
+- New `excludeSearchFields` query option: fields listed are left out of full-text search, whether `searchFields` is given or the default columns are used. Returns 400 if nothing is left to search.
+
+### Patch Changes
+
+- Added new excludeSearchFields to exclude some specific fields from search.
+- Updated dependencies
+- Updated dependencies
+  - @baasix/types@1.1.0
+
 ## 0.2.1
 
 ### Patch Changes

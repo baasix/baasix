@@ -164,6 +164,7 @@ interface ListItemsInput {
   limit?: number;
   search?: string;
   searchFields?: string[];
+  excludeSearchFields?: string[];
   aggregate?: Record<string, unknown>;
   groupBy?: string[];
   relConditions?: Record<string, unknown>;
@@ -1369,12 +1370,13 @@ Supports same operators and dynamic variables as filter.
       limit: z.number().optional().default(10).describe("Rows per page. Use -1 to fetch ALL rows (no pagination)"),
       search: z.string().optional().describe("Full-text search query string. Searches text/varchar columns by default."),
       searchFields: z.array(z.string()).optional().describe("Limit search to specific columns: [\"name\", \"description\"]"),
+      excludeSearchFields: z.array(z.string()).optional().describe("Columns to leave out of the search: [\"notes\"]"),
       aggregate: z.record(z.any()).optional().describe("Aggregation: {alias: {function: 'count|sum|avg|min|max|countDistinct|array_agg', field: 'columnName'}}"),
       groupBy: z.array(z.string()).optional().describe("Group results by fields: [\"status\"] or date extraction [\"date:year:createdAt\"]"),
       relConditions: z.record(z.any()).optional().describe("Filter by related table data: {relationName: {field: {operator: value}}}"),
     },
     async (args: ListItemsInput, extra: ToolExtra): Promise<ToolResult> => {
-      const { collection, filter, fields, sort, sortObject, page, limit, search, searchFields, aggregate, groupBy, relConditions } =
+      const { collection, filter, fields, sort, sortObject, page, limit, search, searchFields, excludeSearchFields, aggregate, groupBy, relConditions } =
         args;
       try {
         const params = new URLSearchParams();
@@ -1391,6 +1393,7 @@ Supports same operators and dynamic variables as filter.
         }
         if (search) params.set('search', search);
         if (searchFields) params.set('searchFields', searchFields.join(','));
+        if (excludeSearchFields) params.set('excludeSearchFields', excludeSearchFields.join(','));
         if (aggregate) params.set('aggregate', JSON.stringify(aggregate));
         if (groupBy) params.set('groupBy', groupBy.join(','));
         if (relConditions) params.set('relConditions', JSON.stringify(relConditions));

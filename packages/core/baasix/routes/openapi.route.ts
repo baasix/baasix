@@ -1669,6 +1669,12 @@ function createCollectionEndpointOperation(endpoint: EndpointInfo): any {
                 description: "Comma-separated list of fields to search in. Only applies when 'search' parameter is used."
             },
             {
+                name: "excludeSearchFields",
+                in: "query",
+                schema: { type: "string" },
+                description: "Comma-separated list of fields to leave out of the search (removed from searchFields or the default set)."
+            },
+            {
                 name: "relConditions",
                 in: "query",
                 schema: { type: "string" },

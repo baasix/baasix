@@ -307,6 +307,9 @@ export class QueryBuilder<T extends BaseItem = BaseItem> {
     if (this.queryParams.searchFields) {
       params.searchFields = this.queryParams.searchFields;
     }
+    if (this.queryParams.excludeSearchFields) {
+      params.excludeSearchFields = this.queryParams.excludeSearchFields;
+    }
     if (this.queryParams.paranoid !== undefined) {
       params.paranoid = this.queryParams.paranoid;
     }

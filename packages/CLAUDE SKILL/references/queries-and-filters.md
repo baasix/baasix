@@ -37,6 +37,7 @@
 | offset | number | Skip N records | 0 |
 | search | string | Full-text search | "keyword" |
 | searchFields | string[] | Fields to search | `["title","content"]` |
+| excludeSearchFields | string[] | Fields to leave out of search (from searchFields or default set) | `["notes"]` |
 | aggregate | object | Aggregation ops | `{"total":{"function":"count","field":"id"}}` |
 | groupBy | string[] | Group by fields | `["status","category"]` |
 | paranoid | boolean | Include soft-deleted | false |

@@ -231,6 +231,7 @@ export class ItemsService {
       // searchFields/sortByRelevance change which rows match and their order —
       // omitting them here served one search's cached result to a different one.
       `searchFields:${JSON.stringify(query.searchFields || [])}`,
+      `excludeSearchFields:${JSON.stringify(query.excludeSearchFields || [])}`,
       `sortByRelevance:${query.sortByRelevance ? 'on' : 'off'}`,
       `includes:${processedIncludes.map(i => i.relation).join(',')}`,
       `paranoid:${query.paranoid !== false}`,
@@ -907,7 +908,8 @@ export class ItemsService {
         this.table as any,
         query.search,
         query.searchFields,
-        query.sortByRelevance
+        query.sortByRelevance,
+        query.excludeSearchFields
       );
 
       // Combine search condition with existing where clause

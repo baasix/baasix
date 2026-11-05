@@ -327,6 +327,11 @@ export interface QueryParams<T = unknown> {
   searchFields?: string[];
 
   /**
+   * Fields to leave out of the search (applies to searchFields or the default set)
+   */
+  excludeSearchFields?: string[];
+
+  /**
    * Sort results by search relevance
    * @default false
    */

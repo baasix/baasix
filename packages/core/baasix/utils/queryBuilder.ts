@@ -605,6 +605,7 @@ export function buildPrefixTsQuery(searchQuery: string): string {
  * @param searchQuery - The search string
  * @param searchFields - Fields to search in (optional, defaults to string fields)
  * @param sortByRelevance - Whether to sort by relevance score
+ * @param excludeSearchFields - Fields removed from the searched set (explicit or default)
  * @returns SQL condition for full-text search and optional order clause
  */
 export function applyFullTextSearch(
@@ -612,7 +613,8 @@ export function applyFullTextSearch(
   tableColumns: Record<string, any>,
   searchQuery: string,
   searchFields?: string[],
-  sortByRelevance: boolean = false
+  sortByRelevance: boolean = false,
+  excludeSearchFields?: string[]
 ): { searchCondition: SQL; orderClause?: SQL; rankExpr?: SQL } {
   let searchableFields = searchFields;
 
@@ -633,6 +635,13 @@ export function applyFullTextSearch(
     // If no columns matched (unexpected table shape), default to all fields
     if (searchableFields.length === 0) {
       searchableFields = Object.keys(tableColumns);
+    }
+  }
+
+  if (excludeSearchFields?.length) {
+    searchableFields = searchableFields.filter((field) => !excludeSearchFields.includes(field));
+    if (searchableFields.length === 0) {
+      throw new APIError('excludeSearchFields removes every searchable field', 400);
     }
   }
 
