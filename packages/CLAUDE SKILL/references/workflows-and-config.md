@@ -371,6 +371,7 @@ const products = await baasix.items<Products>("products").list();
 | WORKFLOWS_ENABLED | true | Master switch for the whole workflow subsystem; false = no hooks/no per-request overhead, no scheduled runs, /workflows/* → 404, no code execution |
 | SOCKET_ENABLED | false | Socket.IO |
 | REALTIME_ROW_LEVEL_SCOPING | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
+| REALTIME_SLOT_APPEND_DB_NAME | false | Append DB name to replication slot (baasix_realtime_slot_<db>) so multiple Baasix share one Postgres server |
 | PUBLIC_REGISTRATION | true | Allow public registration; `false` → `POST /auth/register` returns 403 `REGISTRATION_DISABLED` unless the request carries a valid invite token |
 | RATE_LIMIT | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | 5000 | Rate limit interval (ms) |

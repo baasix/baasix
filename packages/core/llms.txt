@@ -66,6 +66,7 @@ MULTI_TENANT=false                 # Enable multi-tenant mode
 WORKFLOWS_ENABLED=true             # master switch for the workflow subsystem; false = no item-event hooks (no per-request overhead), no scheduled runs, /workflows/* → 404, no workflow code execution
 SOCKET_ENABLED=false               # Enable Socket.IO
 REALTIME_ROW_LEVEL_SCOPING=false   # per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (subscriber may see other rows in tenant). On = evaluate each subscriber's read perm per change (bucketed by role)
+REALTIME_SLOT_APPEND_DB_NAME=false   # append DB name to replication slot (baasix_realtime_slot_<db>) so multiple Baasix share one Postgres server
 
 # Registration
 PUBLIC_REGISTRATION=true           # Allow public user registration

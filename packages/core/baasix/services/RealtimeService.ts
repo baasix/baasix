@@ -50,6 +50,24 @@ export interface RealtimeConfig {
 // Constants
 const PUBLICATION_NAME = 'baasix_realtime';
 const SLOT_NAME = 'baasix_realtime_slot';
+
+/**
+ * Replication slots are cluster-wide (publications are per-database), so two
+ * Baasix instances on one Postgres server collide on SLOT_NAME. With
+ * REALTIME_SLOT_APPEND_DB_NAME=true the database name is appended.
+ */
+export function getSlotName(): string {
+  if (env.get("REALTIME_SLOT_APPEND_DB_NAME") !== "true") return SLOT_NAME;
+  let dbName = "";
+  try {
+    dbName = decodeURIComponent(new URL(env.get("DATABASE_URL") || "").pathname.slice(1));
+  } catch {
+    // unparsable URL: fall back to the plain slot name
+  }
+  // Slot names allow only [a-z0-9_] and at most 63 chars
+  const suffix = dbName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  return suffix ? `${SLOT_NAME}_${suffix}`.slice(0, 63) : SLOT_NAME;
+}
 // Redis key for WAL consumer leader election
 const WAL_LEADER_KEY = 'baasix:wal:leader';
 const WAL_LEADER_TTL = 30; // seconds
@@ -281,17 +299,17 @@ class RealtimeService {
     try {
       // Check if slot exists
       const result = await db.execute(sql`
-        SELECT slot_name FROM pg_replication_slots WHERE slot_name = ${SLOT_NAME}
+        SELECT slot_name FROM pg_replication_slots WHERE slot_name = ${getSlotName()}
       `);
 
       if ((result as any[]).length === 0) {
         // Create replication slot
         await db.execute(sql.raw(`
-          SELECT pg_create_logical_replication_slot('${SLOT_NAME}', 'pgoutput')
+          SELECT pg_create_logical_replication_slot('${getSlotName()}', 'pgoutput')
         `));
-        console.info(`Created replication slot: ${SLOT_NAME}`);
+        console.info(`Created replication slot: ${getSlotName()}`);
       } else {
-        console.info(`Replication slot ${SLOT_NAME} already exists`);
+        console.info(`Replication slot ${getSlotName()} already exists`);
       }
     } catch (error: any) {
       // Handle case where slot already exists (race condition)
@@ -464,7 +482,7 @@ class RealtimeService {
       });
 
       // Start subscription
-      await this.replicationService.subscribe(plugin, SLOT_NAME);
+      await this.replicationService.subscribe(plugin, getSlotName());
       this.connected = true;
       console.info("✅ Started consuming WAL changes");
 
@@ -1014,7 +1032,7 @@ class RealtimeService {
       isWalLeader: this.isWalLeader,
       enabledCollections: this.getEnabledCollections(),
       publicationName: PUBLICATION_NAME,
-      slotName: SLOT_NAME
+      slotName: getSlotName()
     };
   }
 
@@ -1068,9 +1086,9 @@ class RealtimeService {
   async dropReplicationSlot(): Promise<void> {
     try {
       await db.execute(sql.raw(`
-        SELECT pg_drop_replication_slot('${SLOT_NAME}')
+        SELECT pg_drop_replication_slot('${getSlotName()}')
       `));
-      console.info(`Dropped replication slot: ${SLOT_NAME}`);
+      console.info(`Dropped replication slot: ${getSlotName()}`);
     } catch (error: any) {
       if (!error.message.includes('does not exist')) {
         throw error;

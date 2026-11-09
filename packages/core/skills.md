@@ -2634,6 +2634,7 @@ export async function down(baasix) {
 | WORKFLOWS_ENABLED | No | true | Master switch for the workflow subsystem; false disables hooks (no per-request overhead), schedules, /workflows/* routes, and code execution |
 | SOCKET_ENABLED | No | false | Enable Socket.IO |
 | REALTIME_ROW_LEVEL_SCOPING | No | false | Per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast (may show other rows in tenant) |
+| REALTIME_SLOT_APPEND_DB_NAME | No | false | Append DB name to replication slot (baasix_realtime_slot_<db>) so multiple Baasix share one Postgres server |
 | PUBLIC_REGISTRATION | No | true | Allow public registration; `false` makes `POST /auth/register` return 403 `REGISTRATION_DISABLED` unless the request carries a valid invite token |
 | RATE_LIMIT | No | 100 | Requests per interval |
 | RATE_LIMIT_INTERVAL | No | 5000 | Rate limit interval (ms) |

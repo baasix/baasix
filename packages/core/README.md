@@ -327,6 +327,7 @@ SECRET_KEY=your-secret-key-min-32-chars
 # WORKFLOWS_ENABLED=true            # master switch for the workflow subsystem; false disables hooks (no per-request overhead), schedules, /workflows/* routes, and code execution
 # SOCKET_ENABLED=true
 # REALTIME_ROW_LEVEL_SCOPING=false  # per-recipient row-level scoping for realtime broadcasts (A12); default off = fast room broadcast
+# REALTIME_SLOT_APPEND_DB_NAME=false  # append DB name to the replication slot so multiple Baasix can share one Postgres server
 # SOCKET_REDIS_ENABLED=true        # For multi-instance
 # SOCKET_REDIS_URL=redis://localhost:6379
 
