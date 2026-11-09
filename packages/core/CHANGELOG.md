@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.4.1
+
+### Patch Changes
+
+- Added missing checkConditions in permissions import and export
+
 ## 0.4.0
 
 ### Minor Changes

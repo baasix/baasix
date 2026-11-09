@@ -1988,6 +1988,7 @@ const registerEndpoint = (app: Express, context?: any) => {
                         conditions: permission.conditions,
                         defaultValues: permission.defaultValues,
                         relConditions: permission.relConditions,
+                        checkConditions: permission.checkConditions,
                     })),
                 })),
             };
@@ -2218,6 +2219,7 @@ const registerEndpoint = (app: Express, context?: any) => {
                                             conditions: importPerm.conditions,
                                             defaultValues: importPerm.defaultValues,
                                             relConditions: importPerm.relConditions,
+                                            checkConditions: importPerm.checkConditions,
                                             role_Id: roleId,
                                         },
                                     });
@@ -2287,6 +2289,7 @@ const registerEndpoint = (app: Express, context?: any) => {
             conditions: permission.conditions,
             defaultValues: permission.defaultValues,
             relConditions: permission.relConditions,
+            checkConditions: permission.checkConditions ?? null,
         };
     }
 
@@ -2316,6 +2319,7 @@ const registerEndpoint = (app: Express, context?: any) => {
                     conditions: p.conditions,
                     defaultValues: p.defaultValues,
                     relConditions: p.relConditions,
+                    checkConditions: p.checkConditions ?? null,
                 },
             ])
         );
@@ -2328,6 +2332,7 @@ const registerEndpoint = (app: Express, context?: any) => {
                     conditions: p.conditions,
                     defaultValues: p.defaultValues,
                     relConditions: p.relConditions,
+                    checkConditions: p.checkConditions ?? null,
                 },
             ])
         );
