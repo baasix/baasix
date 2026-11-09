@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.4.2
+
+### Patch Changes
+
+- Realtime: REALTIME_SLOT_APPEND_DB_NAME to suffix the replication slot
+
 ## 0.4.1
 
 ### Patch Changes
