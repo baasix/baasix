@@ -74,9 +74,6 @@ let removeMCPSession: (sessionId: string) => void;
 // Store active transports for session management
 const activeTransports = new Map<string, StreamableTransport>();
 
-// Store MCP server instance (singleton)
-let mcpServer: { connect: (transport: StreamableTransport) => Promise<void>; close: () => Promise<void> } | null = null;
-
 /**
  * Load MCP dependencies lazily
  */
@@ -354,17 +351,6 @@ async function getAccountability(req: RequestWithAccountability): Promise<{ acco
     accountability: null,
     error: "Authentication required. Provide Authorization Bearer token, X-MCP-Email/X-MCP-Password headers, email/password query params, or email/password in POST body.",
   };
-}
-
-/**
- * Get or create the MCP server instance
- */
-async function getMCPServer(): Promise<{ connect: (transport: StreamableTransport) => Promise<void>; close: () => Promise<void> }> {
-  await loadMCPDependencies();
-  if (!mcpServer) {
-    mcpServer = createMCPServer();
-  }
-  return mcpServer;
 }
 
 const registerEndpoint = async (app: Express, _context?: unknown): Promise<void> => {
@@ -659,6 +645,9 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
 
           // Capture accountability for closure
           const sessionAccountability = accountability;
+          // One server per session: @modelcontextprotocol/sdk >1.25.3 refuses to
+          // connect an already-connected server to a second transport.
+          const server = createMCPServer();
 
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => sessionId!,
@@ -670,14 +659,14 @@ const registerEndpoint = async (app: Express, _context?: unknown): Promise<void>
               console.info(`[MCP] Session closed: ${sid}`);
               activeTransports.delete(sid);
               removeMCPSession(sid);
+              server.close().catch(() => {});
             },
           });
 
           // Store the transport for this session
           activeTransports.set(sessionId, transport);
 
-          // Connect MCP server to this transport
-          const server = await getMCPServer();
+          // Connect this session's MCP server to its transport
           await server.connect(transport);
         } else {
           // Existing session — refresh the accountability (and token) so that
