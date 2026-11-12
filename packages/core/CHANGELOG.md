@@ -1,5 +1,11 @@
 # @baasix/baasix
 
+## 0.4.3
+
+### Patch Changes
+
+- Session race fix in auth refresh.
+
 ## 0.4.2
 
 ### Patch Changes
