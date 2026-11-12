@@ -746,16 +746,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         return res.status(401).json({ message: "No token provided" });
       }
 
-      // Preserve existing session type when refreshing token/session.
-      // Without this, refresh creates a new session with implicit "default" type.
-      let sessionType = "default";
       const decodedToken = auth.tokenService.decodeToken(token);
-      if (decodedToken?.sessionToken) {
-        const existingSession = await auth.sessionService.validateSession(decodedToken.sessionToken);
-        if (existingSession?.session?.type) {
-          sessionType = existingSession.session.type;
-        }
-      }
       const preservedUserRoleId = decodedToken?.userRole_Id ?? null;
 
       // Validate current session
@@ -786,20 +777,28 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
         }
       }
 
-      // Create new session
-      const ipAddress = req.ip || (req.connection as any)?.remoteAddress || null;
-      const userAgent = req.headers["user-agent"] || null;
-
-      const session = await auth.sessionService.createSession({
-        user: user as any,
-        tenantId: tenant?.id || null,
-        ipAddress,
-        userAgent,
-        type: sessionType,
-      });
-
-      // Invalidate old session
-      await auth.invalidateSession(token);
+      // Extend the SAME session instead of rotating it. Rotation (create new +
+      // delete old) broke parallel refreshes from several tabs sharing a cookie:
+      // only the first won, the rest 404'd after creating orphan sessions that
+      // counted toward session limits. Re-signing the same session is idempotent.
+      const expiresIn = options.session?.expiresIn || 604800;
+      const existing = await auth.sessionService.validateSession(decodedToken!.sessionToken);
+      if (!existing) {
+        return res.status(401).json({ message: "Invalid or expired token" });
+      }
+      const sessionUpdate = {
+        expiresAt: new Date(Date.now() + expiresIn * 1000),
+        tenant_Id: tenant?.id || null,
+        ipAddress: req.ip || (req.connection as any)?.remoteAddress || null,
+        userAgent: req.headers["user-agent"] || null,
+      };
+      await auth.adapter.updateSession(existing.session.id, sessionUpdate as any);
+      // adapter.updateSession re-reads without hidden fields, so keep the token from the original row
+      const session = { ...existing.session, ...sessionUpdate };
+      try {
+        const { getCache } = await import("../utils/cache.js");
+        await getCache().delete(`auth:session:${existing.session.token}`);
+      } catch {}
 
       // Generate new token
       const newToken = auth.tokenService.generateUserToken({
@@ -815,7 +814,7 @@ export function createAuthRoutes(app: Express, options: AuthRouteOptions): Baasi
 
       res.json({
         ...tokenResponse,
-        expiresIn: options.session?.expiresIn || 604800,
+        expiresIn,
       });
     } catch (error) {
       next(error);
