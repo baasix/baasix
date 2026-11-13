@@ -112,12 +112,12 @@ export class HttpClient {
 
     this.refreshPromise = (async () => {
       try {
-        const refreshToken = await this.config.storage.get(
-          STORAGE_KEYS.REFRESH_TOKEN
-        );
+        // The server refreshes from the current access token (Bearer header or
+        // cookie); it never issues a separate refresh token.
+        const accessToken = await this.getAccessToken();
 
-        if (!refreshToken && this.config.authMode === "jwt") {
-          throw new BaasixError("No refresh token available", 401, "NO_REFRESH_TOKEN");
+        if (!accessToken && this.config.authMode === "jwt") {
+          throw new BaasixError("No access token available", 401, "NO_ACCESS_TOKEN");
         }
 
         const response = await fetch(
@@ -127,12 +127,9 @@ export class HttpClient {
             headers: {
               "Content-Type": "application/json",
               ...this.config.headers,
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
             },
-            body: JSON.stringify(
-              this.config.authMode === "jwt"
-                ? { refreshToken, authMode: "jwt" }
-                : { authMode: "cookie" }
-            ),
+            body: JSON.stringify({ authMode: this.config.authMode === "jwt" ? "jwt" : "cookie" }),
             credentials: this.config.credentials,
           }
         );

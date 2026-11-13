@@ -1,5 +1,11 @@
 # @baasix/sdk
 
+## 0.3.1
+
+### Patch Changes
+
+- Bearer token not sent for refresh token in JWT mode
+
 ## 0.3.0
 
 ### Minor Changes

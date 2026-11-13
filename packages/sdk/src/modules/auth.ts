@@ -540,14 +540,10 @@ export class AuthModule {
    * ```
    */
   async refreshToken(): Promise<AuthTokens> {
-    const refreshToken = await this.storage.get(STORAGE_KEYS.REFRESH_TOKEN);
-
-    const response = await this.client.post<AuthResponse>(
-      "/auth/refresh",
-      this.authMode === "jwt"
-        ? { refreshToken, authMode: "jwt" }
-        : { authMode: "cookie" }
-    );
+    // The current access token (Bearer header or cookie) is what gets refreshed
+    const response = await this.client.post<AuthResponse>("/auth/refresh", {
+      authMode: this.authMode === "jwt" ? "jwt" : "cookie",
+    });
 
     await this.storeTokens(response);
 
